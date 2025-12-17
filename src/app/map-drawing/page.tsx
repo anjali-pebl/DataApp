@@ -2443,6 +2443,157 @@ function MapDrawingPageContent() {
     });
   }, [toast]);
 
+  // Auto-fit map to active project area on initial load
+  const hasAutoFittedRef = useRef(false);
+
+  useEffect(() => {
+    // Only auto-fit once when data is loaded and map is ready
+    if (!hasAutoFittedRef.current &&
+        activeProjectId &&
+        mapRef.current &&
+        (pins.length > 0 || lines.length > 0 || areas.length > 0)) {
+
+      // Small delay to ensure map is fully initialized
+      const timer = setTimeout(() => {
+        goToProjectLocation(activeProjectId);
+        hasAutoFittedRef.current = true;
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [activeProjectId, pins.length, lines.length, areas.length, goToProjectLocation]);
+
+  // Generalized utility function to create invisible wrapper polygon
+  const createWrapperPolygon = useCallback(async (
+    wrapperLabel: string,
+    projectKey: string,
+    areaLabels?: string[], // Optional: specific area labels to wrap. If not provided, wraps all areas in project
+    notes?: string
+  ) => {
+    // Find areas to wrap
+    let areasToWrap = areas.filter(area => area.projectId === projectKey);
+
+    // If specific area labels provided, filter to only those
+    if (areaLabels && areaLabels.length > 0) {
+      areasToWrap = areasToWrap.filter(area =>
+        areaLabels.some(label => area.label.toLowerCase().includes(label.toLowerCase()))
+      );
+    }
+
+    if (areasToWrap.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No Areas Found",
+        description: areaLabels
+          ? `No areas found matching: ${areaLabels.join(', ')}`
+          : `No areas found for project: ${projectKey}`
+      });
+      return;
+    }
+
+    // Calculate bounding box from all area points
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+
+    areasToWrap.forEach(area => {
+      if (area.path) {
+        area.path.forEach(point => {
+          minLat = Math.min(minLat, point.lat);
+          maxLat = Math.max(maxLat, point.lat);
+          minLng = Math.min(minLng, point.lng);
+          maxLng = Math.max(maxLng, point.lng);
+        });
+      }
+    });
+
+    // Add 10% padding to ensure all areas are inside
+    const latPadding = (maxLat - minLat) * 0.1;
+    const lngPadding = (maxLng - minLng) * 0.1;
+
+    // Create wrapper polygon path (rectangle around all areas)
+    const wrapperPath = [
+      { lat: minLat - latPadding, lng: minLng - lngPadding }, // Bottom-left
+      { lat: maxLat + latPadding, lng: minLng - lngPadding }, // Top-left
+      { lat: maxLat + latPadding, lng: maxLng + lngPadding }, // Top-right
+      { lat: minLat - latPadding, lng: maxLng + lngPadding }, // Bottom-right
+    ];
+
+    // Create the invisible wrapper area
+    const wrapperData = {
+      label: wrapperLabel,
+      notes: notes || `Invisible wrapper polygon for ${projectKey} - wraps ${areasToWrap.length} areas`,
+      path: wrapperPath,
+      projectId: projectKey,
+      tagIds: [],
+      color: 'transparent', // Invisible border
+      size: 0, // No border width
+      fillVisible: false, // No fill
+      transparency: 0, // Completely transparent
+      labelVisible: true
+    };
+
+    try {
+      await createAreaData(wrapperData);
+      toast({
+        title: "Wrapper Created",
+        description: `Created "${wrapperLabel}" wrapping ${areasToWrap.length} areas`
+      });
+    } catch (error) {
+      console.error('Error creating wrapper polygon:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to create wrapper polygon"
+      });
+    }
+  }, [areas, createAreaData, toast]);
+
+  // Convenience function for Milford Haven (backward compatibility)
+  const createMilfordHavenWrapper = useCallback(async () => {
+    await createWrapperPolygon("META Project Areas", "milfordhaven");
+  }, [createWrapperPolygon]);
+
+  // Utility function to remove old wrapper by label
+  const removeWrapperByLabel = useCallback(async (labelToRemove: string) => {
+    const wrapperToRemove = areas.find(area => area.label === labelToRemove);
+
+    if (!wrapperToRemove) {
+      toast({
+        variant: "destructive",
+        title: "Not Found",
+        description: `No area found with label "${labelToRemove}"`
+      });
+      return;
+    }
+
+    try {
+      await deleteAreaData(wrapperToRemove.id);
+      toast({
+        title: "Wrapper Removed",
+        description: `Removed wrapper: "${labelToRemove}"`
+      });
+    } catch (error) {
+      console.error('Error removing wrapper:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to remove wrapper polygon"
+      });
+    }
+  }, [areas, deleteAreaData, toast]);
+
+  // Expose wrapper functions to console for one-time use
+  useEffect(() => {
+    (window as any).createWrapperPolygon = createWrapperPolygon;
+    (window as any).createMilfordHavenWrapper = createMilfordHavenWrapper;
+    (window as any).removeWrapperByLabel = removeWrapperByLabel;
+    return () => {
+      delete (window as any).createWrapperPolygon;
+      delete (window as any).createMilfordHavenWrapper;
+      delete (window as any).removeWrapperByLabel;
+    };
+  }, [createWrapperPolygon, createMilfordHavenWrapper, removeWrapperByLabel]);
+
   // Function to group files by type (FPOD, SubCam, GP)
   const groupFilesByType = useCallback((files: PinFile[]) => {
     const grouped = {
@@ -4945,15 +5096,6 @@ function MapDrawingPageContent() {
           />
           )}
 
-          {/* Center Crosshairs */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[500]">
-            {/* Horizontal line */}
-            <div className="absolute w-8 h-px bg-red-500 shadow-lg shadow-black/50 -translate-x-1/2 -translate-y-1/2"></div>
-            {/* Vertical line */}
-            <div className="absolute h-8 w-px bg-red-500 shadow-lg shadow-black/50 -translate-x-1/2 -translate-y-1/2"></div>
-            {/* Center dot for perfect accuracy */}
-            <div className="absolute w-1 h-1 bg-red-500 rounded-full -translate-x-1/2 -translate-y-1/2 shadow-lg shadow-black/50"></div>
-          </div>
 
           {/* Line Edit Mode Toolbar */}
           {lineEditMode !== 'none' && (
@@ -5393,7 +5535,7 @@ function MapDrawingPageContent() {
                                 
                                 {/* File Type Dropdown */}
                                 {showExploreDropdown && selectedPinForExplore === itemToEdit.id && (
-                                  <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] bg-background border rounded-lg shadow-lg z-[1300] p-1">
+                                  <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] max-h-[400px] overflow-y-auto bg-background border rounded-lg shadow-lg z-[1300] p-1">
                                     {(() => {
                                       // Use files from database only (no more local files duplication)
                                       const dbFiles = pinFileMetadata[selectedPinForExplore] || [];
@@ -5640,7 +5782,7 @@ function MapDrawingPageContent() {
                               
                               {/* Marine & Meteo Data Expanded Section */}
                               {showMeteoDataSection && (
-                                <div className="px-2 pb-2 space-y-3 border-l-2 border-accent/20 ml-2 w-[750px]">
+                                <div className="px-2 pb-2 space-y-3 border-l-2 border-accent/20 ml-2 w-[750px] max-h-[600px] overflow-y-auto">
                                   {/* Date Range and Fetch Button Row */}
                                   <div className="flex gap-2 items-end">
                                     {/* Date Range Selection */}
@@ -6468,7 +6610,7 @@ function MapDrawingPageContent() {
           <>
             {/* Sidebar - always present but translated off-screen when closed */}
             <div
-              className={`fixed left-0 bg-background border-r shadow-xl z-[1600] transform transition-transform duration-300 ease-in-out ${
+              className={`fixed left-0 bg-background border-r shadow-xl z-[1600] transform transition-transform duration-300 ease-in-out overflow-y-auto ${
                 showMainMenu ? 'translate-x-0' : '-translate-x-full'
               }`}
               style={{

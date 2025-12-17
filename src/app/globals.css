@@ -316,6 +316,36 @@ header, footer, main, section, article, aside, nav {
   display: none !important;
 }
 
+/* Area label tooltip - make entire background clickable */
+.area-label-tooltip {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  padding: 4px 8px !important;
+  user-select: none !important;
+}
+
+.leaflet-tooltip.area-label-tooltip {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  padding: 4px 8px !important;
+  user-select: none !important;
+}
+
+/* Remove arrow for area labels */
+.leaflet-tooltip.area-label-tooltip::before {
+  display: none !important;
+}
+
+/* Hide scrollbar but keep scrolling functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari, Opera */
+}
+
 /* Smooth loading animations for DataTimeline component and page-wide loading */
 @keyframes fadeIn {
   from {

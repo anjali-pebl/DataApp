@@ -98,6 +98,150 @@ const toDMS = (deg: number, isLat: boolean) => {
   return `${degrees}° ${minutes}' ${seconds}" ${direction}`;
 };
 
+// Helper function to check if a point is inside a polygon
+const isPointInPolygon = (point: { lat: number; lng: number }, polygon: { lat: number; lng: number }[]): boolean => {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].lng, yi = polygon[i].lat;
+        const xj = polygon[j].lng, yj = polygon[j].lat;
+
+        const intersect = ((yi > point.lat) !== (yj > point.lat))
+            && (point.lng < (xj - xi) * (point.lat - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
+// Helper function to calculate what percentage of viewport an area occupies
+const calculateAreaViewportCoverage = (
+    area: { path: { lat: number; lng: number }[] },
+    mapRef: any
+): number => {
+    if (!mapRef || !area.path || area.path.length < 3) return 0;
+
+    try {
+        const bounds = mapRef.getBounds();
+        const viewportNorth = bounds.getNorth();
+        const viewportSouth = bounds.getSouth();
+        const viewportEast = bounds.getEast();
+        const viewportWest = bounds.getWest();
+
+        // Calculate viewport area (rough approximation)
+        const viewportLatSpan = viewportNorth - viewportSouth;
+        const viewportLngSpan = viewportEast - viewportWest;
+        const viewportArea = viewportLatSpan * viewportLngSpan;
+
+        // Calculate area bounds
+        const areaLats = area.path.map(p => p.lat);
+        const areaLngs = area.path.map(p => p.lng);
+        const areaMinLat = Math.min(...areaLats);
+        const areaMaxLat = Math.max(...areaLats);
+        const areaMinLng = Math.min(...areaLngs);
+        const areaMaxLng = Math.max(...areaLngs);
+
+        // Calculate area bounding box
+        const areaLatSpan = areaMaxLat - areaMinLat;
+        const areaLngSpan = areaMaxLng - areaMinLng;
+        const areaBounds = areaLatSpan * areaLngSpan;
+
+        // Return percentage of viewport occupied by area bounds
+        return (areaBounds / viewportArea) * 100;
+    } catch (error) {
+        return 0;
+    }
+};
+
+// Helper function to check if one polygon is completely inside another polygon
+const isPolygonInsidePolygon = (
+    innerPolygon: { lat: number; lng: number }[],
+    outerPolygon: { lat: number; lng: number }[]
+): boolean => {
+    // Check if all points of the inner polygon are inside the outer polygon
+    return innerPolygon.every(point => isPointInPolygon(point, outerPolygon));
+};
+
+// Helper function to determine if labels should be visible based on zoom and context
+const shouldShowLabel = (
+    objectType: 'pin' | 'line' | 'area',
+    zoom: number,
+    position: { lat: number; lng: number } | { lat: number; lng: number }[],
+    areas: Area[],
+    mapRef: any,
+    currentAreaId?: string, // For checking nested areas
+    debugLabel?: string, // For debugging
+    activeLicenseAreaId?: string | null // Active License area ID for visibility override
+): boolean => {
+    // For areas, check if they're nested in another area
+    if (objectType === 'area' && Array.isArray(position)) {
+        // Find if this area is inside another area
+        const containingArea = areas.find(area =>
+            area.id !== currentAreaId && // Don't check against itself
+            area.path &&
+            isPolygonInsidePolygon(position, area.path)
+        );
+
+        if (containingArea) {
+            // If we just auto-fitted to this License area, always show nested areas
+            if (activeLicenseAreaId && containingArea.id === activeLicenseAreaId) {
+                if (debugLabel) {
+                    console.log(`[Visibility] Nested area "${debugLabel}": inside active License area "${containingArea.label}" - FORCE VISIBLE`);
+                }
+                return true;
+            }
+
+            // Area is nested - check if parent area covers 25%+ of viewport
+            const coverage = calculateAreaViewportCoverage(containingArea, mapRef);
+            const visible = coverage >= 25;
+            if (debugLabel) {
+                console.log(`[Visibility] Nested area "${debugLabel}": parent="${containingArea.label}" coverage=${coverage.toFixed(1)}% visible=${visible}`);
+            }
+            return visible;
+        }
+
+        // Top-level area - always show
+        if (debugLabel) {
+            console.log(`[Visibility] Top-level area "${debugLabel}": always visible`);
+        }
+        return true;
+    }
+
+    // For pins and lines, check zoom level and area coverage
+    const point = Array.isArray(position)
+        ? { lat: position[0].lat, lng: position[0].lng }
+        : position;
+
+    // Find which area (if any) contains this object
+    const containingArea = areas.find(area =>
+        area.path && isPointInPolygon(point, area.path)
+    );
+
+    if (containingArea) {
+        // If we just auto-fitted to this License area, always show elements inside it
+        if (activeLicenseAreaId && containingArea.id === activeLicenseAreaId) {
+            if (debugLabel) {
+                console.log(`[Visibility] ${objectType} "${debugLabel}": inside active License area "${containingArea.label}" - FORCE VISIBLE`);
+            }
+            return true;
+        }
+
+        // Object is inside an area - check if area covers 25%+ of viewport
+        const coverage = calculateAreaViewportCoverage(containingArea, mapRef);
+        const visible = coverage >= 25;
+        if (debugLabel) {
+            console.log(`[Visibility] ${objectType} "${debugLabel}": inside="${containingArea.label}" coverage=${coverage.toFixed(1)}% visible=${visible}`);
+        }
+        return visible;
+    }
+
+    // Object is not in any area - use simple zoom thresholds
+    if (objectType === 'line') {
+        return zoom >= 13; // Show line labels at medium zoom
+    }
+
+    // Pin labels
+    return zoom >= 14; // Show pin labels at high zoom
+};
+
 const createCustomIcon = (color: string, size: number = 6) => {
     // Map pin size values (3, 6, 10) to pixel sizes
     const sizeMap = { 3: 24, 6: 36, 10: 48 };
@@ -218,6 +362,7 @@ const LeafletMap = ({
     const pinLayerRef = useRef<LayerGroup | null>(null);
     const lineLayerRef = useRef<LayerGroup | null>(null);
     const hasInitializedRef = useRef(false);
+    const activeLicenseAreaRef = useRef<string | null>(null); // Track active License area for visibility override
 
     // Return early if Leaflet is not available (SSR)
     if (!L) {
@@ -254,7 +399,8 @@ const LeafletMap = ({
             const map = L.map(mapContainerRef.current, {
                 center: center,
                 zoom: zoom,
-                zoomControl: false // Disable default zoom controls
+                zoomControl: false, // Disable default zoom controls
+                doubleClickZoom: false // Disable double-click zoom to allow custom label interactions
             });
             mapRef.current = map;
 
@@ -363,6 +509,11 @@ const LeafletMap = ({
                                !isNaN(pin.lat) && !isNaN(pin.lng) &&
                                isFinite(pin.lat) && isFinite(pin.lng) &&
                                pin.objectVisible !== false).forEach(pin => {
+                // Check if pin should be visible based on zoom and area coverage
+                const shouldBeVisible = shouldShowLabel('pin', zoom, { lat: pin.lat, lng: pin.lng }, areas, mapRef.current, undefined, pin.label, activeLicenseAreaRef.current);
+
+                if (!shouldBeVisible) return; // Skip rendering this pin
+
                 const color = pin.color || '#3b82f6'; // Use pin color or default blue
                 const size = pin.size || 6; // Use pin size or default medium
                 const markerIcon = createCustomIcon(color, size);
@@ -426,25 +577,30 @@ const LeafletMap = ({
                 });
                 
                 if (pin.labelVisible !== false && pin.label) {
-                    const tooltip = marker.bindTooltip(pin.label, { 
-                        permanent: true, 
-                        direction: 'top', 
-                        offset: [0, -36], 
-                        className: 'font-sans font-bold cursor-pointer'
-                    });
-                    
-                    // Make tooltip clickable for deletion
-                    const tooltipElement = tooltip.getTooltip();
-                    if (tooltipElement) {
-                        tooltipElement.on('click', (e) => {
-                            e.originalEvent.stopPropagation();
-                            marker.fire('click', e); // Trigger the same deletion logic
+                    // Check if label should be shown based on zoom and area coverage
+                    const showLabel = shouldShowLabel('pin', zoom, { lat: pin.lat, lng: pin.lng }, areas, mapRef.current);
+
+                    if (showLabel) {
+                        const tooltip = marker.bindTooltip(pin.label, {
+                            permanent: true,
+                            direction: 'top',
+                            offset: [0, -36],
+                            className: 'font-sans font-bold cursor-pointer'
                         });
+
+                        // Make tooltip clickable for deletion
+                        const tooltipElement = tooltip.getTooltip();
+                        if (tooltipElement) {
+                            tooltipElement.on('click', (e) => {
+                                e.originalEvent.stopPropagation();
+                                marker.fire('click', e); // Trigger the same deletion logic
+                            });
+                        }
                     }
                 }
             });
         }
-    }, [pins, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
+    }, [pins, zoom, areas, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
 
     // Render lines
     useEffect(() => {
@@ -454,11 +610,17 @@ const LeafletMap = ({
 
             lines.filter(line => line.objectVisible !== false).forEach(line => {
                 const lineCoords = line.path
-                    .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number' && 
+                    .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number' &&
                                 !isNaN(p.lat) && !isNaN(p.lng) &&
                                 isFinite(p.lat) && isFinite(p.lng))
                     .map(p => [p.lat, p.lng] as [number, number]);
                 if (lineCoords.length >= 2) {
+                    // Check if line should be visible based on zoom and area coverage
+                    const linePoints = line.path.map(p => ({ lat: p.lat, lng: p.lng }));
+                    const shouldBeVisible = shouldShowLabel('line', zoom, linePoints, areas, mapRef.current, undefined, line.label, activeLicenseAreaRef.current);
+
+                    if (!shouldBeVisible) return; // Skip rendering this line
+
                     // Create an invisible wider line underneath for easier clicking
                     const clickableLine = L.polyline(lineCoords, {
                         color: 'transparent',
@@ -538,65 +700,71 @@ const LeafletMap = ({
                     });
                     
                     if (line.labelVisible !== false && line.label) {
-                        // Calculate the true geometric center of the line
-                        let totalDistance = 0;
-                        const distances: number[] = [];
-                        
-                        // Calculate distances between consecutive points
-                        for (let i = 0; i < lineCoords.length - 1; i++) {
-                            const point1 = L.latLng(lineCoords[i][0], lineCoords[i][1]);
-                            const point2 = L.latLng(lineCoords[i + 1][0], lineCoords[i + 1][1]);
-                            const segmentDistance = point1.distanceTo(point2);
-                            distances.push(segmentDistance);
-                            totalDistance += segmentDistance;
-                        }
-                        
-                        // Find the point at half the total distance
-                        const halfDistance = totalDistance / 2;
-                        let accumulatedDistance = 0;
-                        let centerPoint = lineCoords[0];
-                        
-                        for (let i = 0; i < distances.length; i++) {
-                            if (accumulatedDistance + distances[i] >= halfDistance) {
-                                // The center point is somewhere along this segment
-                                const segmentRatio = (halfDistance - accumulatedDistance) / distances[i];
-                                const point1 = lineCoords[i];
-                                const point2 = lineCoords[i + 1];
-                                
-                                // Interpolate between the two points
-                                centerPoint = [
-                                    point1[0] + (point2[0] - point1[0]) * segmentRatio,
-                                    point1[1] + (point2[1] - point1[1]) * segmentRatio
-                                ];
-                                break;
+                        // Check if label should be shown based on zoom and area coverage
+                        const linePoints = line.path.map(p => ({ lat: p.lat, lng: p.lng }));
+                        const showLabel = shouldShowLabel('line', zoom, linePoints, areas, mapRef.current);
+
+                        if (showLabel) {
+                            // Calculate the true geometric center of the line
+                            let totalDistance = 0;
+                            const distances: number[] = [];
+
+                            // Calculate distances between consecutive points
+                            for (let i = 0; i < lineCoords.length - 1; i++) {
+                                const point1 = L.latLng(lineCoords[i][0], lineCoords[i][1]);
+                                const point2 = L.latLng(lineCoords[i + 1][0], lineCoords[i + 1][1]);
+                                const segmentDistance = point1.distanceTo(point2);
+                                distances.push(segmentDistance);
+                                totalDistance += segmentDistance;
                             }
-                            accumulatedDistance += distances[i];
-                        }
-                        
-                        // Create a permanent tooltip at the true geometric center
-                        if (centerPoint && centerPoint.length === 2 && 
-                            !isNaN(centerPoint[0]) && !isNaN(centerPoint[1]) &&
-                            isFinite(centerPoint[0]) && isFinite(centerPoint[1])) {
-                            const tooltip = L.tooltip({
-                                permanent: true,
-                                direction: 'center',
-                                className: 'line-label-tooltip cursor-pointer'
-                            })
-                            .setContent(line.label)
-                            .setLatLng([centerPoint[0], centerPoint[1]])
-                            .addTo(layer);
-                            
-                            // Make tooltip clickable for selection
-                            tooltip.on('click', (e) => {
-                                e.originalEvent.stopPropagation();
-                                clickableLine.fire('click', e); // Trigger the same selection logic as the clickable line
-                            });
+
+                            // Find the point at half the total distance
+                            const halfDistance = totalDistance / 2;
+                            let accumulatedDistance = 0;
+                            let centerPoint = lineCoords[0];
+
+                            for (let i = 0; i < distances.length; i++) {
+                                if (accumulatedDistance + distances[i] >= halfDistance) {
+                                    // The center point is somewhere along this segment
+                                    const segmentRatio = (halfDistance - accumulatedDistance) / distances[i];
+                                    const point1 = lineCoords[i];
+                                    const point2 = lineCoords[i + 1];
+
+                                    // Interpolate between the two points
+                                    centerPoint = [
+                                        point1[0] + (point2[0] - point1[0]) * segmentRatio,
+                                        point1[1] + (point2[1] - point1[1]) * segmentRatio
+                                    ];
+                                    break;
+                                }
+                                accumulatedDistance += distances[i];
+                            }
+
+                            // Create a permanent tooltip at the true geometric center
+                            if (centerPoint && centerPoint.length === 2 &&
+                                !isNaN(centerPoint[0]) && !isNaN(centerPoint[1]) &&
+                                isFinite(centerPoint[0]) && isFinite(centerPoint[1])) {
+                                const tooltip = L.tooltip({
+                                    permanent: true,
+                                    direction: 'center',
+                                    className: 'line-label-tooltip cursor-pointer'
+                                })
+                                    .setContent(line.label)
+                                    .setLatLng([centerPoint[0], centerPoint[1]])
+                                    .addTo(layer);
+
+                                // Make tooltip clickable for selection
+                                tooltip.on('click', (e) => {
+                                    e.originalEvent.stopPropagation();
+                                    clickableLine.fire('click', e); // Trigger the same selection logic as the clickable line
+                                });
+                            }
                         }
                     }
                 }
             });
         }
-    }, [lines, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
+    }, [lines, zoom, areas, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
 
     // Line Edit Mode - Refs for persistent marker storage
     const lineEditMarkersRef = useRef<Marker[]>([]);
@@ -760,11 +928,17 @@ const LeafletMap = ({
 
             areas.filter(area => area.objectVisible !== false).forEach(area => {
                 const areaCoords = area.path
-                    .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number' && 
+                    .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number' &&
                                 !isNaN(p.lat) && !isNaN(p.lng) &&
                                 isFinite(p.lat) && isFinite(p.lng))
                     .map(p => [p.lat, p.lng] as [number, number]);
                 if (areaCoords.length >= 3) {
+                    // Check if area should be visible based on nesting
+                    const areaPoints = area.path.map(p => ({ lat: p.lat, lng: p.lng }));
+                    const shouldBeVisible = shouldShowLabel('area', zoom, areaPoints, areas, mapRef.current, area.id, area.label, activeLicenseAreaRef.current);
+
+                    if (!shouldBeVisible) return; // Skip rendering this nested area
+
                     const areaColor = area.color || '#8b5cf6';
                     const polygon = L.polygon(areaCoords, {
                         color: areaColor,
@@ -836,25 +1010,121 @@ const LeafletMap = ({
                     });
                     
                     if (area.labelVisible !== false && area.label) {
-                        const tooltip = polygon.bindTooltip(area.label, { 
-                            permanent: true, 
+                        const tooltip = polygon.bindTooltip(area.label, {
+                            permanent: true,
                             direction: 'center',
-                            className: 'font-sans font-bold bg-purple-100 border-purple-300 cursor-pointer'
+                            className: 'font-sans font-bold bg-purple-100 border-purple-300 cursor-pointer area-label-tooltip',
+                            interactive: true  // Make tooltip interactive
                         });
-                        
+
                         // Make tooltip clickable for selection
                         const tooltipElement = tooltip.getTooltip();
                         if (tooltipElement) {
+                            // Single click: select/edit
                             tooltipElement.on('click', (e) => {
                                 e.originalEvent.stopPropagation();
                                 polygon.fire('click', e); // Trigger the same selection logic as the polygon
                             });
+
+                            // Double-click handler for License areas
+                            if (area.label && area.label.toLowerCase().includes('license')) {
+                                tooltipElement.on('dblclick', (e) => {
+                                    e.originalEvent.stopPropagation();
+                                    e.originalEvent.preventDefault();
+
+                                    if (mapRef.current) {
+                                        console.log('=== LABEL DOUBLE-CLICK AUTO-FIT ===');
+                                        console.log('Label:', area.label);
+                                        console.log('Area ID:', area.id);
+
+                                        // Set this as the active License area to force visibility
+                                        activeLicenseAreaRef.current = area.id;
+
+                                        const bounds = polygon.getBounds();
+
+                                        // Fit bounds with animation
+                                        mapRef.current.fitBounds(bounds, {
+                                            padding: [50, 50],
+                                            animate: true,
+                                            duration: 0.5
+                                        });
+
+                                        // Immediately trigger a re-render to show nested elements
+                                        mapRef.current.fire('moveend');
+
+                                        // After fitBounds animation completes, clear the active License area
+                                        setTimeout(() => {
+                                            if (mapRef.current) {
+                                                activeLicenseAreaRef.current = null;
+                                                mapRef.current.fire('moveend');
+                                            }
+                                        }, 800);
+                                    }
+                                });
+                            }
                         }
+                    }
+
+                    // Double-click handler: Auto-fit to polygon if label contains "License"
+                    if (area.label && area.label.toLowerCase().includes('license')) {
+                        polygon.on('dblclick', (e) => {
+                            console.log('=== DOUBLE-CLICK AUTO-FIT ===');
+                            console.log('Label:', area.label);
+                            console.log('Area ID:', area.id);
+                            console.log('Contains "license":', area.label.toLowerCase().includes('license'));
+
+                            L.DomEvent.stopPropagation(e);
+                            L.DomEvent.preventDefault(e);
+
+                            if (mapRef.current) {
+                                // Set this as the active License area to force visibility
+                                activeLicenseAreaRef.current = area.id;
+                                console.log('Set active License area:', area.id);
+
+                                const bounds = polygon.getBounds();
+                                console.log('Bounds:', bounds);
+                                console.log('Current zoom before fit:', mapRef.current.getZoom());
+
+                                // Check what polygons are inside this license area
+                                const nestedAreas = areas.filter(a => {
+                                    if (a.id === area.id || !a.path) return false;
+                                    const aPoints = a.path.map(p => ({ lat: p.lat, lng: p.lng }));
+                                    const isNested = isPolygonInsidePolygon(aPoints, area.path);
+                                    if (isNested) {
+                                        console.log('  ✓ Found nested area:', a.label);
+                                    }
+                                    return isNested;
+                                });
+                                console.log(`Found ${nestedAreas.length} nested areas inside "${area.label}"`);
+
+                                // Fit bounds with animation
+                                mapRef.current.fitBounds(bounds, {
+                                    padding: [50, 50],
+                                    animate: true,
+                                    duration: 0.5
+                                });
+
+                                // Immediately trigger a re-render to show nested elements
+                                mapRef.current.fire('moveend');
+
+                                // After fitBounds animation completes, clear the active License area
+                                setTimeout(() => {
+                                    if (mapRef.current) {
+                                        const newZoom = mapRef.current.getZoom();
+                                        console.log('After fit - new zoom:', newZoom);
+                                        console.log('Clearing active License area...');
+                                        activeLicenseAreaRef.current = null;
+                                        // Trigger final re-render with normal visibility rules
+                                        mapRef.current.fire('moveend');
+                                    }
+                                }, 800); // Wait a bit longer to ensure user sees the nested elements
+                            }
+                        });
                     }
                 }
             });
         }
-    }, [areas, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
+    }, [areas, zoom, onEditItem, useEditPanel, disableDefaultPopups, forceUseEditCallback, popupMode]);
 
     // Handle area corner dragging mode
     useEffect(() => {

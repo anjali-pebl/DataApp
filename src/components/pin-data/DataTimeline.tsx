@@ -219,7 +219,7 @@ const parseFileGrouping = (fileName: string): { project: string; dataType: strin
 export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange }: DataTimelineProps) {
   const { toast } = useToast();
   const [filesWithDates, setFilesWithDates] = useState<FileWithDateRange[]>([]);
-  const [viewMode, setViewMode] = useState<'table' | 'timeline'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'timeline'>('timeline');
   const [hasAnalyzed, setHasAnalyzed] = useState(true); // Always true since dates are from database
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<{ id: string; name: string } | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>('asc'); // Start with alphabetical (asc)
@@ -872,6 +872,161 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     return { left, width };
   };
 
+  // Helper function to format date range for timeline display names
+  const formatDateRangeForDisplay = (startDate: string | null, endDate: string | null): string => {
+    if (!startDate || !endDate) return '';
+
+    const start = parseCustomDate(startDate);
+    const end = parseCustomDate(endDate);
+
+    if (!start || !end) return '';
+
+    const startMonth = format(start, 'MMM');
+    const endMonth = format(end, 'MMM');
+    const startYear = format(start, 'yyyy');
+    const endYear = format(end, 'yyyy');
+
+    // Same month and year
+    if (startMonth === endMonth && startYear === endYear) {
+      return `${startMonth} ${startYear}`;
+    }
+
+    // Different months, same year
+    if (startYear === endYear) {
+      return `${startMonth}-${endMonth} ${startYear}`;
+    }
+
+    // Different years
+    return `${startMonth} ${startYear} - ${endMonth} ${endYear}`;
+  };
+
+  // Helper function to extract suffix from filename (matches ProjectDataDialog logic)
+  const extractSuffix = (fileName: string): string => {
+    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
+    const parts = nameWithoutExt.split('_');
+    return parts.length > 0 ? parts[parts.length - 1] : '';
+  };
+
+  // Helper function to determine file category (which tile it belongs to)
+  const getFileCategory = (fileName: string): string => {
+    const fileNameLower = fileName.toLowerCase();
+    const parts = fileName.split('_');
+    const position0 = parts[0]?.toLowerCase() || '';
+    const position1 = parts[1]?.toLowerCase() || '';
+
+    if (position0.includes('crop') || position1.includes('crop')) {
+      return 'CROP';
+    } else if (position0.includes('chemsw') || position1.includes('chemsw')) {
+      return 'CHEMSW';
+    } else if (position0.includes('chemwq') || position1.includes('chemwq')) {
+      return 'CHEMWQ';
+    } else if (position0.includes('chem') || position1.includes('chem') || fileNameLower.includes('_chem')) {
+      return 'CHEM';
+    } else if (position0.includes('wq') || position1.includes('wq') || fileNameLower.includes('_wq')) {
+      return 'WQ';
+    } else if (position0.includes('edna') || position1.includes('edna') || fileNameLower.includes('_edna')) {
+      return 'EDNA';
+    } else if (position0.includes('fpod') || position1.includes('fpod')) {
+      return 'FPOD';
+    } else if (position0.includes('subcam') || position1.includes('subcam')) {
+      return 'SUBCAM';
+    } else if (position0.includes('gp') || position1.includes('gp')) {
+      return 'GP';
+    }
+
+    return 'OTHER';
+  };
+
+  // Helper function to find categories with multiple suffixes in the current file set
+  const getCategoriesWithMultipleSuffixes = (allFiles: FileWithDateRange[]): Set<string> => {
+    const categorySuffixes = new Map<string, Set<string>>();
+
+    allFiles.forEach(({ file }) => {
+      if (isMergedFile(file)) return; // Skip merged files
+
+      const category = getFileCategory(file.fileName);
+      const suffix = extractSuffix(file.fileName);
+
+      if (suffix && suffix !== '') {
+        if (!categorySuffixes.has(category)) {
+          categorySuffixes.set(category, new Set());
+        }
+        categorySuffixes.get(category)!.add(suffix);
+      }
+    });
+
+    // Return categories that have more than one unique suffix
+    const multiSuffixCategories = new Set<string>();
+    categorySuffixes.forEach((suffixes, category) => {
+      if (suffixes.size > 1) {
+        multiSuffixCategories.add(category);
+      }
+    });
+
+    return multiSuffixCategories;
+  };
+
+  // Helper function to check if we need to show suffix
+  const shouldShowSuffix = (
+    file: PinFile & { pinLabel: string },
+    dateRange: { startDate: string | null; endDate: string | null },
+    allFiles: FileWithDateRange[]
+  ): boolean => {
+    if (!dateRange.startDate || !dateRange.endDate) return false;
+
+    // Check if this file's category has multiple suffixes in the project
+    const categoriesWithMultipleSuffixes = getCategoriesWithMultipleSuffixes(allFiles);
+    const fileCategory = getFileCategory(file.fileName);
+
+    if (categoriesWithMultipleSuffixes.has(fileCategory)) {
+      return true; // Show suffix for all files in categories with multiple suffixes
+    }
+
+    // Count files with same pin label and same date range
+    const similarFiles = allFiles.filter(f => {
+      if (f.file.id === file.id) return false; // Exclude self
+      if (f.file.pinLabel !== file.pinLabel) return false; // Different pin
+      if (isMergedFile(f.file)) return false; // Ignore merged files
+
+      // Check if dates match (same start and end)
+      return f.dateRange.startDate === dateRange.startDate &&
+             f.dateRange.endDate === dateRange.endDate;
+    });
+
+    return similarFiles.length > 0; // If there are other files with same pin/dates, show suffix
+  };
+
+  // Main display name generator for timeline view
+  const getTimelineDisplayName = (
+    file: PinFile & { pinLabel: string },
+    dateRange: { startDate: string | null; endDate: string | null },
+    allFiles: FileWithDateRange[]
+  ): string => {
+    const dateRangeStr = formatDateRangeForDisplay(dateRange.startDate, dateRange.endDate);
+
+    // Merged files
+    if (isMergedFile(file)) {
+      const suffix = extractSuffix(file.fileName);
+      return suffix
+        ? `Multiple Locations • ${dateRangeStr} (${suffix})`
+        : `Multiple Locations • ${dateRangeStr}`;
+    }
+
+    // Unassigned files (no valid pin ID)
+    if (!file.pinId || file.pinId === '' || file.pinLabel === 'Unknown' || file.pinLabel === '') {
+      const suffix = extractSuffix(file.fileName);
+      return suffix
+        ? `Unassigned • ${dateRangeStr} (${suffix})`
+        : `Unassigned • ${dateRangeStr}`;
+    }
+
+    // Pin-linked files
+    const suffix = shouldShowSuffix(file, dateRange, allFiles) ? extractSuffix(file.fileName) : null;
+    return suffix
+      ? `${file.pinLabel} • ${dateRangeStr} (${suffix})`
+      : `${file.pinLabel} • ${dateRangeStr}`;
+  };
+
   if (filesWithDates.length === 0) {
     return (
       <div className="text-center py-6 text-muted-foreground">
@@ -881,33 +1036,46 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">
-          Project Data Files
-        </h3>
-
+    <div className="space-y-0">
+      <div className="flex items-center justify-between p-2.5">
         <div className="flex items-center gap-2">
-          {/* Select All Button - Show when in merge mode or stack plot mode */}
-          {(multiFileMergeMode || stackPlotMode) && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2"
-              onClick={() => {
-                // Select all files in current view
-                const allFileIds = new Set(sortedFilesWithDates.map(f => f.file.id));
-                if (stackPlotMode) {
-                  setSelectedForStack(allFileIds);
-                } else if (multiFileMergeMode) {
-                  setSelectedFileIds(allFileIds);
-                }
-              }}
-            >
-              <CheckCircle2 className="h-3 w-3 mr-1" />
-              <span className="text-xs">Select All ({sortedFilesWithDates.length})</span>
-            </Button>
-          )}
+          {/* Select All / Deselect All Toggle Button - Show when in merge mode or stack plot mode */}
+          {(multiFileMergeMode || stackPlotMode) && (() => {
+            const allFileIds = sortedFilesWithDates.map(f => f.file.id);
+            const currentSelection = stackPlotMode ? selectedForStack : selectedFileIds;
+            const allSelected = allFileIds.length > 0 && allFileIds.every(id => currentSelection.has(id));
+
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => {
+                  if (allSelected) {
+                    // Deselect all files
+                    if (stackPlotMode) {
+                      setSelectedForStack(new Set());
+                    } else if (multiFileMergeMode) {
+                      setSelectedFileIds(new Set());
+                    }
+                  } else {
+                    // Select all files in current view
+                    const allFileIdsSet = new Set(allFileIds);
+                    if (stackPlotMode) {
+                      setSelectedForStack(allFileIdsSet);
+                    } else if (multiFileMergeMode) {
+                      setSelectedFileIds(allFileIdsSet);
+                    }
+                  }
+                }}
+              >
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                <span className="text-xs">
+                  {allSelected ? 'Deselect All' : `Select All (${sortedFilesWithDates.length})`}
+                </span>
+              </Button>
+            );
+          })()}
 
           {/* Stack Plots - Open Stacked Plots Button (when 2+ selected) */}
           {stackPlotMode && selectedForStack.size >= 2 ? (
@@ -1050,7 +1218,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         <div className="space-y-1">
           {sortedFilesWithDates.length > 0 && (
             <div className="bg-white rounded p-3 transition-all duration-300 border">
-              <table className="w-full border-collapse">
+              <table className="w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-border/30 text-xs font-medium text-muted-foreground">
                     {(multiFileMergeMode || stackPlotMode) && <th className="text-left pb-2 pr-2 w-8"></th>}
@@ -1416,7 +1584,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         {/* TIMELINE VIEW: Table-Based Layout */}
         {viewMode === 'timeline' && timelineData.months.length > 0 && (
         <div className="relative bg-white rounded p-3 border">
-          <table className="w-full border-collapse">
+          <table className="w-full table-fixed border-collapse">
             <thead>
               <tr>
                 {/* LEFT HEADER (35%): Data Files with Sort */}
@@ -1520,8 +1688,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                 return (
                   <tr key={`merged-${group.groupKey}-${index}`} className="h-[22px]">
                     {/* LEFT CELL: Group Info */}
-                    <td className="pr-4 align-middle">
-                      <div className="flex items-center gap-2">
+                    <td className="w-[35%] pr-4 align-middle">
+                      <div className="flex items-center gap-2 min-w-0">
                         {/* Pin color indicator */}
                         <div
                           className="w-2 h-2 rounded-sm flex-shrink-0"
@@ -1532,7 +1700,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                         {/* Group name with popover menu */}
                         <Popover>
                           <PopoverTrigger asChild>
-                            <button className="text-xs font-mono flex-1 truncate text-left hover:text-primary hover:underline transition-colors cursor-pointer font-semibold">
+                            <button
+                              className="text-xs font-mono flex-1 min-w-0 truncate text-left hover:text-primary hover:underline transition-colors cursor-pointer font-semibold"
+                              title={group.groupKey}
+                            >
                               {group.groupKey}
                             </button>
                           </PopoverTrigger>
@@ -1600,7 +1771,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                     </td>
 
                     {/* RIGHT CELL: Multiple Timeline Bars (one per file) */}
-                    <td className="align-middle relative">
+                    <td className="w-[65%] align-middle relative">
                       {/* Month gridlines */}
                       <div className="absolute inset-0 pointer-events-none">
                         {timelineData.months.map((month, monthIdx) => {
@@ -1676,8 +1847,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                 return (
                   <tr key={`timeline-${file.id}-${index}`} className="h-[22px]">
                     {/* LEFT CELL: File Info */}
-                    <td className="pr-4 align-middle">
-                      <div className="flex items-center gap-2">
+                    <td className="w-[35%] pr-4 align-middle">
+                      <div className="flex items-center gap-2 min-w-0">
                         {/* Checkbox for stack plot mode */}
                         {(multiFileMergeMode || stackPlotMode) && (
                           <Checkbox
@@ -1746,8 +1917,11 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                           // Show file name with menu when not renaming
                           <Popover>
                             <PopoverTrigger asChild>
-                              <button className="text-xs font-mono flex-1 truncate text-left hover:text-primary hover:underline transition-colors cursor-pointer">
-                                {file.fileName.replace(/^FPOD_/, '')}
+                              <button
+                                className="text-xs font-mono flex-1 min-w-0 truncate text-left hover:text-primary hover:underline transition-colors cursor-pointer"
+                                title={getTimelineDisplayName(file, dateRange, sortedFilesWithDates)}
+                              >
+                                {getTimelineDisplayName(file, dateRange, sortedFilesWithDates)}
                               </button>
                             </PopoverTrigger>
                             <PopoverContent className="min-w-[400px] p-0" align="start">
@@ -1885,7 +2059,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                     </td>
 
                     {/* RIGHT CELL: Timeline Bar */}
-                    <td className="align-middle relative">
+                    <td className="w-[65%] align-middle relative">
                       {/* Month gridlines */}
                       <div className="absolute inset-0 pointer-events-none">
                         {timelineData.months.map((month, monthIdx) => {

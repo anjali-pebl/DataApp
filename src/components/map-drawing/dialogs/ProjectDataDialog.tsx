@@ -74,6 +74,189 @@ export interface ProjectDataDialogProps {
   openMarineDeviceModal: (fileType: any, files: File[]) => void;
 }
 
+// Source Tile Component with per-tile suffix filtering
+function SourceTile({
+  source,
+  label,
+  files,
+  getFileDateRange,
+  onFileClick,
+  onRenameFile,
+  onDeleteFile,
+  onDatesUpdated,
+  onSelectMultipleFiles,
+  projectId,
+  onMergedFileClick,
+  onAddFilesToMergedFile,
+  multiFileMergeMode,
+  setMultiFileMergeMode
+}: {
+  source: string;
+  label: string;
+  files: any[];
+  getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
+  onFileClick: any;
+  onRenameFile: any;
+  onDeleteFile: any;
+  onDatesUpdated: any;
+  onSelectMultipleFiles: any;
+  projectId: string;
+  onMergedFileClick: any;
+  onAddFilesToMergedFile: any;
+  multiFileMergeMode: 'union' | 'intersection';
+  setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
+}) {
+  const [selectedSuffixes, setSelectedSuffixes] = React.useState<string[]>([]);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [startY, setStartY] = React.useState(0);
+  const [scrollTop, setScrollTop] = React.useState(0);
+
+  // Extract suffix from filename
+  const extractSuffix = (fileName: string): string => {
+    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
+    const parts = nameWithoutExt.split('_');
+    return parts.length > 0 ? parts[parts.length - 1] : '';
+  };
+
+  // Get unique suffixes from this tile's files
+  const uniqueSuffixes = Array.from(new Set(files.map(file => extractSuffix(file.fileName)).filter(suffix => suffix !== ''))).sort();
+
+  // Filter files by selected suffixes
+  const filteredFiles = selectedSuffixes.length === 0
+    ? files
+    : files.filter(file => {
+        const fileSuffix = extractSuffix(file.fileName);
+        return selectedSuffixes.includes(fileSuffix);
+      });
+
+  // Drag to scroll handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!contentRef.current) return;
+    setIsDragging(true);
+    setStartY(e.pageY - contentRef.current.offsetTop);
+    setScrollTop(contentRef.current.scrollTop);
+    contentRef.current.style.cursor = 'grabbing';
+    contentRef.current.style.userSelect = 'none';
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !contentRef.current) return;
+    e.preventDefault();
+    const y = e.pageY - contentRef.current.offsetTop;
+    const walk = (y - startY) * 2; // Scroll speed multiplier
+    contentRef.current.scrollTop = scrollTop - walk;
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    if (contentRef.current) {
+      contentRef.current.style.cursor = 'grab';
+      contentRef.current.style.userSelect = 'auto';
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (isDragging) {
+      setIsDragging(false);
+      if (contentRef.current) {
+        contentRef.current.style.cursor = 'grab';
+        contentRef.current.style.userSelect = 'auto';
+      }
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-lg overflow-hidden flex flex-col h-[500px]">
+      {/* Tile Header */}
+      <div className="bg-muted/30 border-b border-border px-4 py-3 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">{label}</h3>
+          <div className="flex items-center gap-2">
+            {/* Suffix Filter Dropdown */}
+            {uniqueSuffixes.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors text-[11px] ${selectedSuffixes.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : 'border border-border/30'}`}>
+                    <FileCode className="h-3 w-3 text-amber-500" />
+                    <span className="font-semibold">{selectedSuffixes.length > 0 ? selectedSuffixes.length : uniqueSuffixes.length}</span>
+                    <span className="text-muted-foreground">Suffixes</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-2" align="end">
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold mb-2 flex items-center justify-between">
+                      <span>Filter by Suffix</span>
+                      {selectedSuffixes.length > 0 && (
+                        <button
+                          onClick={() => setSelectedSuffixes([])}
+                          className="text-primary hover:text-primary/80 text-[10px]"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    {uniqueSuffixes.map(suffix => (
+                      <label key={suffix} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedSuffixes.includes(suffix)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedSuffixes([...selectedSuffixes, suffix]);
+                            } else {
+                              setSelectedSuffixes(selectedSuffixes.filter(s => s !== suffix));
+                            }
+                          }}
+                          className="h-3 w-3"
+                        />
+                        <span className="font-mono">{suffix}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+              {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tile Content */}
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden cursor-grab scrollbar-hide"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        <DataTimeline
+          files={filteredFiles}
+          getFileDateRange={getFileDateRange}
+          onFileClick={onFileClick}
+          onRenameFile={onRenameFile}
+          onDeleteFile={onDeleteFile}
+          onDatesUpdated={onDatesUpdated}
+          onSelectMultipleFiles={onSelectMultipleFiles}
+          projectId={projectId}
+          onMergedFileClick={onMergedFileClick}
+          onAddFilesToMergedFile={onAddFilesToMergedFile}
+          multiFileMergeMode={multiFileMergeMode}
+          onMultiFileMergeModeChange={setMultiFileMergeMode}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ProjectDataDialog({
   open,
   onOpenChange,
@@ -132,7 +315,7 @@ export function ProjectDataDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden z-[9999] flex flex-col">
+      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !translate-x-0 !translate-y-0 w-screen h-screen max-w-none max-h-none !m-0 !p-6 !rounded-none !border-0 overflow-hidden z-[9999] flex flex-col">
         <DialogHeader className="flex-shrink-0 pb-1.5 pr-8">
           <div className="flex items-center justify-between gap-3">
             <DialogTitle className="flex items-center gap-1.5 text-sm">
@@ -256,6 +439,51 @@ export function ProjectDataDialog({
               }
             };
 
+            // Helper function to determine file source category
+            const getFileSource = (file: any): string => {
+              const parts = file.fileName.split('_');
+              const position0 = parts[0]?.toLowerCase() || '';
+              const position1 = parts[1]?.toLowerCase() || '';
+              const fileNameLower = file.fileName.toLowerCase();
+
+              if (position0.includes('crop') || position1.includes('crop')) {
+                return 'Crop';
+              } else if (position0.includes('chem') || position1.includes('chem') || fileNameLower.includes('_chem') ||
+                         position0.includes('wq') || position1.includes('wq') || fileNameLower.includes('_wq')) {
+                return 'Chem';
+              } else if (position0.includes('edna') || position1.includes('edna')) {
+                return 'eDNA';
+              } else if (position0.includes('fpod') || position1.includes('fpod')) {
+                return 'FPODS';
+              } else if (position0.includes('subcam') || position1.includes('subcam')) {
+                return 'Subcams';
+              } else if (position0.includes('gp') || position1.includes('gp')) {
+                return 'GrowProbes';
+              }
+              return 'Other';
+            };
+
+            // Group files by source category
+            const groupFilesBySource = (files: any[]) => {
+              const grouped: Record<string, any[]> = {
+                'Subcams': [],
+                'GrowProbes': [],
+                'FPODS': [],
+                'Chem': [],
+                'Crop': [],
+                'eDNA': []
+              };
+
+              files.forEach(file => {
+                const source = getFileSource(file);
+                if (grouped[source]) {
+                  grouped[source].push(file);
+                }
+              });
+
+              return grouped;
+            };
+
             // Helper function to check if file matches type filter
             const matchesType = (file: any, type: string): boolean => {
               const fileName = file.fileName.toLowerCase();
@@ -272,16 +500,10 @@ export function ProjectDataDialog({
               return parts.length > 0 ? parts[parts.length - 1] : '';
             };
 
-            // Apply filters to get filtered files
+            // Apply filters to get filtered files (suffix filter removed - now per-tile)
             const filteredFiles = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-
-              // Suffix filter
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
 
               // Date range filter
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
@@ -292,37 +514,29 @@ export function ProjectDataDialog({
               // File source filter (upload vs merged)
               const fileSourceMatch = selectedFileSources.length === 0 || selectedFileSources.includes(file.fileSource);
 
-              return pinMatch && typeMatch && suffixMatch && dateRangeMatch && fileSourceMatch;
+              return pinMatch && typeMatch && dateRangeMatch && fileSourceMatch;
             });
 
             // Calculate unique values for cascading filters
-            // For pins: show pins available after applying type, suffix, and dateRange filters
+            // For pins: show pins available after applying type and dateRange filters
             const filesForPinOptions = allFiles.filter(file => {
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
                 const fileRange = extractDateRange(file.fileName);
                 return fileRange === range;
               });
-              return typeMatch && suffixMatch && dateRangeMatch;
+              return typeMatch && dateRangeMatch;
             });
             const uniquePins = Array.from(new Set(filesForPinOptions.map(file => file.pinLabel))).sort();
 
-            // For types: show types available after applying pin, suffix, and dateRange filters
+            // For types: show types available after applying pin and dateRange filters
             const filesForTypeOptions = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
                 const fileRange = extractDateRange(file.fileName);
                 return fileRange === range;
               });
-              return pinMatch && suffixMatch && dateRangeMatch;
+              return pinMatch && dateRangeMatch;
             });
             // Build type list from filesForTypeOptions
             const typeMap = new Map<string, any[]>();
@@ -343,29 +557,11 @@ export function ProjectDataDialog({
             });
             const uniqueTypes = Array.from(typeMap.keys()).sort();
 
-            // For suffixes: show suffixes available after applying pin, type, and dateRange filters
-            const filesForSuffixOptions = allFiles.filter(file => {
-              const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
-              const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
-                const fileRange = extractDateRange(file.fileName);
-                return fileRange === range;
-              });
-              return pinMatch && typeMatch && dateRangeMatch;
-            });
-            const uniqueSuffixes = Array.from(new Set(filesForSuffixOptions.map(file => {
-              return extractSuffix(file.fileName);
-            }).filter(suffix => suffix !== ''))).sort();
-
-            // For date ranges: show date ranges available after applying pin, type, and suffix filters
+            // For date ranges: show date ranges available after applying pin and type filters
             const filesForDateRangeOptions = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
-              return pinMatch && typeMatch && suffixMatch;
+              return pinMatch && typeMatch;
             });
             const uniqueDateRanges = Array.from(new Set(filesForDateRangeOptions.map(file => {
               return extractDateRange(file.fileName);
@@ -383,7 +579,7 @@ export function ProjectDataDialog({
               uniquePins: uniquePins.length
             };
 
-            const hasActiveFilters = selectedPins.length > 0 || selectedTypes.length > 0 || selectedSuffixes.length > 0 || selectedDateRanges.length > 0 || selectedFileSources.length < 2;
+            const hasActiveFilters = selectedPins.length > 0 || selectedTypes.length > 0 || selectedDateRanges.length > 0 || selectedFileSources.length < 2;
 
             return (
               <div className="space-y-2">
@@ -402,7 +598,6 @@ export function ProjectDataDialog({
                           onClick={() => {
                             setSelectedPins([]);
                             setSelectedTypes([]);
-                            setSelectedSuffixes([]);
                             setSelectedDateRanges([]);
                             setSelectedFileSources(['upload', 'merged']);
                           }}
@@ -568,50 +763,6 @@ export function ProjectDataDialog({
                       </PopoverContent>
                     </Popover>
 
-                    {/* File Suffixes - Filterable */}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors ${selectedSuffixes.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : ''}`}>
-                          <FileCode className="h-3 w-3 text-amber-500" />
-                          <span className="font-semibold">{selectedSuffixes.length > 0 ? selectedSuffixes.length : uniqueSuffixes.length}</span>
-                          <span className="text-muted-foreground">Suffixes</span>
-                          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="start">
-                        <div className="space-y-1">
-                          <div className="text-xs font-semibold mb-2 flex items-center justify-between">
-                            <span>Filter by Suffix</span>
-                            {selectedSuffixes.length > 0 && (
-                              <button
-                                onClick={() => setSelectedSuffixes([])}
-                                className="text-primary hover:text-primary/80 text-[10px]"
-                              >
-                                Clear
-                              </button>
-                            )}
-                          </div>
-                          {uniqueSuffixes.map(suffix => (
-                            <label key={suffix} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selectedSuffixes.includes(suffix)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedSuffixes([...selectedSuffixes, suffix]);
-                                  } else {
-                                    setSelectedSuffixes(selectedSuffixes.filter(s => s !== suffix));
-                                  }
-                                }}
-                                className="h-3 w-3"
-                              />
-                              <span className="font-mono">{suffix}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
                     {/* Date Ranges - Filterable */}
                     <Popover>
                       <PopoverTrigger asChild>
@@ -673,11 +824,45 @@ export function ProjectDataDialog({
                 {isLoadingMergedFiles || (isPageLoading && isInitialLoad) ? (
                   <DataTimelineSkeleton />
                 ) : (
-                  <DataTimeline
-                    files={filteredFiles}
-                    getFileDateRange={getFileDateRange}
-                    onFileClick={handleTimelineFileClick}
-                    onRenameFile={async (file, newName) => {
+                  <>
+                    {/* Group files by source */}
+                    {(() => {
+                      const filesBySource = groupFilesBySource(filteredFiles);
+                      const sourceOrder = ['Subcams', 'GrowProbes', 'FPODS', 'Chem', 'Crop', 'eDNA'];
+                      const sourcesWithFiles = sourceOrder.filter(source => filesBySource[source].length > 0);
+
+                      // Display labels for each source
+                      const sourceLabels: Record<string, string> = {
+                        'Subcams': 'SubCam',
+                        'GrowProbes': 'GrowProbe',
+                        'FPODS': 'FPOD',
+                        'Chem': 'Water Chemistry',
+                        'Crop': 'Crop Samples',
+                        'eDNA': 'eDNA'
+                      };
+
+                      if (sourcesWithFiles.length === 0) {
+                        return (
+                          <div className="text-center py-8">
+                            <Database className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                            <p className="text-muted-foreground">No files match the current filters</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-2 gap-4">
+                          {sourcesWithFiles.map(source => {
+                            const files = filesBySource[source];
+                            return (
+                              <SourceTile
+                                key={source}
+                                source={source}
+                                label={sourceLabels[source] || source}
+                                files={files}
+                                getFileDateRange={getFileDateRange}
+                                onFileClick={handleTimelineFileClick}
+                                onRenameFile={async (file, newName) => {
                       console.log('Timeline rename request for file:', file.id, 'New name:', newName);
 
                       try {
@@ -741,8 +926,8 @@ export function ProjectDataDialog({
                         });
                         return false;
                       }
-                    }}
-                    onDeleteFile={async (file) => {
+                                    }}
+                                    onDeleteFile={async (file) => {
                       console.log('Timeline delete request for file:', file.id, file.fileName);
 
                       try {
@@ -805,8 +990,8 @@ export function ProjectDataDialog({
                           description: "An error occurred while deleting the file."
                         });
                       }
-                    }}
-                    onDatesUpdated={async () => {
+                                    }}
+                                    onDatesUpdated={async () => {
                       console.log('📅 Dates updated, reloading files...');
 
                       // Reload files for all pins to get updated dates
@@ -825,8 +1010,8 @@ export function ProjectDataDialog({
 
                       console.log('✅ Files reloaded with updated dates');
                       setPinFileMetadata(fileMetadata);
-                    }}
-                    onSelectMultipleFiles={async (selectedFiles) => {
+                                    }}
+                                    onSelectMultipleFiles={async (selectedFiles) => {
                       try {
                         console.log('🔄 Multi-file selection:', selectedFiles.map(f => f.fileName));
 
@@ -910,9 +1095,9 @@ export function ProjectDataDialog({
                           description: error instanceof Error ? error.message : 'Failed to process multiple files'
                         });
                       }
-                    }}
-                    projectId={activeProjectId}
-                    onMergedFileClick={async (mergedFile) => {
+                                    }}
+                                    projectId={activeProjectId}
+                                    onMergedFileClick={async (mergedFile) => {
                       try {
                         console.log('🔄 Opening merged file:', mergedFile.fileName);
 
@@ -962,17 +1147,23 @@ export function ProjectDataDialog({
                           description: error instanceof Error ? error.message : 'Failed to open merged file'
                         });
                       }
-                    }}
-                    onAddFilesToMergedFile={async (mergedFile) => {
+                                    }}
+                                    onAddFilesToMergedFile={async (mergedFile) => {
                       toast({
                         title: "Add Files Feature",
                         description: "This feature is coming soon! You'll be able to add more files to this merge."
                       });
                       // TODO: Implement add files to merged file dialog
-                    }}
-                    multiFileMergeMode={multiFileMergeMode}
-                    onMultiFileMergeModeChange={setMultiFileMergeMode}
-                  />
+                                    }}
+                                multiFileMergeMode={multiFileMergeMode}
+                                setMultiFileMergeMode={setMultiFileMergeMode}
+                              />
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </>
                 )}
               </div>
             );
