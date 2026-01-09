@@ -501,7 +501,8 @@ export default function DataExplorerPage() {
       let location: { lat: number; lng: number } | undefined = undefined;
       let objectName: string | undefined = file.pinLabel || undefined;
 
-      if (file.pinId && file.pinId !== 'merged') {
+      // Fetch pin location if pinId exists (now works for merged files too since they have actual pinIds)
+      if (file.pinId) {
         console.log('[Data Explorer] 📍 Fetching pin location for:', file.pinId);
         const { createClient } = await import('@/lib/supabase/client');
         const supabase = createClient();

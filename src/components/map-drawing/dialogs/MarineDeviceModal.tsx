@@ -19,8 +19,14 @@ interface AvailableProject {
 export interface MarineDeviceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  selectedFileType: 'GP' | 'FPOD' | 'Subcam' | null;
+  selectedFileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA' | null;
   selectedFiles: File[];
+  selectedFileMetadata?: {
+    pinLabel?: string;
+    startDate?: Date;
+    endDate?: Date;
+    fileCategories?: string[];
+  } | null;
   isLoadingFromSavedPlot: boolean;
   onRequestFileSelection: () => void;
   availableFilesForPlots: PinFile[];
@@ -41,6 +47,7 @@ function MarineDeviceModalComponent({
   onOpenChange,
   selectedFileType,
   selectedFiles,
+  selectedFileMetadata,
   isLoadingFromSavedPlot,
   onRequestFileSelection,
   availableFilesForPlots,
@@ -78,6 +85,7 @@ function MarineDeviceModalComponent({
             <PinMarineDeviceData
               fileType={selectedFileType}
               files={selectedFiles}
+              selectedFileMetadata={selectedFileMetadata}
               onRequestFileSelection={onRequestFileSelection}
               availableFiles={availableFilesForPlots}
               onDownloadFile={onDownloadFile}

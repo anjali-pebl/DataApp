@@ -70,6 +70,11 @@ interface PlotConfig {
   fileName?: string; // Display name of the file(s)
   fileId?: string; // Database ID of the file for restoration
   pinId?: string; // Pin ID for saving corrected files to database
+  // File metadata for header display
+  pinLabel?: string; // Location name (e.g., "Control_S", "Farm_AS")
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
   // For marine/meteo plots
   location?: { lat: number; lon: number };
   locationName?: string;
@@ -117,8 +122,14 @@ interface FileOption {
 }
 
 interface PinMarineDeviceDataProps {
-  fileType: 'GP' | 'FPOD' | 'Subcam';
+  fileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA';
   files: File[];
+  selectedFileMetadata?: {
+    pinLabel?: string;
+    startDate?: Date;
+    endDate?: Date;
+    fileCategories?: string[];
+  } | null;
   onRequestFileSelection?: () => void; // Callback to open file selector
   // Props for multi-file support
   availableFiles?: FileOption[];
@@ -144,7 +155,7 @@ interface PinMarineDeviceDataProps {
   initialViewToLoad?: string; // Plot view ID to auto-load on mount
 }
 
-function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availableFiles, onDownloadFile, multiFileMergeMode = 'sequential', objectLocation, objectName, allProjectFilesForTimeline, getFileDateRange, projectId, onRefreshFiles, availableProjects, initialViewToLoad }: PinMarineDeviceDataProps) {
+function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestFileSelection, availableFiles, onDownloadFile, multiFileMergeMode = 'sequential', objectLocation, objectName, allProjectFilesForTimeline, getFileDateRange, projectId, onRefreshFiles, availableProjects, initialViewToLoad }: PinMarineDeviceDataProps) {
   const { toast } = useToast();
 
   // State for managing plots with file data
@@ -1269,6 +1280,10 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
       timeRange?: { startDate: string; endDate: string };
       pinId?: string;
       fileId?: string; // Database ID of the file for restoration
+      pinLabel?: string; // Location name for header display
+      startDate?: Date; // Start date of data
+      endDate?: Date; // End date of data
+      fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
     }
   ) => {
     setPlots((prevPlots) => [
@@ -1283,6 +1298,10 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
         fileName: type === 'device' ? getFileName(files) : undefined,
         fileId: options?.fileId, // Store the database file ID
         pinId: options?.pinId,
+        pinLabel: options?.pinLabel,
+        startDate: options?.startDate,
+        endDate: options?.endDate,
+        fileCategories: options?.fileCategories,
         // Marine/meteo plot properties
         location: options?.location,
         locationName: options?.locationName,
@@ -2509,7 +2528,15 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
 
       if (files.length > 0) {
         // If files are provided, add a plot with those files
-        addPlot('device', files, { fileType, customTitle: getFileName(files) });
+        console.log('📋 [INITIAL PLOT] Adding plot with metadata:', selectedFileMetadata);
+        addPlot('device', files, {
+          fileType,
+          customTitle: getFileName(files),
+          pinLabel: selectedFileMetadata?.pinLabel,
+          startDate: selectedFileMetadata?.startDate,
+          endDate: selectedFileMetadata?.endDate,
+          fileCategories: selectedFileMetadata?.fileCategories
+        });
       } else {
         // TESTING: Add an empty plot by default for quick testing of load functionality
         console.log('📊 [TESTING] Adding empty default plot for testing');
@@ -2606,6 +2633,10 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                       fileType={plot.fileType!}
                       files={plot.files!}
                       preParsedData={plot.mergedData} // Pass merged data for merged plots
+                      pinLabel={plot.pinLabel}
+                      startDate={plot.startDate}
+                      endDate={plot.endDate}
+                      fileCategories={plot.fileCategories}
                       timeAxisMode={timeAxisMode}
                       globalTimeRange={timeAxisMode === 'common' ? globalTimeRange : undefined}
                       globalBrushRange={timeAxisMode === 'common' ? globalBrushRange : undefined}
@@ -2757,11 +2788,27 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                 // Add plot with downloaded file AND its database ID
                 // Use pinId if available, otherwise use areaId for tracking
                 const objectId = fileOption.pinId || fileOption.areaId;
+
+                // Extract metadata for header display
+                const metadata = fileOption.metadata;
+                const pinLabel = (metadata as any)?.pinLabel || fileOption.pinName;
+                const startDate = metadata?.startDate;
+                const endDate = metadata?.endDate;
+
+                // Extract category from filename using categorization
+                const { categorizeFile } = await import('@/lib/file-categorization-config');
+                const categories = categorizeFile(fileOption.fileName);
+                const fileCategory = categories[0]?.category;
+
                 addPlot('device', [downloadedFile], {
                   fileType: fileOption.fileType,
                   customTitle: fileOption.fileName,
                   pinId: objectId,
-                  fileId: file.id // Store the database file ID for restoration
+                  fileId: file.id, // Store the database file ID for restoration
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategory
                 });
               } else {
                 console.error('Failed to download file:', fileOption.fileName);
@@ -2775,11 +2822,27 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
               // Files already loaded, add plot directly
               if (fileOption.files.length > 0) {
                 const objectId = fileOption.pinId || fileOption.areaId;
+
+                // Extract metadata for header display
+                const metadata = fileOption.metadata;
+                const pinLabel = (metadata as any)?.pinLabel || fileOption.pinName;
+                const startDate = metadata?.startDate;
+                const endDate = metadata?.endDate;
+
+                // Extract category from filename using categorization
+                const { categorizeFile } = await import('@/lib/file-categorization-config');
+                const categories = categorizeFile(fileOption.fileName);
+                const fileCategory = categories[0]?.category;
+
                 addPlot('device', fileOption.files, {
                   fileType: fileOption.fileType,
                   customTitle: fileOption.fileName,
                   pinId: objectId,
-                  fileId: file.id // Store the database file ID for restoration
+                  fileId: file.id, // Store the database file ID for restoration
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategory
                 });
               } else {
                 console.error('❌ No files to add and no download function provided');

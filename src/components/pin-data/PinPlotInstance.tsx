@@ -36,6 +36,11 @@ interface PinPlotInstanceProps {
   preParsedData?: ParseResult;
   // Merged file metadata (for displaying file info)
   mergedFileMetadata?: MergedFileMetadata;
+  // File metadata for header display
+  pinLabel?: string; // Location name
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -80,6 +85,10 @@ function PinPlotInstanceComponent({
   files,
   preParsedData,
   mergedFileMetadata,
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories,
   timeAxisMode,
   globalTimeRange,
   globalBrushRange,
@@ -101,6 +110,14 @@ function PinPlotInstanceComponent({
 }: PinPlotInstanceProps) {
   const { toast } = useToast();
   const componentId = useId();
+
+  console.log('🎯 [PinPlotInstance] Received metadata:', {
+    pinLabel,
+    startDate,
+    endDate,
+    fileCategories,
+    fileType
+  });
 
   // State
   const [plotTitle, setPlotTitle] = useState(initialPlotTitle);
@@ -294,6 +311,10 @@ function PinPlotInstanceComponent({
               showYAxisLabels={true}
               fileName={files.length > 0 ? files[0].name : undefined}
               dataSource="csv"
+              pinLabel={pinLabel}
+              startDate={startDate}
+              endDate={endDate}
+              fileCategories={fileCategories}
               timeAxisMode={timeAxisMode}
               globalTimeRange={globalTimeRange}
               globalBrushRange={globalBrushRange}

@@ -574,18 +574,23 @@ function MapDrawingPageContent() {
       }
     }
 
-    // Add merged files to the list
+    // Add merged files to the list with actual pin data
     for (const mergedFile of mergedFiles) {
+      // Look up the actual pin
+      const pin = pins.find(p => p.id === mergedFile.pinId);
+      const pinName = pin?.label || 'Unknown Pin';
+      const pinLocation = pin ? { lat: pin.lat, lng: pin.lng } : undefined;
+
       fileOptions.push({
-        pinId: 'merged', // Special ID for merged files
-        pinName: 'Merged Files',
-        pinLocation: undefined,
+        pinId: mergedFile.pinId, // Use actual pinId from merged file
+        pinName: pinName, // Use actual pin name
+        pinLocation: pinLocation, // Use actual pin location
         fileType: 'MERGED',
         files: [], // Merged files need to be downloaded
         fileName: mergedFile.fileName,
         metadata: {
           id: mergedFile.id,
-          pinId: 'merged',
+          pinId: mergedFile.pinId, // Use actual pinId
           fileName: mergedFile.fileName,
           filePath: mergedFile.filePath,
           fileSize: 0, // Size not available
@@ -632,11 +637,15 @@ function MapDrawingPageContent() {
       });
     }
 
-    // Add merged files with special label
+    // Add merged files with actual pin labels
     mergedFiles.forEach(mergedFile => {
+      // Look up the actual pin label from the pins array
+      const pin = pins.find(p => p.id === mergedFile.pinId);
+      const pinLabel = pin?.label || 'Unknown Pin';
+
       result.push({
         id: mergedFile.id,
-        pinId: 'merged',
+        pinId: mergedFile.pinId, // Use actual pinId from merged file
         fileName: mergedFile.fileName,
         filePath: mergedFile.filePath,
         fileSize: 0,
@@ -645,7 +654,7 @@ function MapDrawingPageContent() {
         projectId: mergedFile.projectId,
         startDate: mergedFile.startDate ? new Date(mergedFile.startDate) : undefined,
         endDate: mergedFile.endDate ? new Date(mergedFile.endDate) : undefined,
-        pinLabel: 'Merged Files',
+        pinLabel: pinLabel, // Use actual pin label instead of generic "Merged Files"
         isDiscrete: false,
         fileSource: 'merged' // Mark as merged file for identification
       } as PinFile & { pinLabel: string; fileSource: 'merged' });
@@ -733,8 +742,14 @@ function MapDrawingPageContent() {
   
   // Marine Device Modal State
   const [showMarineDeviceModal, setShowMarineDeviceModal] = useState(false);
-  const [selectedFileType, setSelectedFileType] = useState<'GP' | 'FPOD' | 'Subcam' | null>(null);
+  const [selectedFileType, setSelectedFileType] = useState<'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA' | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedFileMetadata, setSelectedFileMetadata] = useState<{
+    pinLabel?: string;
+    startDate?: Date;
+    endDate?: Date;
+    fileCategories?: string[];
+  } | null>(null);
   const [isLoadingFromSavedPlot, setIsLoadingFromSavedPlot] = useState(false);
 
   // ============================================================================
@@ -1543,20 +1558,26 @@ function MapDrawingPageContent() {
 
       if (result.success && result.data) {
         // Convert MergedFile to PinFile format for compatibility
-        const mergedFilesWithLabel = result.data.map(mf => ({
-          id: mf.id,
-          pinId: mf.pinId,
-          fileName: mf.fileName,
-          filePath: mf.filePath,
-          fileSize: mf.fileSize,
-          fileType: mf.fileType,
-          uploadedAt: new Date(mf.createdAt),
-          projectId: mf.projectId,
-          startDate: mf.startDate ? new Date(mf.startDate) : undefined,
-          endDate: mf.endDate ? new Date(mf.endDate) : undefined,
-          fileSource: 'merged' as const,
-          pinLabel: 'Merged' // Merged files don't have a specific pin, use generic label
-        }));
+        const mergedFilesWithLabel = result.data.map(mf => {
+          // Look up the actual pin label
+          const pin = pins.find(p => p.id === mf.pinId);
+          const pinLabel = pin?.label || 'Unknown Pin';
+
+          return {
+            id: mf.id,
+            pinId: mf.pinId, // Keep actual pinId
+            fileName: mf.fileName,
+            filePath: mf.filePath,
+            fileSize: mf.fileSize,
+            fileType: mf.fileType,
+            uploadedAt: new Date(mf.createdAt),
+            projectId: mf.projectId,
+            startDate: mf.startDate ? new Date(mf.startDate) : undefined,
+            endDate: mf.endDate ? new Date(mf.endDate) : undefined,
+            fileSource: 'merged' as const,
+            pinLabel: pinLabel // Use actual pin label from pin lookup
+          };
+        });
         setMergedFiles(mergedFilesWithLabel);
       } else {
         console.error('Failed to fetch merged files:', result.error || 'No result returned');
@@ -4340,11 +4361,21 @@ function MapDrawingPageContent() {
   };
 
   // Marine Device Modal Handlers
-  const openMarineDeviceModal = useCallback((fileType: 'GP' | 'FPOD' | 'Subcam', files: File[]) => {
+  const openMarineDeviceModal = useCallback((
+    fileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA',
+    files: File[],
+    metadata?: {
+      pinLabel?: string;
+      startDate?: Date;
+      endDate?: Date;
+      fileCategories?: string[];
+    }
+  ) => {
     setSelectedFileType(fileType);
     setSelectedFiles(files);
+    setSelectedFileMetadata(metadata || null);
     setShowMarineDeviceModal(true);
-    
+
     // Keep all UI elements open - don't close anything
     // The modal will overlay on top of the existing UI
   }, []);
@@ -4353,6 +4384,7 @@ function MapDrawingPageContent() {
     setShowMarineDeviceModal(false);
     setSelectedFileType(null);
     setSelectedFiles([]);
+    setSelectedFileMetadata(null);
     // UI state is already preserved, no need to reopen anything
   }, []);
 
@@ -4402,12 +4434,13 @@ function MapDrawingPageContent() {
     try {
       console.log(`📥 Downloading file for plot: ${fileName} (pin: ${pinId}, area: ${areaId})`);
 
+      // Check if this is a merged file by looking it up in mergedFiles array
+      const mergedFileMetadata = mergedFiles.find(f => f.fileName === fileName);
+      const isMergedFile = !!mergedFileMetadata || (providedMetadata as any)?.fileSource === 'merged';
+
       // Handle merged files separately
-      if (pinId === 'merged') {
+      if (isMergedFile) {
         console.log(`🔀 Looking up merged file: ${fileName}`);
-        const mergedFileMetadata = mergedFiles.find(
-          f => f.fileName === fileName
-        );
 
         if (!mergedFileMetadata) {
           console.error('❌ Merged file metadata not found:', { fileName });
@@ -4440,10 +4473,11 @@ function MapDrawingPageContent() {
 
         console.log(`✅ Merged file downloaded successfully: ${fileName} (${(file.size / 1024).toFixed(2)} KB)`);
 
-        // Cache it in pinFiles state
+        // Cache it in pinFiles state using the actual pinId from merged file metadata
+        const actualPinId = mergedFileMetadata.pinId;
         setPinFiles(prev => ({
           ...prev,
-          [pinId]: [...(prev[pinId] || []), file]
+          [actualPinId]: [...(prev[actualPinId] || []), file]
         }));
 
         toast({
@@ -4605,9 +4639,27 @@ function MapDrawingPageContent() {
         throw new Error('File download failed');
       }
 
+      // Extract metadata for header display
+      const pinLabel = file.pinLabel || 'Unknown Pin';
+      const startDate = file.startDate;
+      const endDate = file.endDate;
+
+      // Extract category from filename using categorization
+      const { categorizeFile } = await import('@/lib/file-categorization-config');
+      const categories = categorizeFile(file.fileName);
+      const fileCategory = categories[0]?.category;
+
+      console.log('📋 [DATA EXPLORER PANEL] File metadata:', { pinLabel, startDate, endDate, fileCategory });
+
       // Open in marine device modal
       setSelectedFileType(fileType);
       setSelectedFiles([downloadedFile]);
+      setSelectedFileMetadata({
+        pinLabel,
+        startDate,
+        endDate,
+        fileCategory
+      });
       setShowMarineDeviceModal(true);
       setShowDataExplorerPanel(false); // Close panel
 
@@ -7617,6 +7669,7 @@ function MapDrawingPageContent() {
         onOpenChange={setShowMarineDeviceModal}
         selectedFileType={selectedFileType}
         selectedFiles={selectedFiles}
+        selectedFileMetadata={selectedFileMetadata}
         isLoadingFromSavedPlot={isLoadingFromSavedPlot}
         onRequestFileSelection={handleRequestFileSelection}
         availableFilesForPlots={availableFilesForPlots}
@@ -7633,6 +7686,7 @@ function MapDrawingPageContent() {
           // Clear the selected files when closing
           setSelectedFileType(null);
           setSelectedFiles([]);
+          setSelectedFileMetadata(null);
           setIsLoadingFromSavedPlot(false);
           // UI state is preserved - all panels stay as they were
         }}

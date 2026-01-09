@@ -28,6 +28,12 @@ import { DataTimeline } from '@/components/pin-data/DataTimeline';
 import { DataTimelineSkeleton } from '@/components/loading/PageSkeletons';
 import type { Pin, Line as LineType, Area, Project, PinFile, MergedFile } from '@/lib/supabase/types';
 import { fileStorageService } from '@/lib/supabase/file-storage-service';
+import {
+  categorizeFile,
+  getCategoriesForTile,
+  tileHasCategories,
+  TILE_NAMES
+} from '@/lib/file-categorization-config';
 
 export interface ProjectDataDialogProps {
   open: boolean;
@@ -71,10 +77,19 @@ export interface ProjectDataDialogProps {
   extractDateRange: (fileName: string) => string | null;
   getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
   reloadProjectFiles: () => Promise<void>;
-  openMarineDeviceModal: (fileType: any, files: File[]) => void;
+  openMarineDeviceModal: (
+    fileType: any,
+    files: File[],
+    metadata?: {
+      pinLabel?: string;
+      startDate?: Date;
+      endDate?: Date;
+      fileCategories?: string[];
+    }
+  ) => void;
 }
 
-// Source Tile Component with per-tile suffix filtering
+// Source Tile Component with per-tile category filtering
 function SourceTile({
   source,
   label,
@@ -106,28 +121,29 @@ function SourceTile({
   multiFileMergeMode: 'union' | 'intersection';
   setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
 }) {
-  const [selectedSuffixes, setSelectedSuffixes] = React.useState<string[]>([]);
+  const [selectedCategories, setSelectedCategories] = React.useState<string[]>([]);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [startY, setStartY] = React.useState(0);
   const [scrollTop, setScrollTop] = React.useState(0);
 
-  // Extract suffix from filename
-  const extractSuffix = (fileName: string): string => {
-    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
-    const parts = nameWithoutExt.split('_');
-    return parts.length > 0 ? parts[parts.length - 1] : '';
+  // Get file category for this specific tile
+  const getFileCategory = (fileName: string): string | null => {
+    const matches = categorizeFile(fileName);
+    const matchForThisTile = matches.find(match => match.tile === label);
+    return matchForThisTile?.category || null;
   };
 
-  // Get unique suffixes from this tile's files
-  const uniqueSuffixes = Array.from(new Set(files.map(file => extractSuffix(file.fileName)).filter(suffix => suffix !== ''))).sort();
+  // Get unique categories for this tile from the configuration
+  const availableCategories = getCategoriesForTile(label);
+  const hasCategories = tileHasCategories(label);
 
-  // Filter files by selected suffixes
-  const filteredFiles = selectedSuffixes.length === 0
+  // Filter files by selected categories
+  const filteredFiles = !hasCategories || selectedCategories.length === 0
     ? files
     : files.filter(file => {
-        const fileSuffix = extractSuffix(file.fileName);
-        return selectedSuffixes.includes(fileSuffix);
+        const category = getFileCategory(file.fileName);
+        return category && selectedCategories.includes(category);
       });
 
   // Drag to scroll handlers
@@ -173,45 +189,45 @@ function SourceTile({
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-sm">{label}</h3>
           <div className="flex items-center gap-2">
-            {/* Suffix Filter Dropdown */}
-            {uniqueSuffixes.length > 0 && (
+            {/* Category Filter Dropdown */}
+            {hasCategories && availableCategories.length > 0 && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors text-[11px] ${selectedSuffixes.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : 'border border-border/30'}`}>
+                  <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors text-[11px] ${selectedCategories.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : 'border border-border/30'}`}>
                     <FileCode className="h-3 w-3 text-amber-500" />
-                    <span className="font-semibold">{selectedSuffixes.length > 0 ? selectedSuffixes.length : uniqueSuffixes.length}</span>
-                    <span className="text-muted-foreground">Suffixes</span>
+                    <span className="font-semibold">{selectedCategories.length > 0 ? selectedCategories.length : availableCategories.length}</span>
+                    <span className="text-muted-foreground">Categories</span>
                     <ChevronDown className="h-3 w-3 text-muted-foreground" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-48 p-2" align="end">
+                <PopoverContent className="w-56 p-2" align="end">
                   <div className="space-y-1">
                     <div className="text-xs font-semibold mb-2 flex items-center justify-between">
-                      <span>Filter by Suffix</span>
-                      {selectedSuffixes.length > 0 && (
+                      <span>Filter by Category</span>
+                      {selectedCategories.length > 0 && (
                         <button
-                          onClick={() => setSelectedSuffixes([])}
+                          onClick={() => setSelectedCategories([])}
                           className="text-primary hover:text-primary/80 text-[10px]"
                         >
                           Clear
                         </button>
                       )}
                     </div>
-                    {uniqueSuffixes.map(suffix => (
-                      <label key={suffix} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
+                    {availableCategories.map(category => (
+                      <label key={category} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={selectedSuffixes.includes(suffix)}
+                          checked={selectedCategories.includes(category)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedSuffixes([...selectedSuffixes, suffix]);
+                              setSelectedCategories([...selectedCategories, category]);
                             } else {
-                              setSelectedSuffixes(selectedSuffixes.filter(s => s !== suffix));
+                              setSelectedCategories(selectedCategories.filter(c => c !== category));
                             }
                           }}
                           className="h-3 w-3"
                         />
-                        <span className="font-mono">{suffix}</span>
+                        <span className="font-medium">{category}</span>
                       </label>
                     ))}
                   </div>
@@ -412,6 +428,62 @@ export function ProjectDataDialog({
                   fileType = 'GP';
                 }
 
+                // Extract metadata for header display
+                const pinLabel = file.pinLabel || 'Unassigned';
+                const dateRange = await getFileDateRange(file);
+
+                // Convert string dates to Date objects, with validation
+                // Handle both DD/MM/YYYY and ISO date formats
+                let startDate: Date | undefined = undefined;
+                let endDate: Date | undefined = undefined;
+
+                if (dateRange?.startDate) {
+                  // Check if it's DD/MM/YYYY format (contains /)
+                  if (dateRange.startDate.includes('/')) {
+                    const [day, month, year] = dateRange.startDate.split('/');
+                    const parsedStart = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                    if (!isNaN(parsedStart.getTime())) {
+                      startDate = parsedStart;
+                    }
+                  } else {
+                    const parsedStart = new Date(dateRange.startDate);
+                    if (!isNaN(parsedStart.getTime())) {
+                      startDate = parsedStart;
+                    }
+                  }
+                }
+
+                if (dateRange?.endDate) {
+                  // Check if it's DD/MM/YYYY format (contains /)
+                  if (dateRange.endDate.includes('/')) {
+                    const [day, month, year] = dateRange.endDate.split('/');
+                    const parsedEnd = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                    if (!isNaN(parsedEnd.getTime())) {
+                      endDate = parsedEnd;
+                    }
+                  } else {
+                    const parsedEnd = new Date(dateRange.endDate);
+                    if (!isNaN(parsedEnd.getTime())) {
+                      endDate = parsedEnd;
+                    }
+                  }
+                }
+
+                // Extract ALL categories from filename using categorization
+                const categories = categorizeFile(file.fileName);
+                const fileCategories = categories
+                  .map(c => c.category)
+                  .filter((c): c is string => c !== undefined); // Remove undefined categories
+
+                console.log('📋 [PROJECT DATA DIALOG] File metadata:', {
+                  fileName: file.fileName,
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategories,
+                  rawDateRange: dateRange
+                });
+
                 // Download file content
                 const fileContent = await fileStorageService.downloadFile(file.filePath);
                 if (fileContent) {
@@ -420,8 +492,13 @@ export function ProjectDataDialog({
                     type: file.fileType || 'text/csv'
                   });
 
-                  // Open modal with the downloaded file
-                  openMarineDeviceModal(fileType, [actualFile]);
+                  // Open modal with the downloaded file and metadata
+                  openMarineDeviceModal(fileType, [actualFile], {
+                    pinLabel,
+                    startDate,
+                    endDate,
+                    fileCategories
+                  });
                 } else {
                   toast({
                     variant: "destructive",
@@ -439,46 +516,26 @@ export function ProjectDataDialog({
               }
             };
 
-            // Helper function to determine file source category
-            const getFileSource = (file: any): string => {
-              const parts = file.fileName.split('_');
-              const position0 = parts[0]?.toLowerCase() || '';
-              const position1 = parts[1]?.toLowerCase() || '';
-              const fileNameLower = file.fileName.toLowerCase();
-
-              if (position0.includes('crop') || position1.includes('crop')) {
-                return 'Crop';
-              } else if (position0.includes('chem') || position1.includes('chem') || fileNameLower.includes('_chem') ||
-                         position0.includes('wq') || position1.includes('wq') || fileNameLower.includes('_wq')) {
-                return 'Chem';
-              } else if (position0.includes('edna') || position1.includes('edna')) {
-                return 'eDNA';
-              } else if (position0.includes('fpod') || position1.includes('fpod')) {
-                return 'FPODS';
-              } else if (position0.includes('subcam') || position1.includes('subcam')) {
-                return 'Subcams';
-              } else if (position0.includes('gp') || position1.includes('gp')) {
-                return 'GrowProbes';
-              }
-              return 'Other';
-            };
-
-            // Group files by source category
+            // Group files by source category using the new categorization config
+            // A file can appear in multiple tiles if it matches multiple patterns
             const groupFilesBySource = (files: any[]) => {
-              const grouped: Record<string, any[]> = {
-                'Subcams': [],
-                'GrowProbes': [],
-                'FPODS': [],
-                'Chem': [],
-                'Crop': [],
-                'eDNA': []
-              };
+              const grouped: Record<string, any[]> = {};
+
+              // Initialize groups for all tile names
+              TILE_NAMES.forEach(tileName => {
+                grouped[tileName] = [];
+              });
 
               files.forEach(file => {
-                const source = getFileSource(file);
-                if (grouped[source]) {
-                  grouped[source].push(file);
-                }
+                const matches = categorizeFile(file.fileName);
+                matches.forEach(match => {
+                  if (grouped[match.tile]) {
+                    // Only add the file if it's not already in this tile's group
+                    if (!grouped[match.tile].find(f => f.id === file.id)) {
+                      grouped[match.tile].push(file);
+                    }
+                  }
+                });
               });
 
               return grouped;
@@ -828,20 +885,9 @@ export function ProjectDataDialog({
                     {/* Group files by source */}
                     {(() => {
                       const filesBySource = groupFilesBySource(filteredFiles);
-                      const sourceOrder = ['Subcams', 'GrowProbes', 'FPODS', 'Chem', 'Crop', 'eDNA'];
-                      const sourcesWithFiles = sourceOrder.filter(source => filesBySource[source].length > 0);
+                      const tilesWithFiles = TILE_NAMES.filter(tileName => filesBySource[tileName]?.length > 0);
 
-                      // Display labels for each source
-                      const sourceLabels: Record<string, string> = {
-                        'Subcams': 'SubCam',
-                        'GrowProbes': 'GrowProbe',
-                        'FPODS': 'FPOD',
-                        'Chem': 'Water Chemistry',
-                        'Crop': 'Crop Samples',
-                        'eDNA': 'eDNA'
-                      };
-
-                      if (sourcesWithFiles.length === 0) {
+                      if (tilesWithFiles.length === 0) {
                         return (
                           <div className="text-center py-8">
                             <Database className="h-12 w-12 mx-auto mb-4 opacity-30" />
@@ -852,13 +898,13 @@ export function ProjectDataDialog({
 
                       return (
                         <div className="grid grid-cols-2 gap-4">
-                          {sourcesWithFiles.map(source => {
-                            const files = filesBySource[source];
+                          {tilesWithFiles.map(tileName => {
+                            const files = filesBySource[tileName];
                             return (
                               <SourceTile
-                                key={source}
-                                source={source}
-                                label={sourceLabels[source] || source}
+                                key={tileName}
+                                source={tileName}
+                                label={tileName}
                                 files={files}
                                 getFileDateRange={getFileDateRange}
                                 onFileClick={handleTimelineFileClick}

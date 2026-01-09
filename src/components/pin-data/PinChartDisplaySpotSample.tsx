@@ -29,6 +29,11 @@ interface PinChartDisplaySpotSampleProps {
   headers: string[];
   fileName?: string;
   diagnosticLogs?: string[];
+  // Metadata for header display
+  pinLabel?: string;
+  startDate?: Date;
+  endDate?: Date;
+  fileCategories?: string[];
 }
 
 // Default color palette for sample IDs
@@ -56,7 +61,11 @@ export function PinChartDisplaySpotSample({
   detectedSampleIdColumn,
   headers,
   fileName,
-  diagnosticLogs
+  diagnosticLogs,
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories
 }: PinChartDisplaySpotSampleProps) {
 
   // IMMEDIATE DIAGNOSTIC LOGGING - runs before any processing
@@ -1133,6 +1142,49 @@ export function PinChartDisplaySpotSample({
     <div className="flex gap-3">
       {/* Main chart area */}
       <div className="flex-1 space-y-3">
+        {/* File header - location, time period, categories, and filename */}
+        {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0) || fileName) && (
+          <div className="flex flex-col gap-0.5 mb-2">
+            {/* Main header: Location • Time Period (Categories) */}
+            {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+              <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+                {/* Location */}
+                {pinLabel && <span>{pinLabel}</span>}
+
+                {/* Time Period */}
+                {(startDate || endDate) && (
+                  <>
+                    {pinLabel && <span className="text-muted-foreground">•</span>}
+                    <span className="font-normal">
+                      {startDate && endDate
+                        ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                        : startDate
+                        ? `From ${format(startDate, 'MMM d, yyyy')}`
+                        : endDate
+                        ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                        : ''}
+                    </span>
+                  </>
+                )}
+
+                {/* Categories - multiple badges */}
+                {fileCategories && fileCategories.map((category, index) => (
+                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                    {category}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Raw filename in smaller font */}
+            {fileName && (
+              <div className="text-xs text-muted-foreground font-mono">
+                {fileName}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Control Bar */}
         <div className="flex items-center gap-3 flex-wrap">
         {/* Chart/Table Toggle */}

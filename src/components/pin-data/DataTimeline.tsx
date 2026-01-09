@@ -996,6 +996,60 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     return similarFiles.length > 0; // If there are other files with same pin/dates, show suffix
   };
 
+  // Helper function to extract location from FPOD merged files
+  const extractLocationFromMergedFile = (fileName: string): string | null => {
+    // Check if this is an FPOD file
+    const fileNameLower = fileName.toLowerCase();
+    if (!fileNameLower.includes('fpod')) {
+      return null;
+    }
+
+    // Extract station from FPOD filenames
+    // Pattern: Project_FPOD_Station_Parts_Date.csv
+    // Examples: Control_FPOD_C_S_2024.csv → "C_S"
+    //           Farm_FPOD_F_AS_2024.csv → "F_AS"
+    //           Project_FPOD_merge_2024.csv → null
+    const parts = fileName.split('_');
+    const fpodIndex = parts.findIndex(p => p.toLowerCase() === 'fpod');
+
+    if (fpodIndex >= 0 && fpodIndex < parts.length - 1) {
+      const stationParts: string[] = [];
+
+      // Collect parts after FPOD until we hit a date, merge, or end
+      for (let i = fpodIndex + 1; i < parts.length; i++) {
+        const part = parts[i];
+
+        // Stop if we hit a year (starts with 4 digits)
+        if (part.match(/^\d{4}/)) break;
+
+        // Stop if we hit 'merge' keyword (not a location)
+        if (part.toLowerCase().includes('merge')) break;
+
+        // Stop if part contains file extension
+        if (part.includes('.')) break;
+
+        // Stop if part is empty
+        if (!part || part.trim() === '') break;
+
+        // Add this part to station
+        stationParts.push(part);
+
+        // Stop after collecting 3 parts max (reasonable limit)
+        if (stationParts.length >= 3) break;
+      }
+
+      if (stationParts.length > 0) {
+        const station = stationParts.join('_');
+        // Validate that it's a reasonable station code
+        if (station.length <= 20) {
+          return station;
+        }
+      }
+    }
+
+    return null;
+  };
+
   // Main display name generator for timeline view
   const getTimelineDisplayName = (
     file: PinFile & { pinLabel: string },
@@ -1007,9 +1061,19 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     // Merged files
     if (isMergedFile(file)) {
       const suffix = extractSuffix(file.fileName);
+
+      // Use the actual pin label if available and not generic
+      let locationLabel = file.pinLabel;
+
+      // If pinLabel is generic or missing, try to extract from filename
+      if (!locationLabel || locationLabel === 'Unknown Pin' || locationLabel === 'Merged Files' || locationLabel === 'Merged') {
+        const extractedLocation = extractLocationFromMergedFile(file.fileName);
+        locationLabel = extractedLocation || 'Unassigned';
+      }
+
       return suffix
-        ? `Multiple Locations • ${dateRangeStr} (${suffix})`
-        : `Multiple Locations • ${dateRangeStr}`;
+        ? `${locationLabel} • ${dateRangeStr} (${suffix})`
+        : `${locationLabel} • ${dateRangeStr}`;
     }
 
     // Unassigned files (no valid pin ID)

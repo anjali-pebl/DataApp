@@ -45,6 +45,11 @@ interface PinChartDisplayProps {
   showYAxisLabels?: boolean;
   fileName?: string;
   dataSource?: 'csv' | 'marine';
+  // File metadata for header display
+  pinLabel?: string; // Location name (e.g., "Control_S", "Farm_AS")
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -381,6 +386,10 @@ export function PinChartDisplay({
   showYAxisLabels = false,
   fileName,
   dataSource = 'csv',
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories,
   timeAxisMode = 'separate',
   globalTimeRange,
   globalBrushRange,
@@ -408,6 +417,15 @@ export function PinChartDisplay({
   includeZeroValues = false,
   onIncludeZeroValuesChange
 }: PinChartDisplayProps) {
+  console.log('📊 [PinChartDisplay] Received props:', {
+    fileName,
+    fileType,
+    pinLabel,
+    startDate,
+    endDate,
+    fileCategories
+  });
+
   // 🧬 HAPL_DEBUG: Log incoming data for haplotype files
   const isHaplotypeFile = fileName?.toLowerCase().includes('hapl');
   React.useEffect(() => {
@@ -2930,6 +2948,10 @@ export function PinChartDisplay({
         headers={headers}
         fileName={fileName}
         diagnosticLogs={diagnosticLogs}
+        pinLabel={pinLabel}
+        startDate={startDate}
+        endDate={endDate}
+        fileCategories={fileCategories}
       />
     );
   }
@@ -2938,12 +2960,46 @@ export function PinChartDisplay({
     <div className="space-y-3">
       {/* Toggle Switches - at the top */}
       <div className="flex items-center pr-12">
-        {/* File name */}
-        {fileName && (
-          <div className="text-xs text-muted-foreground font-medium">
-            {fileName}
-          </div>
-        )}
+        {/* File header - location, time period, category, and filename */}
+        <div className="flex flex-col gap-0.5">
+          {/* Main header: Location • Time Period (Categories) */}
+          {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+            <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+              {/* Location */}
+              {pinLabel && <span>{pinLabel}</span>}
+
+              {/* Time Period */}
+              {(startDate || endDate) && (
+                <>
+                  {pinLabel && <span className="text-muted-foreground">•</span>}
+                  <span className="font-normal">
+                    {startDate && endDate
+                      ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                      : startDate
+                      ? `From ${format(startDate, 'MMM d, yyyy')}`
+                      : endDate
+                      ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                      : ''}
+                  </span>
+                </>
+              )}
+
+              {/* Categories - multiple badges */}
+              {fileCategories && fileCategories.map((category, index) => (
+                <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  {category}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Raw filename in smaller font */}
+          {fileName && (
+            <div className="text-xs text-muted-foreground font-mono">
+              {fileName}
+            </div>
+          )}
+        </div>
 
         {/* View Controls - always consistent layout */}
         <div className="flex items-center gap-4 ml-auto">
