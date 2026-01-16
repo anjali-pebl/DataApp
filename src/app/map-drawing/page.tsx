@@ -641,7 +641,25 @@ function MapDrawingPageContent() {
     mergedFiles.forEach(mergedFile => {
       // Look up the actual pin label from the pins array
       const pin = pins.find(p => p.id === mergedFile.pinId);
-      const pinLabel = pin?.label || 'Unknown Pin';
+
+      // Check if filename contains "all" (case-insensitive) - indicates merged/combined data from all locations
+      const fileNameLower = mergedFile.fileName.toLowerCase();
+      const containsAll = fileNameLower.includes('_all') ||
+                          fileNameLower.includes('all_') ||
+                          fileNameLower.startsWith('all') ||
+                          /\ball\b/.test(fileNameLower); // Match "all" as a standalone word
+
+      // Assign appropriate label
+      let pinLabel: string;
+      if (containsAll) {
+        // Filename contains "all" - always label as "All Locations"
+        pinLabel = 'All Locations';
+      } else if (pin?.label.toLowerCase().includes('all')) {
+        // Pin label itself contains "all"
+        pinLabel = 'All Locations';
+      } else {
+        pinLabel = pin?.label || 'Unknown Pin';
+      }
 
       result.push({
         id: mergedFile.id,
@@ -2626,8 +2644,28 @@ function MapDrawingPageContent() {
 
     files.forEach(file => {
       const pin = pins.find(p => p.id === file.pinId);
-      const fileWithPinLabel = { ...file, pinLabel: pin?.label || 'Unnamed Pin' };
-      
+
+      // Check if filename contains "all" (case-insensitive) - indicates merged/combined data from all locations
+      const fileNameLower = file.fileName.toLowerCase();
+      const containsAll = fileNameLower.includes('_all') ||
+                          fileNameLower.includes('all_') ||
+                          fileNameLower.startsWith('all') ||
+                          /\ball\b/.test(fileNameLower); // Match "all" as a standalone word
+
+      // Assign appropriate label
+      let pinLabel: string;
+      if (containsAll) {
+        // Filename contains "all" - always label as "All Locations"
+        pinLabel = 'All Locations';
+      } else if (pin?.label.toLowerCase().includes('all')) {
+        // Pin label itself contains "all"
+        pinLabel = 'All Locations';
+      } else {
+        pinLabel = pin?.label || 'Unnamed Pin';
+      }
+
+      const fileWithPinLabel = { ...file, pinLabel };
+
       const fileName = file.fileName.toUpperCase();
       if (fileName.includes('FPOD') || fileName.startsWith('FPOD_')) {
         grouped.FPOD.push(fileWithPinLabel);

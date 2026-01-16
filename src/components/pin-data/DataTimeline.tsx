@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { getMergedFilesByProjectAction } from '@/app/api/merged-files/actions';
 import type { MergedFile } from '@/lib/supabase/merged-files-service';
+import { categorizeFile } from '@/lib/file-categorization-config';
 
 // Lazy load MergeFilesDialog - only loads when user clicks merge button
 const MergeFilesDialog = dynamic(
@@ -49,6 +50,8 @@ interface DataTimelineProps {
   onAddFilesToMergedFile?: (mergedFile: MergedFile) => void;
   multiFileMergeMode?: boolean;
   onMultiFileMergeModeChange?: (mode: boolean) => void;
+  viewMode?: 'table' | 'timeline';
+  pinColorMap?: Map<string, string>; // Optional external color map for consistent colors across tiles
 }
 
 interface FileWithDateRange {
@@ -216,10 +219,14 @@ const parseFileGrouping = (fileName: string): { project: string; dataType: strin
   return { project, dataType, station, groupKey };
 };
 
-export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange }: DataTimelineProps) {
+export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap }: DataTimelineProps) {
   const { toast } = useToast();
   const [filesWithDates, setFilesWithDates] = useState<FileWithDateRange[]>([]);
-  const [viewMode, setViewMode] = useState<'table' | 'timeline'>('timeline');
+  const [internalViewMode, setInternalViewMode] = useState<'table' | 'timeline'>('timeline');
+
+  // Use external viewMode if provided, otherwise use internal state
+  const viewMode = externalViewMode ?? internalViewMode;
+  const setViewMode = externalViewMode ? () => {} : setInternalViewMode;
   const [hasAnalyzed, setHasAnalyzed] = useState(true); // Always true since dates are from database
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<{ id: string; name: string } | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>('asc'); // Start with alphabetical (asc)
@@ -582,14 +589,64 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
   // Helper function to extract prefix from pin label
   const getPinPrefix = (pinLabel: string): string => {
-    // Match patterns like "GP", "GP-Pel", "SubCam", etc.
-    // Extract the first part before any underscore or dash followed by specific identifiers
-    const match = pinLabel.match(/^([A-Za-z]+(?:-[A-Za-z]+)?)/);
-    return match ? match[1] : pinLabel;
+    // Extract the location identifier by removing data type suffixes
+    // Examples:
+    // "Farm 1 - FPOD" -> "Farm 1"
+    // "Farm 1 FPOD" -> "Farm 1"
+    // "Control A - SubCam" -> "Control A"
+    // "Control A SubCam" -> "Control A"
+    // "All Locations" -> "All Locations" (special case)
+
+    // Special case: "All Locations" should be its own group
+    if (pinLabel === 'All Locations') {
+      return 'All Locations';
+    }
+
+    // First, try splitting by " - " (common separator)
+    const dashSplit = pinLabel.split(' - ');
+    if (dashSplit.length > 1) {
+      return dashSplit[0].trim();
+    }
+
+    // If no " - ", try to remove known data type suffixes from the end
+    const knownSuffixes = [
+      'FPOD', 'SubCam', 'GP', 'GrowProbe',
+      'EDNA', 'EDNAW', 'EDNAS',
+      'WQ', 'CHEM', 'CHEMSW', 'CHEMWQ', 'CROP',
+      'Hapl', 'Taxo', 'Cred', 'Meta'
+    ];
+
+    let result = pinLabel.trim();
+
+    // Try to remove suffixes (case-insensitive, with space, underscore, or dash separator)
+    for (const suffix of knownSuffixes) {
+      const patterns = [
+        ` ${suffix}`,    // "Farm 1 FPOD"
+        `_${suffix}`,    // "Farm1_FPOD"
+        `-${suffix}`,    // "Farm1-FPOD"
+      ];
+
+      for (const pattern of patterns) {
+        if (result.toLowerCase().endsWith(pattern.toLowerCase())) {
+          result = result.slice(0, -pattern.length).trim();
+          break;
+        }
+      }
+    }
+
+    // If nothing was removed, return the original label
+    return result || pinLabel;
   };
 
   // Create pin-based color mapping grouped by prefix
+  // Use external color map if provided (for consistency across tiles), otherwise compute locally
   const pinColorMap = useMemo(() => {
+    // If external color map is provided, use it
+    if (externalPinColorMap) {
+      return externalPinColorMap;
+    }
+
+    // Otherwise, compute color map based on pin prefixes
     // First, group pins by their prefix
     const prefixGroups = new Map<string, string[]>();
     files.forEach(f => {
@@ -602,7 +659,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
     // Assign colors to prefixes
     const prefixColorMap = new Map<string, string>();
-    Array.from(prefixGroups.keys()).forEach((prefix, index) => {
+    Array.from(prefixGroups.keys()).sort().forEach((prefix, index) => {
       prefixColorMap.set(prefix, COLORS[index % COLORS.length]);
     });
 
@@ -615,7 +672,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     });
 
     return colorMap;
-  }, [files]);
+  }, [files, externalPinColorMap]);
 
   // Create merged groups based on Project_DataType_Station
   const mergedGroups = useMemo(() => {
@@ -900,11 +957,21 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     return `${startMonth} ${startYear} - ${endMonth} ${endYear}`;
   };
 
-  // Helper function to extract suffix from filename (matches ProjectDataDialog logic)
-  const extractSuffix = (fileName: string): string => {
-    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
-    const parts = nameWithoutExt.split('_');
-    return parts.length > 0 ? parts[parts.length - 1] : '';
+  // Helper function to get categories for a file
+  const getFileCategories = (fileName: string): string => {
+    const matches = categorizeFile(fileName);
+
+    if (matches.length === 0) return '';
+
+    // Extract categories and filter out undefined ones
+    const categories = matches
+      .map(match => match.category)
+      .filter((cat): cat is string => cat !== undefined);
+
+    if (categories.length === 0) return '';
+
+    // Join multiple categories with comma
+    return categories.join(', ');
   };
 
   // Helper function to determine file category (which tile it belongs to)
@@ -937,34 +1004,6 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     return 'OTHER';
   };
 
-  // Helper function to find categories with multiple suffixes in the current file set
-  const getCategoriesWithMultipleSuffixes = (allFiles: FileWithDateRange[]): Set<string> => {
-    const categorySuffixes = new Map<string, Set<string>>();
-
-    allFiles.forEach(({ file }) => {
-      if (isMergedFile(file)) return; // Skip merged files
-
-      const category = getFileCategory(file.fileName);
-      const suffix = extractSuffix(file.fileName);
-
-      if (suffix && suffix !== '') {
-        if (!categorySuffixes.has(category)) {
-          categorySuffixes.set(category, new Set());
-        }
-        categorySuffixes.get(category)!.add(suffix);
-      }
-    });
-
-    // Return categories that have more than one unique suffix
-    const multiSuffixCategories = new Set<string>();
-    categorySuffixes.forEach((suffixes, category) => {
-      if (suffixes.size > 1) {
-        multiSuffixCategories.add(category);
-      }
-    });
-
-    return multiSuffixCategories;
-  };
 
   // Helper function to check if we need to show suffix
   const shouldShowSuffix = (
@@ -972,28 +1011,16 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     dateRange: { startDate: string | null; endDate: string | null },
     allFiles: FileWithDateRange[]
   ): boolean => {
-    if (!dateRange.startDate || !dateRange.endDate) return false;
-
-    // Check if this file's category has multiple suffixes in the project
-    const categoriesWithMultipleSuffixes = getCategoriesWithMultipleSuffixes(allFiles);
-    const fileCategory = getFileCategory(file.fileName);
-
-    if (categoriesWithMultipleSuffixes.has(fileCategory)) {
-      return true; // Show suffix for all files in categories with multiple suffixes
-    }
-
-    // Count files with same pin label and same date range
-    const similarFiles = allFiles.filter(f => {
+    // Count files with same pin label (location)
+    const sameLocationFiles = allFiles.filter(f => {
       if (f.file.id === file.id) return false; // Exclude self
-      if (f.file.pinLabel !== file.pinLabel) return false; // Different pin
+      if (f.file.pinLabel !== file.pinLabel) return false; // Different location
       if (isMergedFile(f.file)) return false; // Ignore merged files
 
-      // Check if dates match (same start and end)
-      return f.dateRange.startDate === dateRange.startDate &&
-             f.dateRange.endDate === dateRange.endDate;
+      return true; // Same location
     });
 
-    return similarFiles.length > 0; // If there are other files with same pin/dates, show suffix
+    return sameLocationFiles.length > 0; // If there are other files with same location, show suffix
   };
 
   // Helper function to extract location from FPOD merged files
@@ -1060,34 +1087,45 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
     // Merged files
     if (isMergedFile(file)) {
-      const suffix = extractSuffix(file.fileName);
+      const categories = getFileCategories(file.fileName);
 
       // Use the actual pin label if available and not generic
       let locationLabel = file.pinLabel;
 
       // If pinLabel is generic or missing, try to extract from filename
-      if (!locationLabel || locationLabel === 'Unknown Pin' || locationLabel === 'Merged Files' || locationLabel === 'Merged') {
+      // But preserve "All Locations" label if it's set
+      if (locationLabel === 'All Locations') {
+        // Keep "All Locations" as-is
+      } else if (!locationLabel || locationLabel === 'Unknown Pin' || locationLabel === 'Merged Files' || locationLabel === 'Merged') {
         const extractedLocation = extractLocationFromMergedFile(file.fileName);
         locationLabel = extractedLocation || 'Unassigned';
       }
 
-      return suffix
-        ? `${locationLabel} • ${dateRangeStr} (${suffix})`
+      return categories
+        ? `${locationLabel} • ${dateRangeStr} (${categories})`
         : `${locationLabel} • ${dateRangeStr}`;
     }
 
     // Unassigned files (no valid pin ID)
     if (!file.pinId || file.pinId === '' || file.pinLabel === 'Unknown' || file.pinLabel === '') {
-      const suffix = extractSuffix(file.fileName);
-      return suffix
-        ? `Unassigned • ${dateRangeStr} (${suffix})`
+      // Check if this is an "All Locations" file (files with "all" in name)
+      if (file.pinLabel === 'All Locations') {
+        const categories = getFileCategories(file.fileName);
+        return categories
+          ? `All Locations • ${dateRangeStr} (${categories})`
+          : `All Locations • ${dateRangeStr}`;
+      }
+
+      const categories = getFileCategories(file.fileName);
+      return categories
+        ? `Unassigned • ${dateRangeStr} (${categories})`
         : `Unassigned • ${dateRangeStr}`;
     }
 
     // Pin-linked files
-    const suffix = shouldShowSuffix(file, dateRange, allFiles) ? extractSuffix(file.fileName) : null;
-    return suffix
-      ? `${file.pinLabel} • ${dateRangeStr} (${suffix})`
+    const categories = shouldShowSuffix(file, dateRange, allFiles) ? getFileCategories(file.fileName) : null;
+    return categories
+      ? `${file.pinLabel} • ${dateRangeStr} (${categories})`
       : `${file.pinLabel} • ${dateRangeStr}`;
   };
 
@@ -1242,7 +1280,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
             <div className="flex items-center gap-2 bg-muted/30 rounded px-2 py-1">
               <Layers className="h-3 w-3 text-muted-foreground" />
               <Label htmlFor="merge-toggle" className="text-xs cursor-pointer">
-                Merge
+                Group Locations
               </Label>
               <Switch
                 id="merge-toggle"
@@ -1253,27 +1291,29 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
             </div>
           )}
 
-          {/* View Mode Toggle - Always visible */}
-          <div className="flex items-center gap-1 bg-muted/50 rounded p-1">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-6 px-2"
-              onClick={() => setViewMode('table')}
-            >
-              <Calendar className="h-3 w-3 mr-1" />
-              <span className="text-xs">Table</span>
-            </Button>
-            <Button
-              variant={viewMode === 'timeline' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-6 px-2"
-              onClick={() => setViewMode('timeline')}
-            >
-              <BarChart3 className="h-3 w-3 mr-1" />
-              <span className="text-xs">Timeline</span>
-            </Button>
-          </div>
+          {/* View Mode Toggle - Only shown when not controlled externally */}
+          {!externalViewMode && (
+            <div className="flex items-center gap-1 bg-muted/50 rounded p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => setViewMode('table')}
+              >
+                <Calendar className="h-3 w-3 mr-1" />
+                <span className="text-xs">Table</span>
+              </Button>
+              <Button
+                variant={viewMode === 'timeline' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => setViewMode('timeline')}
+              >
+                <BarChart3 className="h-3 w-3 mr-1" />
+                <span className="text-xs">Timeline</span>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 

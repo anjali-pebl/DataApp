@@ -3539,6 +3539,10 @@ export function PinChartDisplay({
               setShowRawViewer(true);
               console.log('[OPEN RAW EDITOR] State updated, showRawViewer should be true');
             }}
+            pinLabel={pinLabel}
+            startDate={startDate}
+            endDate={endDate}
+            fileCategories={fileCategories}
           />
         </div>
       ) : (

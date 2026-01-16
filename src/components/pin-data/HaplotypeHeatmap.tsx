@@ -38,6 +38,11 @@ interface HaplotypeHeatmapProps {
   rawFileName?: string;
   pinId?: string;
   onOpenRawEditor?: (fileId: string, fileName: string, speciesName?: string) => void;
+  // Header metadata
+  pinLabel?: string;
+  startDate?: Date;
+  endDate?: Date;
+  fileCategories?: string[];
 }
 
 interface ProcessedCell extends HaplotypeCellData {
@@ -74,7 +79,11 @@ export function HaplotypeHeatmap({
   rawFileId,
   rawFileName,
   pinId,
-  onOpenRawEditor
+  onOpenRawEditor,
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories
 }: HaplotypeHeatmapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });

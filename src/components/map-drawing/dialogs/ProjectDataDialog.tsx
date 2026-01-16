@@ -22,7 +22,8 @@ import {
   BarChart3,
   FileCode,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Table
 } from 'lucide-react';
 import { DataTimeline } from '@/components/pin-data/DataTimeline';
 import { DataTimelineSkeleton } from '@/components/loading/PageSkeletons';
@@ -104,7 +105,8 @@ function SourceTile({
   onMergedFileClick,
   onAddFilesToMergedFile,
   multiFileMergeMode,
-  setMultiFileMergeMode
+  setMultiFileMergeMode,
+  pinColorMap
 }: {
   source: string;
   label: string;
@@ -120,18 +122,23 @@ function SourceTile({
   onAddFilesToMergedFile: any;
   multiFileMergeMode: 'union' | 'intersection';
   setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
+  pinColorMap: Map<string, string>;
 }) {
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>([]);
+  const [viewMode, setViewMode] = React.useState<'table' | 'timeline'>('timeline');
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [startY, setStartY] = React.useState(0);
   const [scrollTop, setScrollTop] = React.useState(0);
 
-  // Get file category for this specific tile
-  const getFileCategory = (fileName: string): string | null => {
+  // Get all categories for a file in this specific tile
+  const getFileCategories = (fileName: string): string[] => {
     const matches = categorizeFile(fileName);
-    const matchForThisTile = matches.find(match => match.tile === label);
-    return matchForThisTile?.category || null;
+    const categoriesForThisTile = matches
+      .filter(match => match.tile === label)
+      .map(match => match.category)
+      .filter((cat): cat is string => cat !== undefined);
+    return categoriesForThisTile;
   };
 
   // Get unique categories for this tile from the configuration
@@ -139,11 +146,20 @@ function SourceTile({
   const hasCategories = tileHasCategories(label);
 
   // Filter files by selected categories
+  // If 1 category: OR logic (show if file has that category)
+  // If 2+ categories: AND logic (show only if file has ALL selected categories)
   const filteredFiles = !hasCategories || selectedCategories.length === 0
     ? files
     : files.filter(file => {
-        const category = getFileCategory(file.fileName);
-        return category && selectedCategories.includes(category);
+        const fileCategories = getFileCategories(file.fileName);
+
+        if (selectedCategories.length === 1) {
+          // Single category: show if file has this category
+          return fileCategories.some(cat => selectedCategories.includes(cat));
+        } else {
+          // Multiple categories: show only if file has ALL selected categories
+          return selectedCategories.every(cat => fileCategories.includes(cat));
+        }
       });
 
   // Drag to scroll handlers
@@ -183,21 +199,21 @@ function SourceTile({
   };
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden flex flex-col h-[500px]">
+    <div className="border border-border rounded-lg overflow-hidden flex flex-col max-h-[500px]">
       {/* Tile Header */}
-      <div className="bg-muted/30 border-b border-border px-4 py-3 flex-shrink-0">
+      <div className="bg-teal-700 border-b border-teal-800 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">{label}</h3>
+          <h3 className="font-semibold text-sm text-white">{label}</h3>
           <div className="flex items-center gap-2">
             {/* Category Filter Dropdown */}
             {hasCategories && availableCategories.length > 0 && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors text-[11px] ${selectedCategories.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : 'border border-border/30'}`}>
-                    <FileCode className="h-3 w-3 text-amber-500" />
+                  <button className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-700 transition-colors text-xs ${selectedCategories.length > 0 ? 'bg-amber-500 text-white' : 'bg-teal-800 text-white'}`}>
+                    <FileCode className="h-3 w-3" />
                     <span className="font-semibold">{selectedCategories.length > 0 ? selectedCategories.length : availableCategories.length}</span>
-                    <span className="text-muted-foreground">Categories</span>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <span>Categories</span>
+                    <ChevronDown className="h-3 w-3" />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-56 p-2" align="end">
@@ -235,7 +251,29 @@ function SourceTile({
               </Popover>
             )}
 
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('table')}
+              >
+                <Calendar className="h-3 w-3 mr-1" />
+                <span className="text-xs">Table</span>
+              </Button>
+              <Button
+                variant={viewMode === 'timeline' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('timeline')}
+              >
+                <BarChart3 className="h-3 w-3 mr-1" />
+                <span className="text-xs">Timeline</span>
+              </Button>
+            </div>
+
+            <span className="text-xs text-white bg-teal-800 px-2 py-1 rounded">
               {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
             </span>
           </div>
@@ -267,6 +305,8 @@ function SourceTile({
           onAddFilesToMergedFile={onAddFilesToMergedFile}
           multiFileMergeMode={multiFileMergeMode}
           onMultiFileMergeModeChange={setMultiFileMergeMode}
+          viewMode={viewMode}
+          pinColorMap={pinColorMap}
         />
       </div>
     </div>
@@ -396,6 +436,95 @@ export function ProjectDataDialog({
                 </div>
               );
             }
+
+            // Compute global color map for consistent colors across all tiles
+            // This is computed once for ALL files and passed to each tile
+            const COLORS = [
+              '#3b82f6', // blue
+              '#ef4444', // red
+              '#22c55e', // green
+              '#f59e0b', // amber
+              '#8b5cf6', // violet
+              '#ec4899', // pink
+              '#06b6d4', // cyan
+              '#84cc16', // lime
+              '#f97316', // orange
+              '#6366f1', // indigo
+            ];
+
+            const getPinPrefix = (pinLabel: string): string => {
+              // Extract the location identifier by removing data type suffixes
+              // Examples:
+              // "Farm 1 - FPOD" -> "Farm 1"
+              // "Farm 1 FPOD" -> "Farm 1"
+              // "Control A - SubCam" -> "Control A"
+              // "Control A SubCam" -> "Control A"
+              // "All Locations" -> "All Locations" (special case)
+
+              // Special case: "All Locations" should be its own group
+              if (pinLabel === 'All Locations') {
+                return 'All Locations';
+              }
+
+              // First, try splitting by " - " (common separator)
+              const dashSplit = pinLabel.split(' - ');
+              if (dashSplit.length > 1) {
+                return dashSplit[0].trim();
+              }
+
+              // If no " - ", try to remove known data type suffixes from the end
+              const knownSuffixes = [
+                'FPOD', 'SubCam', 'GP', 'GrowProbe',
+                'EDNA', 'EDNAW', 'EDNAS',
+                'WQ', 'CHEM', 'CHEMSW', 'CHEMWQ', 'CROP',
+                'Hapl', 'Taxo', 'Cred', 'Meta'
+              ];
+
+              let result = pinLabel.trim();
+
+              // Try to remove suffixes (case-insensitive, with space, underscore, or dash separator)
+              for (const suffix of knownSuffixes) {
+                const patterns = [
+                  ` ${suffix}`,    // "Farm 1 FPOD"
+                  `_${suffix}`,    // "Farm1_FPOD"
+                  `-${suffix}`,    // "Farm1-FPOD"
+                ];
+
+                for (const pattern of patterns) {
+                  if (result.toLowerCase().endsWith(pattern.toLowerCase())) {
+                    result = result.slice(0, -pattern.length).trim();
+                    break;
+                  }
+                }
+              }
+
+              // If nothing was removed, return the original label
+              return result || pinLabel;
+            };
+
+            // Group pins by their prefix
+            const prefixGroups = new Map<string, string[]>();
+            allFiles.forEach(f => {
+              const prefix = getPinPrefix(f.pinLabel);
+              if (!prefixGroups.has(prefix)) {
+                prefixGroups.set(prefix, []);
+              }
+              prefixGroups.get(prefix)!.push(f.pinLabel);
+            });
+
+            // Assign colors to prefixes (sorted for consistency)
+            const prefixColorMap = new Map<string, string>();
+            Array.from(prefixGroups.keys()).sort().forEach((prefix, index) => {
+              prefixColorMap.set(prefix, COLORS[index % COLORS.length]);
+            });
+
+            // Map each pin label to its prefix color
+            const globalPinColorMap = new Map<string, string>();
+            allFiles.forEach(f => {
+              const prefix = getPinPrefix(f.pinLabel);
+              const color = prefixColorMap.get(prefix) || COLORS[0];
+              globalPinColorMap.set(f.pinLabel, color);
+            });
 
             // Handler for clicking file names in timeline
             const handleTimelineFileClick = async (file: PinFile & { pinLabel: string }) => {
@@ -897,7 +1026,7 @@ export function ProjectDataDialog({
                       }
 
                       return (
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4">
                           {tilesWithFiles.map(tileName => {
                             const files = filesBySource[tileName];
                             return (
@@ -1203,6 +1332,7 @@ export function ProjectDataDialog({
                                     }}
                                 multiFileMergeMode={multiFileMergeMode}
                                 setMultiFileMergeMode={setMultiFileMergeMode}
+                                pinColorMap={globalPinColorMap}
                               />
                             );
                           })}
