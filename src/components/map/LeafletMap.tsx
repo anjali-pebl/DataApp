@@ -362,6 +362,7 @@ const LeafletMap = ({
     const pinLayerRef = useRef<LayerGroup | null>(null);
     const lineLayerRef = useRef<LayerGroup | null>(null);
     const hasInitializedRef = useRef(false);
+    const hasInitialProjectZoomRef = useRef(false); // Track if we've done initial zoom to active project
     const activeLicenseAreaRef = useRef<string | null>(null); // Track active License area for visibility override
 
     // Return early if Leaflet is not available (SSR)
@@ -498,6 +499,74 @@ const LeafletMap = ({
             }
         }
     }, [center, zoom]);
+
+    // Initial zoom to fit active project content (runs when page becomes visible)
+    useEffect(() => {
+        // Only run once per page visit, when map is ready and we have an active project
+        if (hasInitialProjectZoomRef.current || !mapRef.current || !activeProjectId) return;
+
+        // Find the main License area for the active project (same as double-click behavior)
+        const projectAreas = areas.filter(a => a.projectId === activeProjectId);
+
+        console.log('[LeafletMap] Initial project zoom check:', {
+            activeProjectId,
+            totalAreas: areas.length,
+            projectAreas: projectAreas.length,
+            projectAreaLabels: projectAreas.map(a => a.label)
+        });
+
+        // Look for a License area first (matches double-click behavior)
+        const licenseArea = projectAreas.find(a =>
+            a.label && a.label.toLowerCase().includes('license') && a.path && a.path.length >= 3
+        );
+
+        // If no License area, use any area with a valid path
+        const targetArea = licenseArea || projectAreas.find(a => a.path && a.path.length >= 3);
+
+        if (!targetArea || !targetArea.path) {
+            console.log('[LeafletMap] No valid area found for initial zoom');
+            return;
+        }
+
+        hasInitialProjectZoomRef.current = true;
+        console.log('[LeafletMap] Zooming to area:', targetArea.label);
+
+        // Set this as the active License area to force visibility of nested items (same as double-click)
+        activeLicenseAreaRef.current = targetArea.id;
+
+        // Calculate bounds from area path (same approach as double-click handler)
+        const lats = targetArea.path.map(p => p.lat);
+        const lngs = targetArea.path.map(p => p.lng);
+        const bounds = L.latLngBounds(
+            L.latLng(Math.min(...lats), Math.min(...lngs)),
+            L.latLng(Math.max(...lats), Math.max(...lngs))
+        );
+
+        console.log('[LeafletMap] Calculated bounds:', bounds.toString());
+
+        // Fit bounds with same parameters as double-click handler
+        mapRef.current.fitBounds(bounds, {
+            padding: [50, 50],
+            animate: false
+        });
+
+        // Trigger moveend to update visibility (same as double-click)
+        mapRef.current.fire('moveend');
+
+        // Clear active License area after a delay (same as double-click)
+        setTimeout(() => {
+            activeLicenseAreaRef.current = null;
+            if (mapRef.current) {
+                mapRef.current.fire('moveend');
+            }
+            console.log('[LeafletMap] Initial project zoom complete');
+        }, 600);
+
+        // Reset zoom flag when component unmounts (so it zooms again when navigating back)
+        return () => {
+            hasInitialProjectZoomRef.current = false;
+        };
+    }, [activeProjectId, areas]);
 
     // Render pins with click handlers for deletion
     useEffect(() => {

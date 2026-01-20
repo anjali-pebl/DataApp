@@ -820,8 +820,17 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       return { months: [], years: [], minDate: null, maxDate: null, totalDays: 0 };
     }
 
-    const minDate = new Date(Math.min(...allStartDates.map(d => d.getTime())));
-    const maxDate = new Date(Math.max(...allEndDates.map(d => d.getTime())));
+    let minDate = new Date(Math.min(...allStartDates.map(d => d.getTime())));
+    let maxDate = new Date(Math.max(...allEndDates.map(d => d.getTime())));
+
+    // If all data falls within a short range (e.g., same month), expand to show full month(s)
+    // This ensures bars don't span 100% width when all data has the same date
+    const actualRange = differenceInDays(maxDate, minDate) + 1;
+    if (actualRange < 14) {
+      // Expand timeline to show the full month(s) the data falls in
+      minDate = startOfMonth(minDate);
+      maxDate = endOfMonth(maxDate);
+    }
 
     // Generate ALL months between minDate and maxDate for proper alignment
     // This ensures month headers align with the timeline bars
@@ -1693,7 +1702,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
               <tr>
                 {/* LEFT HEADER (35%): Data Files with Sort */}
                 <th className="w-[35%] align-top">
-                  <div className="h-7 flex items-center border-b border-border/30 mb-2">
+                  <div className="h-7 flex items-center mb-2" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
                     <button
                       onClick={toggleSortOrder}
                       className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors cursor-pointer group"
@@ -1710,72 +1719,65 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                 {/* RIGHT HEADER (65%): Timeline */}
                 <th className="w-[65%] align-top">
                   <div className="relative mb-3">
-                    <div className="h-7 flex items-center border-b border-border/30 mb-2">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    <div className="h-7 flex items-center justify-center mb-2" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
                         Timeline ({format(timelineData.minDate!, 'MMM yyyy')} - {format(timelineData.maxDate!, 'MMM yyyy')})
                       </h4>
                     </div>
 
                     {/* Two-row header: Years and Months */}
-                    <div className="relative">
-                      {/* Year row */}
-                      <div className="relative h-5 border-b border-border/30">
-                        <div className="absolute inset-0 flex">
+                    <div className="relative overflow-hidden">
+                      {/* Year row - uses flex layout for responsiveness */}
+                      <div className="relative h-5" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
+                        <div className="flex h-full w-full">
                           {timelineData.years.map((yearData, index) => {
-                            const totalMonthsWidth = timelineData.months.length;
-                            const left = (yearData.startMonth / totalMonthsWidth) * 100;
-                            const width = (yearData.monthCount / totalMonthsWidth) * 100;
+                            // Calculate width based on number of months this year spans
+                            const yearMonths = timelineData.months.slice(yearData.startMonth, yearData.startMonth + yearData.monthCount);
+                            const yearDays = yearMonths.reduce((total, month) => {
+                              return total + differenceInDays(endOfMonth(month), startOfMonth(month)) + 1;
+                            }, 0);
+                            const widthPercent = (yearDays / timelineData.totalDays) * 100;
 
                             return (
                               <div
                                 key={index}
-                                className="absolute text-xs font-semibold text-foreground/90 flex items-center justify-center border-r border-border/30"
+                                className="text-xs font-semibold text-foreground/90 flex items-center justify-center flex-shrink-0 overflow-hidden"
                                 style={{
-                                  left: `${left}%`,
-                                  width: `${width}%`,
-                                  height: '100%'
+                                  width: `${widthPercent}%`,
+                                  minWidth: '30px',
+                                  borderRight: timelineData.years.length > 1 ? '1.5px solid rgba(0,0,0,0.15)' : 'none'
                                 }}
                               >
-                                {yearData.year}
+                                <span className="truncate">{yearData.year}</span>
                               </div>
                             );
                           })}
                         </div>
                       </div>
 
-                      {/* Month row */}
-                      <div className="relative h-4 bg-muted/10">
-                        <div className="absolute inset-0 flex">
+                      {/* Month row - uses flex layout for responsiveness */}
+                      <div className="relative h-5 bg-muted/10 overflow-hidden">
+                        <div className="flex h-full w-full">
                           {timelineData.months.map((month, index) => {
                             const monthStart = startOfMonth(month);
                             const monthEnd = endOfMonth(month);
                             const monthDuration = differenceInDays(monthEnd, monthStart) + 1;
-
-                            const daysFromTimelineStart = differenceInDays(monthStart, timelineData.minDate!);
-                            const left = (daysFromTimelineStart / timelineData.totalDays) * 100;
-                            const width = (monthDuration / timelineData.totalDays) * 100;
-
-                            const showText = width > 3;
-                            const monthLabel = format(month, 'MM'); // Always use 2-digit format (01, 02, etc.)
+                            const widthPercent = (monthDuration / timelineData.totalDays) * 100;
 
                             return (
                               <div
                                 key={index}
-                                className="absolute border-r border-border/30 flex items-center justify-center text-xs"
+                                className="flex items-center justify-center text-xs flex-shrink-0 overflow-hidden"
                                 style={{
-                                  left: `${left}%`,
-                                  width: `${width}%`,
-                                  height: '100%'
+                                  width: `${widthPercent}%`,
+                                  minWidth: timelineData.months.length <= 6 ? '20px' : '12px',
+                                  borderRight: timelineData.months.length > 1 ? '1.5px solid rgba(0,0,0,0.12)' : 'none'
                                 }}
                                 title={format(month, 'MMMM yyyy')}
                               >
-                                {showText ? (
-                                  <span className="text-muted-foreground font-medium text-[10px]">
-                                    {monthLabel}
-                                  </span>
-                                ) : (
-                                  <div className="w-px h-3 bg-border/50" />
-                                )}
+                                <span className="text-muted-foreground font-medium text-[10px] truncate">
+                                  {format(month, 'MM')}
+                                </span>
                               </div>
                             );
                           })}

@@ -6534,8 +6534,8 @@ function MapDrawingPageContent() {
             )}
 
 
-            {/* Data Explorer Button - Hide when panel is open */}
-            {!showDataExplorerPanel && (
+            {/* Data Explorer Button - Only show when feature is enabled */}
+            {isFeatureEnabled('DATA_EXPLORER_PANEL') && !showDataExplorerPanel && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -6557,8 +6557,8 @@ function MapDrawingPageContent() {
               </TooltipProvider>
             )}
 
-            {/* Floating Drawing Tools Button - Hide when panel is open */}
-            {!showDataExplorerPanel && (
+            {/* Floating Drawing Tools Button */}
+            {(
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>

@@ -199,7 +199,7 @@ function SourceTile({
   };
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden flex flex-col max-h-[500px]">
+    <div className="border border-border rounded-lg overflow-visible flex flex-col max-h-[500px]">
       {/* Tile Header */}
       <div className="bg-teal-700 border-b border-teal-800 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
@@ -283,7 +283,7 @@ function SourceTile({
       {/* Tile Content */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden cursor-grab scrollbar-hide"
+        className="flex-1 overflow-y-auto overflow-x-auto cursor-grab scrollbar-hide"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
