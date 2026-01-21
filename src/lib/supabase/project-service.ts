@@ -293,6 +293,42 @@ class ProjectService {
       createdAt: new Date(data.created_at)
     }
   }
+
+  /**
+   * Get project by slug/name match (for legacy location-based project IDs)
+   * Converts slug like 'milfordhaven' to match 'Milford Haven'
+   */
+  async getProjectBySlug(slug: string): Promise<Project | null> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return null
+
+    // Get all user's projects and find one whose name matches the slug
+    const { data, error } = await this.supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', user.id)
+
+    if (error || !data) return null
+
+    // Convert slug to comparable format and find matching project
+    const normalizeForComparison = (str: string) =>
+      str.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+    const normalizedSlug = normalizeForComparison(slug)
+
+    const matchingProject = data.find(project =>
+      normalizeForComparison(project.name) === normalizedSlug
+    )
+
+    if (!matchingProject) return null
+
+    return {
+      id: matchingProject.id,
+      name: matchingProject.name,
+      description: matchingProject.description || undefined,
+      createdAt: new Date(matchingProject.created_at)
+    }
+  }
 }
 
 export const projectService = new ProjectService()

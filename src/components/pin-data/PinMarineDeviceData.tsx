@@ -2591,7 +2591,8 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
                   )}
 
                   {/* Right side: Save/Load Plot View buttons - Always visible */}
-                  <div className="flex items-center gap-2">
+                  {/* Added mr-10 to leave space for modal close X button */}
+                  <div className="flex items-center gap-2 mr-10">
                     <Button
                       variant="outline"
                       size="sm"

@@ -120,7 +120,7 @@ export interface StyleRule {
 }
 
 // Version for style rules - increment when defaults change
-export const STYLE_RULES_VERSION = 20;
+export const STYLE_RULES_VERSION = 21;
 
 // Default styling rules - can be expanded
 // IMPORTANT: Order matters! More specific patterns must come BEFORE more general patterns
@@ -251,7 +251,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barGap: 4, // Gap between bars in same category (px)
         barCategoryGap: 10, // Gap between different categories (% of category size)
         columnBorderWidth: 0, // Border thickness for column bars
-        columnColorMode: 'single', // Default to single color for all columns
+        columnColorMode: 'unique', // Default to unique color per sample
         singleColumnColor: '#3b82f6', // Default blue color
 
         // Whisker Plot specific
@@ -327,7 +327,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barGap: 4, // Gap between bars in same category (px)
         barCategoryGap: 10, // Gap between different categories (% of category size)
         columnBorderWidth: 0, // Border thickness for column bars
-        columnColorMode: 'single', // Default to single color for all columns
+        columnColorMode: 'unique', // Default to unique color per sample
         singleColumnColor: '#3b82f6', // Default blue color
 
         // Whisker Plot specific
@@ -425,7 +425,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barGap: 4,
         barCategoryGap: 10,
         columnBorderWidth: 0,
-        columnColorMode: 'single', // Default to single color for CHEMWQ
+        columnColorMode: 'unique', // Default to unique color per sample
         singleColumnColor: '#3b82f6', // Default blue color
 
         // Chart margins

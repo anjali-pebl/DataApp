@@ -1115,8 +1115,11 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         : `${locationLabel} • ${dateRangeStr}`;
     }
 
-    // Unassigned files (no valid pin ID)
-    if (!file.pinId || file.pinId === '' || file.pinLabel === 'Unknown' || file.pinLabel === '') {
+    // Unassigned files (no valid pin ID or area ID)
+    const hasValidId = file.pinId || file.areaId;
+    const hasValidLabel = file.pinLabel && file.pinLabel !== 'Unknown' && file.pinLabel !== '';
+
+    if (!hasValidId || !hasValidLabel) {
       // Check if this is an "All Locations" file (files with "all" in name)
       if (file.pinLabel === 'All Locations') {
         const categories = getFileCategories(file.fileName);
@@ -1132,7 +1135,18 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     }
 
     // Pin-linked files
-    const categories = shouldShowSuffix(file, dateRange, allFiles) ? getFileCategories(file.fileName) : null;
+    // Always show categories for:
+    // - Water/Crop files
+    // - "All Locations" files (since they aggregate data from multiple locations)
+    // - Files with multiple files at same location
+    const fileNameLower = file.fileName.toLowerCase();
+    const isWaterOrCrop = fileNameLower.includes('chem') ||
+                          fileNameLower.includes('_wq') ||
+                          fileNameLower.includes('crop');
+    const isAllLocations = file.pinLabel === 'All Locations';
+    const categories = (isWaterOrCrop || isAllLocations || shouldShowSuffix(file, dateRange, allFiles))
+      ? getFileCategories(file.fileName)
+      : null;
     return categories
       ? `${file.pinLabel} • ${dateRangeStr} (${categories})`
       : `${file.pinLabel} • ${dateRangeStr}`;

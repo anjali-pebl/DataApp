@@ -11,12 +11,16 @@
  */
 
 export interface FileCategoryRule {
-  /** String that must be contained in the filename (case-insensitive) */
+  /** String that must be contained in the filename (case-insensitive by default) */
   contains: string;
   /** Which tile this file should appear in */
   tile: string;
   /** Optional category within the tile */
   category?: string;
+  /** If true, matching is case-sensitive. Default is case-insensitive. */
+  caseSensitive?: boolean;
+  /** If set, the pattern will NOT match if the filename contains this string */
+  excludeIfContains?: string;
 }
 
 export interface FileCategoryMatch {
@@ -99,6 +103,7 @@ export const FILE_CATEGORY_RULES: FileCategoryRule[] = [
     contains: 'Meta',
     tile: 'eDNA',
     category: 'Metadata',
+    excludeIfContains: 'META', // All-caps META has different meaning, not eDNA metadata
   },
 ];
 
@@ -127,7 +132,20 @@ export function categorizeFile(filename: string): FileCategoryMatch[] {
   const upperFilename = filename.toUpperCase();
 
   for (const rule of FILE_CATEGORY_RULES) {
-    if (upperFilename.includes(rule.contains.toUpperCase())) {
+    // Check exclusion first - if filename contains excluded string, skip this rule
+    if (rule.excludeIfContains && filename.includes(rule.excludeIfContains)) {
+      continue;
+    }
+
+    // Check if rule matches (case-sensitive or case-insensitive)
+    let isMatch: boolean;
+    if (rule.caseSensitive) {
+      isMatch = filename.includes(rule.contains);
+    } else {
+      isMatch = upperFilename.includes(rule.contains.toUpperCase());
+    }
+
+    if (isMatch) {
       matches.push({
         tile: rule.tile,
         category: rule.category,

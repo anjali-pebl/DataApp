@@ -78,10 +78,5 @@ export const LazyAddProjectDialog = dynamic(
   }
 );
 
-export const LazyProjectDataDialog = dynamic(
-  () => import('./ProjectDataDialog').then(mod => ({ default: mod.ProjectDataDialog })),
-  {
-    loading: () => null,
-    ssr: false
-  }
-);
+// Note: ProjectDataDialog has been converted to a standalone page at /project-data/[projectId]
+// The LazyProjectDataDialog export is kept for backward compatibility but should not be used

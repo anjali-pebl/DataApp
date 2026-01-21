@@ -8,7 +8,102 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BarChart3, TableIcon, Settings } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+
+// Common names for chemical parameters (used for tooltips)
+const PARAMETER_COMMON_NAMES: Record<string, string> = {
+  // Carbon and Nitrogen
+  'C (% m/m)': 'Carbon (percent by mass)',
+  'N (%)': 'Nitrogen (percent)',
+  'C/N ratio': 'Carbon to Nitrogen Ratio',
+  // Heavy metals and trace elements (mg/kg = milligrams per kilogram)
+  'As (mg/kg)': 'Arsenic (milligrams per kilogram)',
+  'Cd (mg/kg)': 'Cadmium (milligrams per kilogram)',
+  'Hg (mg/kg)': 'Mercury (milligrams per kilogram)',
+  'Pb (mg/kg)': 'Lead (milligrams per kilogram)',
+  'Cr (mg/kg)': 'Chromium (milligrams per kilogram)',
+  'Ni (mg/kg)': 'Nickel (milligrams per kilogram)',
+  'V (mg/kg)': 'Vanadium (milligrams per kilogram)',
+  'Sn (mg/kg)': 'Tin (milligrams per kilogram)',
+  'Sb (mg/kg)': 'Antimony (milligrams per kilogram)',
+  'Zn (mg/kg)': 'Zinc (milligrams per kilogram)',
+  'Cu (mg/kg)': 'Copper (milligrams per kilogram)',
+  'Fe (mg/kg)': 'Iron (milligrams per kilogram)',
+  'Mn (mg/kg)': 'Manganese (milligrams per kilogram)',
+  'Co (mg/kg)': 'Cobalt (milligrams per kilogram)',
+  'Se (mg/kg)': 'Selenium (milligrams per kilogram)',
+  'Mo (mg/kg)': 'Molybdenum (milligrams per kilogram)',
+  'B (mg/kg)': 'Boron (milligrams per kilogram)',
+  'Mg (mg/kg)': 'Magnesium (milligrams per kilogram)',
+  'Ca (mg/kg)': 'Calcium (milligrams per kilogram)',
+  'K (mg/kg)': 'Potassium (milligrams per kilogram)',
+  // Macronutrients (percent or mg/100g)
+  'Na (%)': 'Sodium (percent)',
+  'P (mg/100g)': 'Phosphorus (milligrams per 100 grams)',
+  'Na_alt (mg/100g)': 'Sodium - alternate measure (milligrams per 100 grams)',
+  // Nutritional composition (g/100g = grams per 100 grams)
+  'Protein (g/100g)': 'Protein (grams per 100 grams)',
+  'Fat (g/100g)': 'Fat (grams per 100 grams)',
+  'Carbs (g/100g)': 'Carbohydrates (grams per 100 grams)',
+  'Fiber (g/100g)': 'Dietary Fiber (grams per 100 grams)',
+  'Sugars (g/100g)': 'Sugars (grams per 100 grams)',
+  'Ash (g/100g)': 'Ash/Mineral Content (grams per 100 grams)',
+  'Moisture (g/100g)': 'Moisture/Water Content (grams per 100 grams)',
+  'Saturates (g/100g)': 'Saturated Fats (grams per 100 grams)',
+  'Monounsaturates (g/100g)': 'Monounsaturated Fats (grams per 100 grams)',
+  'Polyunsaturates (g/100g)': 'Polyunsaturated Fats (grams per 100 grams)',
+  // Energy values
+  'Energy (kcal/100g)': 'Energy (kilocalories per 100 grams)',
+  'Energy (kJ/100g)': 'Energy (kilojoules per 100 grams)',
+  // Water quality parameters - with units
+  'pH': 'pH (acidity/alkalinity scale 0-14)',
+  'Salinity (ppt)': 'Salinity (parts per thousand)',
+  'Sal (ppt)': 'Salinity (parts per thousand)',
+  'DO (mg/L)': 'Dissolved Oxygen (milligrams per liter)',
+  'Temp (°C)': 'Temperature (degrees Celsius)',
+  // Water chemistry - Nutrients with units
+  'PO4 (mg/L)': 'Phosphate (milligrams per liter)',
+  'NO3 (mg/L)': 'Nitrate (milligrams per liter)',
+  'NO2 (mg/L)': 'Nitrite (milligrams per liter)',
+  'NH4 (mg/L)': 'Ammonium (milligrams per liter)',
+  'SiO4 (mg/L)': 'Silicate (milligrams per liter)',
+  // Water quality parameters - simple names (no units in column header)
+  'Temp': 'Temperature (water temperature)',
+  'Temperature': 'Temperature (water temperature)',
+  'Salinity': 'Salinity (dissolved salt concentration)',
+  'DO': 'Dissolved Oxygen (oxygen available for aquatic life)',
+  'Turbidity': 'Turbidity (water clarity/cloudiness)',
+  'Conductivity': 'Electrical Conductivity (ability to conduct electricity)',
+  'TDS': 'Total Dissolved Solids (dissolved minerals and salts)',
+  'Ammonia': 'Ammonia (nitrogen compound, toxic at high levels)',
+  'Nitrate': 'Nitrate (plant nutrient, excess causes algae growth)',
+  'Nitrite': 'Nitrite (intermediate nitrogen form, toxic to fish)',
+  'Phosphate': 'Phosphate (plant nutrient, excess causes algae growth)',
+  'Silicate': 'Silicate (diatom nutrient)',
+  'Chlorophyll': 'Chlorophyll (algae/phytoplankton indicator)',
+  'Chlorophyll-a': 'Chlorophyll-a (primary photosynthetic pigment)',
+  'ORP': 'Oxidation-Reduction Potential (water quality indicator)',
+  // Crop measurements
+  'length (cm)': 'Length (centimeters)',
+  'width (cm)': 'Width (centimeters)',
+  'Fouling': 'Fouling (surface coverage by organisms)',
+  'Fouling (% area)': 'Fouling (percent of surface area covered)',
+  'fouling': 'Fouling (surface coverage by organisms)',
+  'Yield': 'Yield (kilograms of biomass per meter of rope)',
+  'yield': 'Yield (kilograms of biomass per meter of rope)',
+  'Yield (kg/m)': 'Yield (kilograms of biomass per meter of rope)',
+  'yield (kg/m)': 'Yield (kilograms of biomass per meter of rope)',
+  'Yield (kg)': 'Yield (kilograms of biomass per meter of rope)',
+  'yield (kg)': 'Yield (kilograms of biomass per meter of rope)',
+  'Fertility': 'Fertility (percent of area with sorus)',
+  'fertility': 'Fertility (percent of area with sorus)',
+  'Fertility (%)': 'Fertility (percent of area with sorus)',
+  'fertility (%)': 'Fertility (percent of area with sorus)',
+  'Fertility (% area)': 'Fertility (percent of area with sorus)',
+  'fertility (% area)': 'Fertility (percent of area with sorus)',
+  'Fertility (% blade sorus)': 'Fertility (percent of area with sorus)',
+};
 import type { ParsedDataPoint } from './csvParser';
 import { groupBySampleAndDate, type SpotSampleGroup } from '@/lib/statistical-utils';
 import { ColumnChartWithErrorBars } from './ColumnChartWithErrorBars';
@@ -100,7 +195,7 @@ export function PinChartDisplaySpotSample({
 
   // Column chart color mode: 'unique' = different color per sample, 'single' = same color for all
   // Initialize with defaults, will be updated by useEffect when spotSampleStyles is available
-  const [columnColorMode, setColumnColorMode] = useState<'unique' | 'single'>('single');
+  const [columnColorMode, setColumnColorMode] = useState<'unique' | 'single'>('unique');
   const [singleColumnColor, setSingleColumnColor] = useState('#3b82f6');
 
   // Parameter visibility state - default to showing first 2 parameters
@@ -117,9 +212,13 @@ export function PinChartDisplaySpotSample({
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
   const [selectedSampleIds, setSelectedSampleIds] = useState<string[]>([]);
+  const [filterType, setFilterType] = useState<'dates' | 'stations'>('dates');
 
   // Data aggregation state (for _indiv files)
   const [aggregationMode, setAggregationMode] = useState<'detailed' | 'by-date'>('detailed');
+
+  // Collapsed state for the Parameters sidebar
+  const [isParametersSidebarCollapsed, setIsParametersSidebarCollapsed] = useState(false);
 
   // Load style rules from localStorage (with versioning)
   const [styleRules, setStyleRules] = useState<StyleRule[]>(() => {
@@ -714,10 +813,53 @@ export function PinChartDisplaySpotSample({
     return colors;
   }, [finalGroupedData, spotSampleStyles]);
 
-  // Get available sample ID column options
+  // Get available sample ID column options (only ID-type columns, not parameter columns)
   const sampleIdColumnOptions = useMemo(() => {
-    return headers.filter(h => h !== timeColumn);
-  }, [headers, timeColumn]);
+    const isIndivFile = fileName?.toLowerCase().endsWith('_indiv.csv');
+
+    // For _indiv files, only show meaningful grouping columns (Farm ID and station ID)
+    if (isIndivFile) {
+      const indivGroupingPatterns = ['farm', 'farmid', 'station', 'stationid'];
+      const isIndivGroupingColumn = (header: string): boolean => {
+        const normalized = header.toLowerCase().replace(/[\s_-]/g, '');
+        return indivGroupingPatterns.some(pattern =>
+          normalized === pattern || normalized.startsWith(pattern)
+        );
+      };
+      const idColumns = headers.filter(h => h !== timeColumn && isIndivGroupingColumn(h));
+      return idColumns;
+    }
+
+    // For other files, use general ID-type column detection
+    const isIdColumn = (header: string): boolean => {
+      const normalized = header.toLowerCase().replace(/[\s_-]/g, '');
+
+      // Common ID column patterns
+      const idPatterns = [
+        'sample', 'sampleid',
+        'station', 'stationid',
+        'site', 'siteid',
+        'farm', 'farmid',
+        'location', 'locationid',
+        'subset', 'subsetid',
+        'blade', 'bladeid',
+        'replicate', 'replicateid',
+        'plot', 'plotid',
+        'treatment', 'treatmentid',
+        'group', 'groupid',
+        'id' // Generic ID column
+      ];
+
+      return idPatterns.some(pattern =>
+        normalized === pattern ||
+        normalized.startsWith(pattern) ||
+        normalized.endsWith('id')
+      );
+    };
+
+    const idColumns = headers.filter(h => h !== timeColumn && isIdColumn(h));
+    return idColumns;
+  }, [headers, timeColumn, fileName]);
 
   // Get list of unique sample IDs for color customization
   const availableSampleIds = useMemo(() => {
@@ -729,7 +871,9 @@ export function PinChartDisplaySpotSample({
     return [...new Set(finalGroupedData.map(d => d.xAxisLabel))].length;
   }, [finalGroupedData]);
 
-  const needsScrolling = uniqueDataPoints > 20;
+  // Fit chart to page width when "subset ID" is selected (fewer groups, no scrolling needed)
+  const isSubsetIdSelected = sampleIdColumn?.toLowerCase().replace(/[\s_-]/g, '') === 'subsetid';
+  const needsScrolling = !isSubsetIdSelected && uniqueDataPoints > 20;
   const chartWidth = needsScrolling ? uniqueDataPoints * 60 : undefined;
 
   // Early validation with detailed error messages
@@ -1228,9 +1372,10 @@ export function PinChartDisplaySpotSample({
     <div className="flex gap-3">
       {/* Main chart area */}
       <div className="flex-1 space-y-3">
-        {/* File header - location, time period, categories, and filename */}
-        {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0) || fileName) && (
-          <div className="flex flex-col gap-0.5 mb-2">
+        {/* File header - location, time period, categories, filename, and Methodology button */}
+        <div className="flex items-stretch gap-4 mb-2">
+          {/* Left side: Header info and filename stacked */}
+          <div className="flex flex-col gap-0.5 flex-1">
             {/* Main header: Location • Time Period (Categories) */}
             {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
               <div className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -1269,7 +1414,14 @@ export function PinChartDisplaySpotSample({
               </div>
             )}
           </div>
-        )}
+
+          {/* Right side: Methodology button spanning full height */}
+          <Button
+            className="px-6 text-sm rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 shrink-0 self-stretch"
+          >
+            METHODOLOGY
+          </Button>
+        </div>
 
         {/* Control Bar */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -1295,230 +1447,218 @@ export function PinChartDisplaySpotSample({
           </Button>
         </div>
 
-        {/* Chart Type Selector (only show when chart is active) */}
-        {!showTable && (
-          <Select
-            value={chartType}
-            onValueChange={(val) => {
-              console.log('[CHART-TYPE] Changing from', chartType, 'to', val);
-              setChartType(val as 'column' | 'whisker');
-            }}
-          >
-            <SelectTrigger className="w-[160px] h-8">
-              <SelectValue placeholder="Select chart type" />
-            </SelectTrigger>
-            <SelectContent className="z-[9999]">
-              <SelectItem value="column">
-                Column Chart
-              </SelectItem>
-              <SelectItem value="whisker">
-                Whisker Plot
-              </SelectItem>
-            </SelectContent>
-          </Select>
+        {/* Aggregation Mode Toggle - only show for _indiv files */}
+        {fileName?.toLowerCase().endsWith('_indiv.csv') && (
+          <div className="flex items-center gap-1 border rounded-lg p-1">
+            <Button
+              variant={aggregationMode === 'detailed' ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setAggregationMode('detailed')}
+              className="h-8"
+              title="Show all individual data points"
+            >
+              Detailed
+            </Button>
+            <Button
+              variant={aggregationMode === 'by-date' ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setAggregationMode('by-date')}
+              className="h-8"
+              title="Aggregate all samples by date"
+            >
+              By Date
+            </Button>
+          </div>
         )}
 
-        {/* Sample ID Column Selector */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Sample ID:</span>
-          <Select
-            value={selectedSampleIdColumn || detectedSampleIdColumn || ''}
-            onValueChange={(val) => setSelectedSampleIdColumn(val)}
-          >
-            <SelectTrigger className="w-[180px] h-8">
-              <SelectValue>
-                {selectedSampleIdColumn
-                  ? selectedSampleIdColumn
-                  : detectedSampleIdColumn === ''
-                    ? 'Auto (Column 2)'
-                    : `Auto (${detectedSampleIdColumn})`}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {sampleIdColumnOptions.map((col, idx) => (
-                <SelectItem key={`col-${idx}`} value={col || '__empty__'}>
-                  {col === '' ? 'Column 2 (Unnamed)' : col}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Spacer to push right-side controls to the right */}
+        <div className="flex-1" />
 
-        {/* Filter Controls - only show for _indiv files */}
+        {/* Chart Type Selector (only show when chart is active) */}
+        {!showTable && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-muted-foreground">Show As:</span>
+            <Select
+              value={chartType}
+              onValueChange={(val) => {
+                console.log('[CHART-TYPE] Changing from', chartType, 'to', val);
+                setChartType(val as 'column' | 'whisker');
+              }}
+            >
+              <SelectTrigger className="w-[160px] h-8">
+                <SelectValue placeholder="Select chart type" />
+              </SelectTrigger>
+              <SelectContent className="z-[9999]">
+                <SelectItem value="column">
+                  Column Chart
+                </SelectItem>
+                <SelectItem value="whisker">
+                  Whisker Plot
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Sample ID Column Selector - hidden for Chem files or if only one option */}
+        {(() => {
+          const upper = fileName?.toUpperCase() || '';
+          const isChemFile = upper.includes('CHEMSW') || upper.includes('CHEM-SW') ||
+                 upper.includes('CHEMWQ') || upper.includes('CHEM-WQ') ||
+                 upper.endsWith('_CHEM.CSV');
+          const hasOnlyOneOption = sampleIdColumnOptions.length <= 1;
+          if (isChemFile || hasOnlyOneOption) return null;
+
+          return (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground">Show By:</span>
+              <Select
+                value={selectedSampleIdColumn || detectedSampleIdColumn || ''}
+                onValueChange={(val) => setSelectedSampleIdColumn(val)}
+              >
+                <SelectTrigger className="w-[180px] h-8">
+                  <SelectValue>
+                    {selectedSampleIdColumn
+                      ? selectedSampleIdColumn
+                      : detectedSampleIdColumn === ''
+                        ? 'Auto (Column 2)'
+                        : `Auto (${detectedSampleIdColumn})`}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="z-[9999]">
+                  {sampleIdColumnOptions.map((col, idx) => (
+                    <SelectItem key={`col-${idx}`} value={col || '__empty__'}>
+                      {col === '' ? 'Column 2 (Unnamed)' : col}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        })()}
+
+        {/* Combined Filter Control - only show for _indiv files */}
         {fileName?.toLowerCase().endsWith('_indiv.csv') && (
           <>
-            {/* Date Filter */}
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8">
-                  Dates {selectedDates.length > 0 && `(${selectedDates.length})`}
+                  Filter {(selectedDates.length > 0 || selectedSampleIds.length > 0) && `(${selectedDates.length + selectedSampleIds.length})`}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-64">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold">Filter by Date</Label>
-                    {selectedDates.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => setSelectedDates([])}
-                      >
-                        Clear
-                      </Button>
-                    )}
+              <PopoverContent className="w-72">
+                <div className="space-y-3">
+                  {/* Filter Type Toggle */}
+                  <div className="flex items-center gap-1 border rounded-lg p-1">
+                    <Button
+                      variant={filterType === 'dates' ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setFilterType('dates')}
+                      className="h-6 text-xs flex-1"
+                    >
+                      Dates {selectedDates.length > 0 && `(${selectedDates.length})`}
+                    </Button>
+                    <Button
+                      variant={filterType === 'stations' ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setFilterType('stations')}
+                      className="h-6 text-xs flex-1"
+                    >
+                      Stations {selectedSampleIds.length > 0 && `(${selectedSampleIds.length})`}
+                    </Button>
                   </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {availableDates.map(date => {
-                      const dateObj = new Date(date);
-                      const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
-                      return (
-                        <div key={date} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`date-${date}`}
-                            checked={selectedDates.includes(date)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setSelectedDates([...selectedDates, date]);
-                              } else {
-                                setSelectedDates(selectedDates.filter(d => d !== date));
-                              }
-                            }}
-                          />
-                          <label
-                            htmlFor={`date-${date}`}
-                            className="text-xs cursor-pointer"
+
+                  {/* Date Filter Content */}
+                  {filterType === 'dates' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">Filter by Date</Label>
+                        {selectedDates.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() => setSelectedDates([])}
                           >
-                            {formattedDate}
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* Station Filter */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8">
-                  Stations {selectedStations.length > 0 && `(${selectedStations.length})`}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold">Filter by Station</Label>
-                    {selectedStations.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => setSelectedStations([])}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {availableStations.map(station => (
-                      <div key={station} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`station-${station}`}
-                          checked={selectedStations.includes(station)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedStations([...selectedStations, station]);
-                            } else {
-                              setSelectedStations(selectedStations.filter(s => s !== station));
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor={`station-${station}`}
-                          className="text-xs cursor-pointer"
-                        >
-                          {station}
-                        </label>
+                            Clear
+                          </Button>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* Sample ID Filter */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8">
-                  Sample IDs {selectedSampleIds.length > 0 && `(${selectedSampleIds.length})`}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold">Filter by Sample ID</Label>
-                    {selectedSampleIds.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => setSelectedSampleIds([])}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {availableSampleIdsForFilter.map(sampleId => (
-                      <div key={sampleId} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`sampleid-${sampleId}`}
-                          checked={selectedSampleIds.includes(sampleId)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedSampleIds([...selectedSampleIds, sampleId]);
-                            } else {
-                              setSelectedSampleIds(selectedSampleIds.filter(id => id !== sampleId));
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor={`sampleid-${sampleId}`}
-                          className="text-xs cursor-pointer"
-                        >
-                          {sampleId}
-                        </label>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {availableDates.map(date => {
+                          const dateObj = new Date(date);
+                          const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+                          return (
+                            <div key={date} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`date-${date}`}
+                                checked={selectedDates.includes(date)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setSelectedDates([...selectedDates, date]);
+                                  } else {
+                                    setSelectedDates(selectedDates.filter(d => d !== date));
+                                  }
+                                }}
+                              />
+                              <label
+                                htmlFor={`date-${date}`}
+                                className="text-xs cursor-pointer"
+                              >
+                                {formattedDate}
+                              </label>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+
+                  {/* Stations Filter Content */}
+                  {filterType === 'stations' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">Filter by Station</Label>
+                        {selectedSampleIds.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() => setSelectedSampleIds([])}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {availableSampleIdsForFilter.map(sampleId => (
+                          <div key={sampleId} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`sampleid-${sampleId}`}
+                              checked={selectedSampleIds.includes(sampleId)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedSampleIds([...selectedSampleIds, sampleId]);
+                                } else {
+                                  setSelectedSampleIds(selectedSampleIds.filter(id => id !== sampleId));
+                                }
+                              }}
+                            />
+                            <label
+                              htmlFor={`sampleid-${sampleId}`}
+                              className="text-xs cursor-pointer"
+                            >
+                              {sampleId}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </PopoverContent>
             </Popover>
 
-            {/* Aggregation Mode Toggle */}
-            <div className="flex items-center gap-1 border rounded-lg p-1">
-              <Button
-                variant={aggregationMode === 'detailed' ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setAggregationMode('detailed')}
-                className="h-6 text-xs"
-                title="Show all individual data points"
-              >
-                Detailed
-              </Button>
-              <Button
-                variant={aggregationMode === 'by-date' ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setAggregationMode('by-date')}
-                className="h-6 text-xs"
-                title="Aggregate all samples by date"
-              >
-                By Date
-              </Button>
-            </div>
           </>
         )}
 
@@ -1542,7 +1682,7 @@ export function PinChartDisplaySpotSample({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 ml-auto"
+            className="h-8"
             title="Configure chart styling"
           >
             <Settings className="h-4 w-4" />
@@ -1605,6 +1745,19 @@ export function PinChartDisplaySpotSample({
       ) : (
         <div className={needsScrolling ? "overflow-x-auto border rounded-lg" : "border rounded-lg"}>
           <div className="space-y-3 p-2">
+            {/* Legend - at top of charts */}
+            <div className="flex items-center gap-4 flex-wrap px-2 pb-2 border-b">
+              <span className="text-xs font-semibold text-muted-foreground">Sample IDs:</span>
+              {Object.entries(sampleIdColors).map(([sampleId, color]) => (
+                <div key={sampleId} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-xs">{sampleId}</span>
+                </div>
+              ))}
+            </div>
             {/* Render a chart for each parameter */}
             {(() => {
               console.log('[SPOT-SAMPLE] 📊 RENDERING CHARTS');
@@ -1630,10 +1783,11 @@ export function PinChartDisplaySpotSample({
                 }))
               });
 
+              const chartTitle = PARAMETER_COMMON_NAMES[param] || param;
               return (
                 <div key={param} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold">{param}</h3>
+                  <div className="flex items-center gap-2 pl-4">
+                    <h3 className="text-sm font-semibold">{chartTitle}</h3>
                     {/* Parameter-specific Y-axis controls */}
                     <Popover
                       open={yAxisDialogOpen === param}
@@ -1730,6 +1884,7 @@ export function PinChartDisplaySpotSample({
                         columnColorMode={columnColorMode}
                         singleColumnColor={singleColumnColor}
                         yAxisRange={parameterYAxisRanges[param]}
+                        showDateSeparators={aggregationMode === 'detailed'}
                       />
                     ) : (
                     <WhiskerPlot
@@ -1740,6 +1895,7 @@ export function PinChartDisplaySpotSample({
                       height={350}
                       spotSampleStyles={spotSampleStyles}
                       yAxisRange={parameterYAxisRanges[param]}
+                      showDateSeparators={aggregationMode === 'detailed'}
                     />
                   )}
                 </div>
@@ -1749,46 +1905,89 @@ export function PinChartDisplaySpotSample({
           </div>
         </div>
       )}
-
-        {/* Legend */}
-        <div className="flex items-center gap-4 flex-wrap px-2">
-          <span className="text-xs font-semibold text-muted-foreground">Sample IDs:</span>
-          {Object.entries(sampleIdColors).map(([sampleId, color]) => (
-            <div key={sampleId} className="flex items-center gap-2">
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: color }}
-              />
-              <span className="text-xs">{sampleId}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* Parameter Selector Panel */}
-      <div className="w-48 shrink-0">
-        <div className="sticky top-4 border rounded-lg p-3 bg-background">
-          <h3 className="text-sm font-semibold mb-3">Parameters</h3>
-          <div className="space-y-2">
-            {parameterColumns.map(param => (
-              <div key={param} className="flex items-center space-x-2">
-                <Checkbox
-                  id={`param-${param}`}
-                  checked={visibleParameters.has(param)}
-                  onCheckedChange={() => toggleParameterVisibility(param)}
-                />
-                <Label
-                  htmlFor={`param-${param}`}
-                  className="text-xs cursor-pointer flex-1 leading-tight"
-                >
-                  {param}
-                </Label>
+      {/* Parameter Selector Panel - Collapsible */}
+      <div className={`shrink-0 transition-all duration-300 ${isParametersSidebarCollapsed ? 'w-8' : 'w-48'}`}>
+        <div className="sticky top-4">
+          {isParametersSidebarCollapsed ? (
+            /* Collapsed State - Narrow strip with expand button */
+            <div className="border rounded-lg bg-background h-[400px] flex flex-col items-center py-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 mb-3"
+                onClick={() => setIsParametersSidebarCollapsed(false)}
+                title="Expand Parameters panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div
+                className="writing-mode-vertical text-xs font-semibold text-muted-foreground cursor-pointer hover:text-foreground"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+                onClick={() => setIsParametersSidebarCollapsed(false)}
+              >
+                Parameters ({visibleParameters.size}/{parameterColumns.length})
               </div>
-            ))}
-          </div>
-          <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-            {visibleParameters.size} of {parameterColumns.length} visible
-          </div>
+            </div>
+          ) : (
+            /* Expanded State - Full panel */
+            <div className="border rounded-lg p-3 bg-background">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">Parameters</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setIsParametersSidebarCollapsed(true)}
+                    title="Collapse Parameters panel"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <TooltipProvider delayDuration={300}>
+                    {parameterColumns.map(param => {
+                      const commonName = PARAMETER_COMMON_NAMES[param];
+                      return (
+                        <div key={param} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`param-${param}`}
+                            checked={visibleParameters.has(param)}
+                            onCheckedChange={() => toggleParameterVisibility(param)}
+                          />
+                          {commonName ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Label
+                                  htmlFor={`param-${param}`}
+                                  className="text-xs cursor-pointer flex-1 leading-tight"
+                                >
+                                  {param}
+                                </Label>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-[200px]">
+                                <p className="text-xs">{commonName}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Label
+                              htmlFor={`param-${param}`}
+                              className="text-xs cursor-pointer flex-1 leading-tight"
+                            >
+                              {param}
+                            </Label>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </TooltipProvider>
+                </div>
+                <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+                  {visibleParameters.size} of {parameterColumns.length} visible
+                </div>
+              </div>
+          )}
         </div>
       </div>
     </div>

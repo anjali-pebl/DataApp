@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -151,8 +151,7 @@ import {
   LazyDeleteProjectConfirmDialog as DeleteProjectConfirmDialog,
   LazyBatchDeleteConfirmDialog as BatchDeleteConfirmDialog,
   LazyDuplicateWarningDialog as DuplicateWarningDialog,
-  LazyAddProjectDialog as AddProjectDialog,
-  LazyProjectDataDialog as ProjectDataDialog
+  LazyAddProjectDialog as AddProjectDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
@@ -400,8 +399,9 @@ function MapDrawingPageContent() {
   const { settings, setSettings } = useSettings();
   const { toast, dismiss } = useToast();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
-  
+
   // Use the integrated map data hook
   const {
     projects,
@@ -686,7 +686,6 @@ function MapDrawingPageContent() {
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<{ id: string; name: string } | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<{ id: string; type: 'pin' | 'line' | 'area'; hasData?: boolean } | null>(null);
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
-  const [showProjectDataDialog, setShowProjectDataDialog] = useState(false);
   const [showProjectSettingsDialog, setShowProjectSettingsDialog] = useState(false);
   const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [currentProjectContext, setCurrentProjectContext] = useState<string>('');
@@ -1655,15 +1654,6 @@ function MapDrawingPageContent() {
       console.error('Error reloading project files:', error);
     }
   }, [currentProjectContext, activeProjectId, fetchMergedFiles]);
-
-  // Fetch merged files when dialog opens or project changes
-  useEffect(() => {
-    if (showProjectDataDialog) {
-      fetchMergedFiles();
-    } else {
-      setMergedFiles([]);
-    }
-  }, [showProjectDataDialog, fetchMergedFiles]);
 
   // Stable callback that calls the current handler
   const handleMapMove = useCallback((center: LatLng, zoom: number, isMoving: boolean = false) => {
@@ -6899,8 +6889,7 @@ function MapDrawingPageContent() {
                                   className="h-6 text-xs px-2"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setCurrentProjectContext(activeProjectId);
-                                    setShowProjectDataDialog(true);
+                                    router.push(`/project-data/${activeProjectId}`);
                                   }}
                                 >
                                   <Database className="h-3 w-3 mr-1" />
@@ -7447,8 +7436,7 @@ function MapDrawingPageContent() {
                                             className="h-7 text-xs px-2 flex-1"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              setCurrentProjectContext(key);
-                                              setShowProjectDataDialog(true);
+                                              router.push(`/project-data/${key}`);
                                             }}
                                           >
                                             <Database className="h-3 w-3 mr-1" />
@@ -7670,8 +7658,7 @@ function MapDrawingPageContent() {
         onSetActiveProject={setActiveProject}
         onGoToProjectLocation={goToProjectLocation}
         onShowProjectData={(projectId) => {
-          setCurrentProjectContext(projectId);
-          setShowProjectDataDialog(true);
+          router.push(`/project-data/${projectId}`);
         }}
         onShowProjectSettings={(projectId) => {
           setCurrentProjectContext(projectId);
@@ -7719,52 +7706,6 @@ function MapDrawingPageContent() {
           pinName={selectedPinForShare.label}
         />
       )}
-
-      {/* Project Data Dialog */}
-      <ProjectDataDialog
-        open={showProjectDataDialog}
-        onOpenChange={setShowProjectDataDialog}
-        currentProjectContext={currentProjectContext}
-        activeProjectId={activeProjectId}
-        dynamicProjects={dynamicProjects}
-        pins={pins}
-        lines={lines}
-        areas={areas}
-        pinFileMetadata={pinFileMetadata}
-        areaFileMetadata={areaFileMetadata}
-        mergedFiles={mergedFiles}
-        selectedPins={selectedPins}
-        selectedTypes={selectedTypes}
-        selectedSuffixes={selectedSuffixes}
-        selectedDateRanges={selectedDateRanges}
-        selectedFileSources={selectedFileSources}
-        isUploadingFiles={isUploadingFiles}
-        isLoadingMergedFiles={isLoadingMergedFiles}
-        isPageLoading={isPageLoading}
-        isInitialLoad={isInitialLoad}
-        multiFileMergeMode={multiFileMergeMode}
-        setCurrentProjectContext={setCurrentProjectContext}
-        setShowUploadPinSelector={setShowUploadPinSelector}
-        setSelectedUploadPinId={setSelectedUploadPinId}
-        setPendingUploadFiles={setPendingUploadFiles}
-        setSelectedPins={setSelectedPins}
-        setSelectedTypes={setSelectedTypes}
-        setSelectedSuffixes={setSelectedSuffixes}
-        setSelectedDateRanges={setSelectedDateRanges}
-        setSelectedFileSources={setSelectedFileSources}
-        setPinFileMetadata={setPinFileMetadata}
-        setAreaFileMetadata={setAreaFileMetadata}
-        setMultiFileMergeMode={setMultiFileMergeMode}
-        setMultiFileConfirmData={setMultiFileConfirmData}
-        setShowMultiFileConfirmDialog={setShowMultiFileConfirmDialog}
-        handleInitiateFileUpload={handleInitiateFileUpload}
-        getProjectFiles={getProjectFiles}
-        groupFilesByType={groupFilesByType}
-        extractDateRange={extractDateRange}
-        getFileDateRange={getFileDateRange}
-        reloadProjectFiles={reloadProjectFiles}
-        openMarineDeviceModal={openMarineDeviceModal}
-      />
 
       {/* Pin Selector Dialog - Appears after files are selected */}
       <FileUploadDialog
