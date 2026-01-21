@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight, BookOpen } from "lucide-react";
+import { MethodologyModal } from "@/components/methodology";
 
 // Common names for chemical parameters (used for tooltips)
 const PARAMETER_COMMON_NAMES: Record<string, string> = {
@@ -129,6 +130,9 @@ interface PinChartDisplaySpotSampleProps {
   startDate?: Date;
   endDate?: Date;
   fileCategories?: string[];
+  // Methodology modal props
+  projectId?: string;
+  tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
 // Default color palette for sample IDs
@@ -160,7 +164,9 @@ export function PinChartDisplaySpotSample({
   pinLabel,
   startDate,
   endDate,
-  fileCategories
+  fileCategories,
+  projectId,
+  tileName
 }: PinChartDisplaySpotSampleProps) {
 
   // IMMEDIATE DIAGNOSTIC LOGGING - runs before any processing
@@ -192,6 +198,7 @@ export function PinChartDisplaySpotSample({
     detectedSampleIdColumn
   );
   const [showStylingDialog, setShowStylingDialog] = useState(false);
+  const [showMethodologyModal, setShowMethodologyModal] = useState(false);
 
   // Column chart color mode: 'unique' = different color per sample, 'single' = same color for all
   // Initialize with defaults, will be updated by useEffect when spotSampleStyles is available
@@ -1418,7 +1425,10 @@ export function PinChartDisplaySpotSample({
           {/* Right side: Methodology button spanning full height */}
           <Button
             className="px-6 text-sm rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 shrink-0 self-stretch"
+            onClick={() => setShowMethodologyModal(true)}
+            disabled={!projectId || !tileName}
           >
+            <BookOpen className="h-4 w-4 mr-2" />
             METHODOLOGY
           </Button>
         </div>
@@ -1990,6 +2000,16 @@ export function PinChartDisplaySpotSample({
           )}
         </div>
       </div>
+
+      {/* Methodology Modal */}
+      {projectId && tileName && (
+        <MethodologyModal
+          open={showMethodologyModal}
+          onOpenChange={setShowMethodologyModal}
+          projectId={projectId}
+          tileName={tileName}
+        />
+      )}
     </div>
   );
 }

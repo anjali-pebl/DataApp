@@ -74,6 +74,9 @@ interface PinPlotInstanceProps {
   isSubtractedPlot?: boolean;
   includeZeroValues?: boolean;
   onIncludeZeroValuesChange?: (include: boolean) => void;
+  // Methodology modal props
+  projectId?: string;
+  tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
 
@@ -106,7 +109,9 @@ function PinPlotInstanceComponent({
   pinId,
   isSubtractedPlot = false,
   includeZeroValues = false,
-  onIncludeZeroValuesChange
+  onIncludeZeroValuesChange,
+  projectId,
+  tileName
 }: PinPlotInstanceProps) {
   const { toast } = useToast();
   const componentId = useId();
@@ -348,6 +353,9 @@ function PinPlotInstanceComponent({
               isSubtractedPlot={isSubtractedPlot}
               includeZeroValues={includeZeroValues}
               onIncludeZeroValuesChange={onIncludeZeroValuesChange}
+              // Methodology modal props
+              projectId={projectId}
+              tileName={tileName}
             />
           </div>
         ) : (

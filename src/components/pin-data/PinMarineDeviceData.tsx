@@ -155,8 +155,33 @@ interface PinMarineDeviceDataProps {
   initialViewToLoad?: string; // Plot view ID to auto-load on mount
 }
 
+// Helper function to map fileType to tileName for methodology modal
+function getTileNameFromFileType(fileType: PinMarineDeviceDataProps['fileType']): 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA' {
+  switch (fileType) {
+    case 'GP':
+      return 'GrowProbe';
+    case 'FPOD':
+      return 'FPOD';
+    case 'Subcam':
+      return 'SubCam';
+    case 'CROP':
+    case 'CHEM':
+    case 'CHEMSW':
+    case 'CHEMWQ':
+    case 'WQ':
+      return 'Water and Crop Samples';
+    case 'EDNA':
+      return 'eDNA';
+    default:
+      return 'Water and Crop Samples'; // Default fallback
+  }
+}
+
 function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestFileSelection, availableFiles, onDownloadFile, multiFileMergeMode = 'sequential', objectLocation, objectName, allProjectFilesForTimeline, getFileDateRange, projectId, onRefreshFiles, availableProjects, initialViewToLoad }: PinMarineDeviceDataProps) {
   const { toast } = useToast();
+
+  // Derive tileName from fileType for methodology modal
+  const tileName = getTileNameFromFileType(fileType);
 
   // State for managing plots with file data
   const [plots, setPlots] = useState<PlotConfig[]>([]);
@@ -2658,6 +2683,9 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
                       isSubtractedPlot={plot.computationType === 'subtract'}
                       includeZeroValues={plot.computationConfig?.includeZeroValues ?? false}
                       onIncludeZeroValuesChange={(include) => handleIncludeZeroValuesChange(plot.id, include)}
+                      // Methodology modal props
+                      projectId={projectId}
+                      tileName={tileName}
                     />
                   );
                 }

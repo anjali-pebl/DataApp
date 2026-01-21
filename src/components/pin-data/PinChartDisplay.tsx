@@ -96,6 +96,9 @@ interface PinChartDisplayProps {
   isSubtractedPlot?: boolean;
   includeZeroValues?: boolean;
   onIncludeZeroValuesChange?: (include: boolean) => void;
+  // Methodology modal props
+  projectId?: string;
+  tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
 // Color palette matching the marine data theme
@@ -415,7 +418,9 @@ export function PinChartDisplay({
   haplotypeData,
   isSubtractedPlot = false,
   includeZeroValues = false,
-  onIncludeZeroValuesChange
+  onIncludeZeroValuesChange,
+  projectId,
+  tileName
 }: PinChartDisplayProps) {
   console.log('📊 [PinChartDisplay] Received props:', {
     fileName,
@@ -2952,6 +2957,8 @@ export function PinChartDisplay({
         startDate={startDate}
         endDate={endDate}
         fileCategories={fileCategories}
+        projectId={projectId}
+        tileName={tileName}
       />
     );
   }
