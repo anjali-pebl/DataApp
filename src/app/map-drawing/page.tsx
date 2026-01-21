@@ -2482,26 +2482,6 @@ function MapDrawingPageContent() {
     });
   }, [toast]);
 
-  // Auto-fit map to active project area on initial load
-  const hasAutoFittedRef = useRef(false);
-
-  useEffect(() => {
-    // Only auto-fit once when data is loaded and map is ready
-    if (!hasAutoFittedRef.current &&
-        activeProjectId &&
-        mapRef.current &&
-        (pins.length > 0 || lines.length > 0 || areas.length > 0)) {
-
-      // Small delay to ensure map is fully initialized
-      const timer = setTimeout(() => {
-        goToProjectLocation(activeProjectId);
-        hasAutoFittedRef.current = true;
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [activeProjectId, pins.length, lines.length, areas.length, goToProjectLocation]);
-
   // Generalized utility function to create invisible wrapper polygon
   const createWrapperPolygon = useCallback(async (
     wrapperLabel: string,

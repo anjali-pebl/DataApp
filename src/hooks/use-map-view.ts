@@ -15,17 +15,17 @@ export const useMapView = (userId: string) => {
         if (stored) {
           setViewState(JSON.parse(stored));
         } else {
-          // Default view
+          // Default view - centered on British Isles
           setViewState({
-            center: { lat: 51.7128, lng: -5.0341 }, // Milford Haven
-            zoom: 9
+            center: { lat: 54.5, lng: -4.0 }, // Central UK
+            zoom: 6
           });
         }
       } catch (e) {
         console.error('Error loading map view:', e);
         setViewState({
-          center: { lat: 51.7128, lng: -5.0341 },
-          zoom: 9
+          center: { lat: 54.5, lng: -4.0 },
+          zoom: 6
         });
       }
     }
