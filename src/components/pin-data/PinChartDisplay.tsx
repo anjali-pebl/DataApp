@@ -12,11 +12,13 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useFileViewTracking } from "@/hooks/use-analytics";
-import { ChevronUp, ChevronDown, BarChart3, Info, TableIcon, ChevronRight, ChevronLeft, Settings, Circle, Filter, AlertCircle, Database, Clock, Palette, Eye, Grid3x3, Ruler, Network, RefreshCw } from "lucide-react";
+import { ChevronUp, ChevronDown, BarChart3, Info, TableIcon, ChevronRight, ChevronLeft, Settings, Circle, Filter, AlertCircle, Database, Clock, Palette, Eye, Grid3x3, Ruler, Network, RefreshCw, BookOpen } from "lucide-react";
+import { MethodologyModal } from "@/components/methodology";
 import { cn } from '@/lib/utils';
 import { getParameterLabelWithUnit } from '@/lib/units';
 import type { ParsedDataPoint } from './csvParser';
@@ -118,6 +120,26 @@ const DEFAULT_COLOR_PALETTE = [
   '#06b6d4', // Cyan
   '#f97316', // Orange
 ];
+
+// Common names for GrowProbe parameters (used for tooltips and Y-axis labels)
+const GROWPROBE_COMMON_NAMES: Record<string, string> = {
+  'Temp (°C)': 'Temperature (degrees Celsius)',
+  'IR (a.u.)': 'Infrared Radiation (arbitrary units)',
+  'Vis (a.u.)': 'Visible Light (arbitrary units)',
+  'Light (Lux)': 'Light Intensity (Lux)',
+  'Accel_X': 'Acceleration X-axis (g-force)',
+  'Accel_Y': 'Acceleration Y-axis (g-force)',
+  'Accel_Z': 'Acceleration Z-axis (g-force)',
+  'Tilt': 'Tilt Angle (device orientation)',
+  'Mag_X': 'Magnetic Field X-axis',
+  'Mag_Y': 'Magnetic Field Y-axis',
+  'Mag_Z': 'Magnetic Field Z-axis',
+  'Direction (° North)': 'Compass Direction (degrees from North)',
+  'Battery (V)': 'Battery Voltage (Volts)',
+};
+
+// Hidden sensor parameters (accelerometer and magnetic field) - shown via toggle
+const HIDDEN_SENSOR_PARAMS = ['Accel_X', 'Accel_Y', 'Accel_Z', 'Mag_X', 'Mag_Y', 'Mag_Z'];
 
 interface ParameterState {
   visible: boolean;
@@ -564,6 +586,9 @@ export function PinChartDisplay({
   const [hideStations, setHideStations] = useState(false);
   const [hideParameterName, setHideParameterName] = useState(false);
 
+  // Show/hide sensor parameters (accelerometer, magnetic field)
+  const [showSensorParams, setShowSensorParams] = useState(false);
+
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
@@ -642,6 +667,7 @@ export function PinChartDisplay({
 
   // Styling rules state - load from localStorage if available
   const [showStylingRules, setShowStylingRules] = useState(false);
+  const [showMethodologyModal, setShowMethodologyModal] = useState(false);
   const [styleRules, setStyleRules] = useState<StyleRule[]>(() => {
     // Load saved style rules from localStorage
     if (typeof window !== 'undefined') {
@@ -981,24 +1007,25 @@ export function PinChartDisplay({
       return baseHeight;
     }
 
-    // For plots WITHOUT explicit height styling, reduce height to minimize white space
+    // For plots WITHOUT explicit height styling, use larger heights for better visibility
+    // Extra height added to accommodate x-axis labels
     if (visibleCount === 1) {
-      const finalHeight = Math.min(baseHeight, 150);
+      const finalHeight = Math.min(baseHeight, 270);
       // console.log('[CHART HEIGHT] Dynamic height for 1 param:', finalHeight);
       return finalHeight;
     } else if (visibleCount === 2) {
-      const finalHeight = Math.min(baseHeight, 170);
+      const finalHeight = Math.min(baseHeight, 300);
       // console.log('[CHART HEIGHT] Dynamic height for 2 params:', finalHeight);
       return finalHeight;
     } else if (visibleCount === 3) {
-      const finalHeight = Math.min(baseHeight, 190);
+      const finalHeight = Math.min(baseHeight, 330);
       // console.log('[CHART HEIGHT] Dynamic height for 3 params:', finalHeight);
       return finalHeight;
     }
 
-    // For 4+ parameters, use the full height
+    // For 4+ parameters, use larger height
     // console.log('[CHART HEIGHT] Using full height for 4+ params:', baseHeight);
-    return baseHeight;
+    return Math.max(baseHeight, 350);
   }, [visibleParameters.length, appliedStyleRule?.properties.chartHeight, appliedStyleRule?.properties.heatmapRowHeight, fileName, appliedStyleRule?.styleName, showHeatmap, isSubcamNmaxFile, speciesColumns, parameterStates, showHaplotypeHeatmap, isHaplotypeFile, haplotypeData, adjustableNmaxRowHeight, nmaxViewMode]);
 
   // Get moving average parameters (for display in parameter list)
@@ -1752,14 +1779,15 @@ export function PinChartDisplay({
   };
 
   // Calculate offset for multi-axis based on parameter domain
+  // More positive = title closer to axis scale
   const getMultiAxisLabelOffset = (domain: [number, number], dataRange: number, dataMax: number) => {
     const maxValue = Math.max(Math.abs(domain[0]), Math.abs(domain[1]));
     const formatted = formatYAxisTick(maxValue, dataRange, dataMax);
     const digitCount = formatted.length;
 
-    if (digitCount <= 2) return -10;
-    if (digitCount === 3) return -7;
-    return -3; // 4+ digits
+    if (digitCount <= 2) return 10;
+    if (digitCount === 3) return 12;
+    return 15; // 4+ digits
   };
 
   // Calculate individual Y-axis domains for each parameter (for multi-axis mode)
@@ -2966,12 +2994,12 @@ export function PinChartDisplay({
   return (
     <div className="space-y-3">
       {/* Toggle Switches - at the top */}
-      <div className="flex items-center pr-12">
+      <div className="flex items-stretch gap-3">
         {/* File header - location, time period, category, and filename */}
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 flex-1">
           {/* Main header: Location • Time Period (Categories) */}
           {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-            <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <div className="text-xs font-semibold text-foreground flex items-center gap-2">
               {/* Location */}
               {pinLabel && <span>{pinLabel}</span>}
 
@@ -3009,7 +3037,7 @@ export function PinChartDisplay({
         </div>
 
         {/* View Controls - always consistent layout */}
-        <div className="flex items-center gap-4 ml-auto">
+        <div className="flex items-center gap-3">
           {/* Unified View Mode Selector - always shows all 4 options */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">View:</span>
@@ -3059,20 +3087,20 @@ export function PinChartDisplay({
 
           {/* Refresh & Settings - always in same position, shown only for Chart and Heatmap views */}
           {(viewMode === 'chart' || viewMode === 'heatmap') && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               {/* Refresh Button - shown only for Heatmap view on NMAX/Hapl files */}
               {viewMode === 'heatmap' && (isSubcamNmaxFile || (isHaplotypeFile && haplotypeData)) && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-6 w-6"
                   title="Refresh heatmap structure and recalculate hierarchy"
                   onClick={handleHeatmapRefresh}
                   disabled={isRefreshing}
                 >
                   <RefreshCw
                     className={cn(
-                      "h-4 w-4 text-muted-foreground",
+                      "h-3.5 w-3.5 text-muted-foreground",
                       isRefreshing && "animate-spin"
                     )}
                   />
@@ -3092,14 +3120,14 @@ export function PinChartDisplay({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="h-6 w-6"
                     title="Heatmap settings"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowStylingRules(true);
                     }}
                   >
-                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    <Settings className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </StylingRulesDialog>
               ) : (
@@ -3108,11 +3136,11 @@ export function PinChartDisplay({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
+                      className="h-6 w-6"
                       title="Chart settings"
                       data-testid="chart-settings-button"
                     >
-                      <Settings className="h-4 w-4 text-muted-foreground" />
+                      <Settings className="h-3.5 w-3.5 text-muted-foreground" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-3" align="end">
@@ -3138,18 +3166,38 @@ export function PinChartDisplay({
                       {/* Single/Multi Axis Toggle */}
                       <div className="flex items-center justify-between pt-2 border-t">
                         <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
-                          Multi-Axis Mode
+                          Single-Axis Mode
                         </Label>
                         <Switch
                           id="axis-mode"
-                          checked={axisMode === 'multi'}
-                          onCheckedChange={(checked) => setAxisMode(checked ? 'multi' : 'single')}
+                          checked={axisMode === 'single'}
+                          onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
                           className="h-4 w-7"
                         />
                       </div>
                       <p className="text-[0.65rem] text-muted-foreground">
-                        {axisMode === 'multi' ? 'Separate Y-axis for each parameter' : 'Shared Y-axis for all parameters'}
+                        Removes multiple axes for a cleaner look
                       </p>
+
+                      {/* Show Sensor Parameters Toggle - only for GrowProbe files */}
+                      {fileType === 'GP' && (
+                        <>
+                          <div className="flex items-center justify-between pt-2 border-t">
+                            <Label htmlFor="show-sensors" className="text-xs cursor-pointer">
+                              Show Sensor Data
+                            </Label>
+                            <Switch
+                              id="show-sensors"
+                              checked={showSensorParams}
+                              onCheckedChange={setShowSensorParams}
+                              className="h-4 w-7"
+                            />
+                          </div>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            Show accelerometer and magnetic field data
+                          </p>
+                        </>
+                      )}
 
                       {/* X-Axis Settings Section */}
                       <p className="text-xs font-semibold border-b pb-2 pt-2">X-Axis Settings</p>
@@ -3283,9 +3331,21 @@ export function PinChartDisplay({
                 </PopoverContent>
               </Popover>
               )}
+
             </div>
           )}
         </div>
+
+        {/* Methodology Button - matching Water and Crop Samples styling */}
+        {projectId && tileName && (
+          <Button
+            className="h-9 px-2.5 text-xs rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 shrink-0"
+            onClick={() => setShowMethodologyModal(true)}
+          >
+            <BookOpen className="h-3.5 w-3.5 mr-1" />
+            METHODOLOGY
+          </Button>
+        )}
       </div>
 
       {/* Chart or Table View */}
@@ -3560,10 +3620,34 @@ export function PinChartDisplay({
       {visibleParameters.length > 0 && (
         <div
           className={cn("w-full bg-card p-2", !compactView && "border rounded-md")}
-          style={{ height: `${dynamicChartHeight}px` }}
+          style={{
+            height: `${dynamicChartHeight + (
+              // Add extra height for warning banners and x-axis labels
+              (!compactView && (axisMode === 'multi' || (axisMode === 'single' && visibleParameters.length > 1))) ? 80 : 0
+            )}px`
+          }}
         >
+          {/* Multi-Axis Mode Warning Banner */}
+          {axisMode === 'multi' && !compactView && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-3 py-1.5 mb-2 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                <span className="font-medium">Multi-Axis Mode:</span> Units are not comparable between variables
+              </p>
+            </div>
+          )}
+          {/* Single Axis Mode Warning Banner - shown when multiple parameters on shared axis */}
+          {axisMode === 'single' && visibleParameters.length > 1 && !compactView && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-3 py-1.5 mb-2 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                <span className="font-medium">Multi-Parameter Graph:</span> Y-axis utilizes a dummy variable which is not meaningful for individual metrics
+              </p>
+            </div>
+          )}
           {/* Single Axis Mode */}
           {axisMode === 'single' && (
+            <div style={{ width: '100%', height: visibleParameters.length > 1 && !compactView ? 'calc(100% - 40px)' : '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
@@ -3619,7 +3703,7 @@ export function PinChartDisplay({
                   tickFormatter={(value) => formatYAxisTick(value, dataRange, dataMax)}
                   label={(showYAxisLabels || appliedStyleRule?.properties.yAxisTitle || customYAxisLabel) ? (() => {
                     const labelText = customYAxisLabel || appliedStyleRule?.properties.yAxisTitle || (visibleParameters.length === 1
-                      ? formatParameterWithSource(visibleParameters[0])
+                      ? formatParameterWithSource(visibleParameters[0], false)
                       : 'Value');
                     const labelOffset = axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? 5 : getLabelOffset(maxTickDigits);
                     const baseStyle = { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' };
@@ -3764,18 +3848,20 @@ export function PinChartDisplay({
                 })()}
               </LineChart>
             </ResponsiveContainer>
+            </div>
           )}
 
           {/* Multi Axis Mode */}
           {axisMode === 'multi' && (
+            <div style={{ width: '100%', height: 'calc(100% - 40px)' }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
                 margin={{
                   top: 5,
-                  right: Math.ceil(visibleParameters.length / 2) * 50,
-                  left: 50,
-                  bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
+                  right: Math.ceil(visibleParameters.length / 2) * 10,
+                  left: 10,
+                  bottom: (appliedStyleRule?.properties.chartBottomMargin ?? 10) + 40
                 }}
               >
                 <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
@@ -3811,9 +3897,12 @@ export function PinChartDisplay({
                   const paramRange = Math.abs(domain[1] - domain[0]);
                   const paramMax = Math.max(Math.abs(domain[0]), Math.abs(domain[1]));
                   const paramColor = getColorValue(parameterStates[parameter].color);
-                  // Add gap between left axes: 3rd axis (index 2) gets +10px width
-                  const axisWidth = (index === 2) ? 42 : 32;
-                  const labelText = formatParameterWithSource(parameter);
+                  // Add gap between axes: increase width for better spacing
+                  const axisWidth = (index === 2) ? 65 : 55;
+                  // Use GrowProbe common name if available, otherwise use formatted parameter name
+                  const labelText = (fileType === 'GP' && GROWPROBE_COMMON_NAMES[parameter])
+                    ? GROWPROBE_COMMON_NAMES[parameter]
+                    : formatParameterWithSource(parameter, false);
 
                   // Calculate base offset and apply custom offsets from style rules
                   let labelOffset = getMultiAxisLabelOffset(domain, paramRange, paramMax);
@@ -3982,6 +4071,7 @@ export function PinChartDisplay({
                 })()}
               </LineChart>
             </ResponsiveContainer>
+            </div>
           )}
         </div>
       )}
@@ -4028,22 +4118,36 @@ export function PinChartDisplay({
           </div>
 
           {/* Parameter Controls - On the right side */}
-          <div className={cn("space-y-2 transition-all duration-300", isParameterPanelExpanded ? "w-72" : "w-40")}>
-            {/* Header with expand button and label - hidden in compact view */}
-            {!compactView && (
+          <div className={cn(
+            "transition-all duration-300 ease-in-out flex-shrink-0",
+            isParameterPanelExpanded ? "w-72 space-y-2" : "w-8 overflow-hidden"
+          )}>
+            {/* Collapsed state - just show expand button */}
+            {!isParameterPanelExpanded && !compactView && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-full min-h-[200px] w-8 p-0 flex flex-col items-center justify-center gap-1 hover:bg-accent/50 border-l-0 rounded-l-none"
+                onClick={() => setIsParameterPanelExpanded(true)}
+                title="Expand parameters panel"
+              >
+                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground writing-mode-vertical" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+                  Parameters
+                </span>
+              </Button>
+            )}
+            {/* Header with collapse button and label - shown when expanded, hidden in compact view */}
+            {isParameterPanelExpanded && !compactView && (
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-4 w-4 hover:bg-accent/50"
-                  onClick={() => setIsParameterPanelExpanded(!isParameterPanelExpanded)}
-                  title={isParameterPanelExpanded ? "Collapse panel" : "Expand panel"}
+                  onClick={() => setIsParameterPanelExpanded(false)}
+                  title="Collapse panel"
                 >
-                  {isParameterPanelExpanded ? (
-                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <ChevronLeft className="h-3 w-3 text-muted-foreground" />
-                  )}
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 </Button>
 
                 <p className="text-xs font-medium">
@@ -4076,12 +4180,20 @@ export function PinChartDisplay({
               />
             )}
 
+            {isParameterPanelExpanded && (
             <div className="space-y-1 h-[210px] overflow-y-auto">
               {(() => {
                 // Apply filters to parameters - now supports multiple selections
                 // Use ALL numeric parameters + MA parameters, regardless of visibility
                 // Visibility only controls plot rendering, not parameter list display
                 let filteredParameters = [...numericParameters, ...movingAverageParameters];
+
+                // Hide sensor parameters (accelerometer, magnetic field) unless enabled
+                if (!showSensorParams && fileType === 'GP') {
+                  filteredParameters = filteredParameters.filter(param =>
+                    !HIDDEN_SENSOR_PARAMS.includes(param)
+                  );
+                }
 
                 // console.log('[PARAM LIST RENDER] Starting with ALL parameters (numeric + MA):', filteredParameters.length, filteredParameters);
                 // console.log('[PARAM LIST RENDER] visibleParameters:', visibleParameters.length, visibleParameters);
@@ -4419,19 +4531,45 @@ export function PinChartDisplay({
                         onClick={() => toggleParameterVisibility(parameter)}
                         title="Click to toggle visibility"
                       >
-                        <Label
-                          htmlFor={`param-${parameter}`}
-                          className={cn(
-                            "text-[11px] font-normal cursor-pointer",
-                            !compactView && !isParameterPanelExpanded && "truncate",
-                            isMA && "italic text-muted-foreground" // Style MA parameters differently
-                          )}
-                        >
-                          {isMA
-                            ? (compactView ? formatParameterName(displayName) : displayName) // Apply compact view formatting to MA parameters too
-                            : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
-                          }
-                        </Label>
+                        {/* Parameter name with tooltip for GrowProbe common names */}
+                        {fileType === 'GP' && GROWPROBE_COMMON_NAMES[parameter] ? (
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Label
+                                  htmlFor={`param-${parameter}`}
+                                  className={cn(
+                                    "text-[11px] font-normal cursor-pointer",
+                                    !compactView && !isParameterPanelExpanded && "truncate",
+                                    isMA && "italic text-muted-foreground"
+                                  )}
+                                >
+                                  {isMA
+                                    ? (compactView ? formatParameterName(displayName) : displayName)
+                                    : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
+                                  }
+                                </Label>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                {GROWPROBE_COMMON_NAMES[parameter]}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <Label
+                            htmlFor={`param-${parameter}`}
+                            className={cn(
+                              "text-[11px] font-normal cursor-pointer",
+                              !compactView && !isParameterPanelExpanded && "truncate",
+                              isMA && "italic text-muted-foreground"
+                            )}
+                          >
+                            {isMA
+                              ? (compactView ? formatParameterName(displayName) : displayName)
+                              : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
+                            }
+                          </Label>
+                        )}
 
                         {/* Filter indicator */}
                         {state.timeFilter?.enabled && (
@@ -5187,6 +5325,7 @@ export function PinChartDisplay({
                 );
               })})()}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -5502,6 +5641,16 @@ export function PinChartDisplay({
             setShowRawViewer(false);
             setSelectedFileForRaw(null);
           }}
+        />
+      )}
+
+      {/* Methodology Modal */}
+      {projectId && tileName && (
+        <MethodologyModal
+          open={showMethodologyModal}
+          onOpenChange={setShowMethodologyModal}
+          projectId={projectId}
+          tileName={tileName}
         />
       )}
     </div>
