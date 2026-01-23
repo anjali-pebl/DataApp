@@ -122,24 +122,41 @@ const DEFAULT_COLOR_PALETTE = [
 ];
 
 // Common names for GrowProbe parameters (used for tooltips and Y-axis labels)
+// Keys are normalized (lowercase, no special chars) for flexible matching
 const GROWPROBE_COMMON_NAMES: Record<string, string> = {
-  'Temp (°C)': 'Temperature (degrees Celsius)',
-  'IR (a.u.)': 'Infrared Radiation (arbitrary units)',
-  'Vis (a.u.)': 'Visible Light (arbitrary units)',
-  'Light (Lux)': 'Light Intensity (Lux)',
-  'Accel_X': 'Acceleration X-axis (g-force)',
-  'Accel_Y': 'Acceleration Y-axis (g-force)',
-  'Accel_Z': 'Acceleration Z-axis (g-force)',
-  'Tilt': 'Tilt Angle (device orientation)',
-  'Mag_X': 'Magnetic Field X-axis',
-  'Mag_Y': 'Magnetic Field Y-axis',
-  'Mag_Z': 'Magnetic Field Z-axis',
-  'Direction (° North)': 'Compass Direction (degrees from North)',
-  'Battery (V)': 'Battery Voltage (Volts)',
+  'temp': 'Temperature (degrees Celsius)',
+  'ir': 'Infrared Radiation (arbitrary units)',
+  'vis': 'Visible Light (arbitrary units)',
+  'light': 'Light Intensity (Lux)',
+  'lux': 'Light Intensity (Lux)',
+  'accel_x': 'Acceleration X-axis (g-force)',
+  'accel_y': 'Acceleration Y-axis (g-force)',
+  'accel_z': 'Acceleration Z-axis (g-force)',
+  'tilt': 'Tilt Angle (device orientation)',
+  'mag_x': 'Magnetic Field X-axis',
+  'mag_y': 'Magnetic Field Y-axis',
+  'mag_z': 'Magnetic Field Z-axis',
+  'direction': 'Compass Direction (degrees from North)',
+  'h.angle': 'Compass Direction (degrees from North)',
+  'battery': 'Battery Voltage (Volts)',
+  'vbat': 'Battery Voltage (Volts)',
 };
 
+// Helper function to get GrowProbe common name with flexible matching
+function getGrowProbeCommonName(parameter: string): string | null {
+  // Normalize the parameter name: lowercase, extract the base name before any units/parentheses
+  const normalized = parameter.toLowerCase().split(/[\s(]/)[0].trim();
+  return GROWPROBE_COMMON_NAMES[normalized] || null;
+}
+
 // Hidden sensor parameters (accelerometer and magnetic field) - shown via toggle
-const HIDDEN_SENSOR_PARAMS = ['Accel_X', 'Accel_Y', 'Accel_Z', 'Mag_X', 'Mag_Y', 'Mag_Z'];
+const HIDDEN_SENSOR_PARAMS_PATTERNS = ['accel_', 'mag_'];
+
+// Helper to check if parameter is a hidden sensor param
+function isHiddenSensorParam(parameter: string): boolean {
+  const lower = parameter.toLowerCase();
+  return HIDDEN_SENSOR_PARAMS_PATTERNS.some(pattern => lower.startsWith(pattern));
+}
 
 interface ParameterState {
   visible: boolean;
@@ -962,10 +979,15 @@ export function PinChartDisplay({
   const [brushStartIndex, setBrushStartIndex] = useState<number>(0);
   const [brushEndIndex, setBrushEndIndex] = useState<number | undefined>(undefined);
 
-  // Get visible parameters
+  // Get visible parameters (also filter out hidden sensor params for GrowProbe when toggle is off)
   const visibleParameters = useMemo(() => {
-    return numericParameters.filter(param => parameterStates[param]?.visible);
-  }, [numericParameters, parameterStates]);
+    let params = numericParameters.filter(param => parameterStates[param]?.visible);
+    // Hide accelerometer/magnetic field params unless showSensorParams is enabled
+    if (!showSensorParams && fileType === 'GP') {
+      params = params.filter(param => !isHiddenSensorParam(param));
+    }
+    return params;
+  }, [numericParameters, parameterStates, showSensorParams, fileType]);
 
   // Calculate dynamic chart height based on number of visible parameters
   const dynamicChartHeight = useMemo(() => {
@@ -3900,9 +3922,8 @@ export function PinChartDisplay({
                   // Add gap between axes: increase width for better spacing
                   const axisWidth = (index === 2) ? 65 : 55;
                   // Use GrowProbe common name if available, otherwise use formatted parameter name
-                  const labelText = (fileType === 'GP' && GROWPROBE_COMMON_NAMES[parameter])
-                    ? GROWPROBE_COMMON_NAMES[parameter]
-                    : formatParameterWithSource(parameter, false);
+                  const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
+                  const labelText = gpCommonName || formatParameterWithSource(parameter, false);
 
                   // Calculate base offset and apply custom offsets from style rules
                   let labelOffset = getMultiAxisLabelOffset(domain, paramRange, paramMax);
@@ -4191,7 +4212,7 @@ export function PinChartDisplay({
                 // Hide sensor parameters (accelerometer, magnetic field) unless enabled
                 if (!showSensorParams && fileType === 'GP') {
                   filteredParameters = filteredParameters.filter(param =>
-                    !HIDDEN_SENSOR_PARAMS.includes(param)
+                    !isHiddenSensorParam(param)
                   );
                 }
 
@@ -4532,44 +4553,48 @@ export function PinChartDisplay({
                         title="Click to toggle visibility"
                       >
                         {/* Parameter name with tooltip for GrowProbe common names */}
-                        {fileType === 'GP' && GROWPROBE_COMMON_NAMES[parameter] ? (
-                          <TooltipProvider delayDuration={300}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Label
-                                  htmlFor={`param-${parameter}`}
-                                  className={cn(
-                                    "text-[11px] font-normal cursor-pointer",
-                                    !compactView && !isParameterPanelExpanded && "truncate",
-                                    isMA && "italic text-muted-foreground"
-                                  )}
-                                >
-                                  {isMA
-                                    ? (compactView ? formatParameterName(displayName) : displayName)
-                                    : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
-                                  }
-                                </Label>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                {GROWPROBE_COMMON_NAMES[parameter]}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <Label
-                            htmlFor={`param-${parameter}`}
-                            className={cn(
-                              "text-[11px] font-normal cursor-pointer",
-                              !compactView && !isParameterPanelExpanded && "truncate",
-                              isMA && "italic text-muted-foreground"
-                            )}
-                          >
-                            {isMA
-                              ? (compactView ? formatParameterName(displayName) : displayName)
-                              : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
-                            }
-                          </Label>
-                        )}
+                        {(() => {
+                          const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
+                          const labelContent = isMA
+                            ? (compactView ? formatParameterName(displayName) : displayName)
+                            : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter));
+
+                          if (gpCommonName) {
+                            return (
+                              <TooltipProvider delayDuration={300}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Label
+                                      htmlFor={`param-${parameter}`}
+                                      className={cn(
+                                        "text-[11px] font-normal cursor-pointer",
+                                        !compactView && !isParameterPanelExpanded && "truncate",
+                                        isMA && "italic text-muted-foreground"
+                                      )}
+                                    >
+                                      {labelContent}
+                                    </Label>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    {gpCommonName}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            );
+                          }
+                          return (
+                            <Label
+                              htmlFor={`param-${parameter}`}
+                              className={cn(
+                                "text-[11px] font-normal cursor-pointer",
+                                !compactView && !isParameterPanelExpanded && "truncate",
+                                isMA && "italic text-muted-foreground"
+                              )}
+                            >
+                              {labelContent}
+                            </Label>
+                          );
+                        })()}
 
                         {/* Filter indicator */}
                         {state.timeFilter?.enabled && (
