@@ -1422,15 +1422,7 @@ export function PinChartDisplaySpotSample({
             )}
           </div>
 
-          {/* Right side: Methodology button spanning full height */}
-          <Button
-            className="px-6 text-sm rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 shrink-0 self-stretch"
-            onClick={() => setShowMethodologyModal(true)}
-            disabled={!projectId || !tileName}
-          >
-            <BookOpen className="h-4 w-4 mr-2" />
-            METHODOLOGY
-          </Button>
+
         </div>
 
         {/* Control Bar */}
@@ -1919,7 +1911,17 @@ export function PinChartDisplaySpotSample({
 
       {/* Parameter Selector Panel - Collapsible */}
       <div className={`shrink-0 transition-all duration-300 ${isParametersSidebarCollapsed ? 'w-8' : 'w-48'}`}>
-        <div className="sticky top-4">
+        <div className="sticky top-4 space-y-2">
+          {/* Methodology Button */}
+          {projectId && tileName && !isParametersSidebarCollapsed && (
+            <Button
+              className="w-full px-4 text-sm rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800"
+              onClick={() => setShowMethodologyModal(true)}
+            >
+              <BookOpen className="h-4 w-4 mr-2" />
+              METHODOLOGY
+            </Button>
+          )}
           {isParametersSidebarCollapsed ? (
             /* Collapsed State - Narrow strip with expand button */
             <div className="border rounded-lg bg-background h-[400px] flex flex-col items-center py-3">

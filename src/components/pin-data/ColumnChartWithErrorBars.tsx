@@ -74,7 +74,7 @@ export function ColumnChartWithErrorBars({
   // Extract styling properties with defaults
   const baseYAxisLabelFontSize = spotSampleStyles?.yAxisLabelFontSize ?? 12;
   // Add extra top margin when showDateSeparators is true to accommodate date labels
-  const dateLabelsTopMargin = showDateSeparators ? 25 : 0;
+  const dateLabelsTopMargin = showDateSeparators ? 45 : 0;
   const styles = {
     barGap: spotSampleStyles?.barGap ?? 4,
     barCategoryGap: spotSampleStyles?.barCategoryGap ?? 10,
@@ -447,7 +447,7 @@ export function ColumnChartWithErrorBars({
 
     dateGroups.groups.forEach((group, i) => {
       const centerX = labelPositions[i];
-      const labelY = yTop - 8;
+      const labelY = yTop - 20;
 
       elements.push(
         <text
