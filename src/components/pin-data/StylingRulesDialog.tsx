@@ -135,7 +135,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
     properties: {
       xAxisRange: { min: "00:00", max: "24:00" },
       xAxisTitle: "Time",
-      defaultAxisMode: 'single',
+      defaultAxisMode: 'multi',
       yAxisTitle: "Detection Positive Minutes (DPM)",
       yAxisWidth: 80,
       secondaryYAxis: {
@@ -161,7 +161,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
     enabled: false,
     properties: {
       xAxisTitle: "Time",
-      defaultAxisMode: 'single',
+      defaultAxisMode: 'multi',
       yAxisTitle: "Difference (DPM)",
       yAxisWidth: 80,
       secondaryYAxis: {
@@ -191,7 +191,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
     enabled: false,
     properties: {
       xAxisTitle: "Time",
-      defaultAxisMode: 'single',
+      defaultAxisMode: 'multi',
       yAxisTitle: "Daily DPM (DPM/hr)",
       yAxisWidth: 80,
       secondaryYAxis: {
@@ -221,7 +221,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
     enabled: true,
     properties: {
       xAxisTitle: "Time",
-      defaultAxisMode: 'single',
+      defaultAxisMode: 'multi',
       yAxisWidth: 80,
       yAxisMultiLine: true, // Enable multi-line Y-axis titles
       yAxisMultiLineWordThreshold: 3, // Split titles with 3+ words

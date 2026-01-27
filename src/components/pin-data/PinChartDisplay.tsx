@@ -445,7 +445,7 @@ export function PinChartDisplay({
   initialCustomYAxisLabel,
   initialCompactView,
   initialCustomParameterNames,
-  defaultAxisMode = 'single',
+  defaultAxisMode = 'multi',
   defaultParametersExpanded = false,
   currentDateFormat,
   onDateFormatChange,
@@ -3169,24 +3169,8 @@ export function PinChartDisplay({
                     <div className="space-y-3">
                       <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
 
-                      {/* Compact View Toggle */}
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="compact-view" className="text-xs cursor-pointer">
-                          Compact View
-                        </Label>
-                        <Switch
-                          id="compact-view"
-                          checked={compactView}
-                          onCheckedChange={setCompactView}
-                          className="h-4 w-7"
-                        />
-                      </div>
-                      <p className="text-[0.65rem] text-muted-foreground">
-                        Show only selected parameters without borders
-                      </p>
-
                       {/* Single/Multi Axis Toggle */}
-                      <div className="flex items-center justify-between pt-2 border-t">
+                      <div className="flex items-center justify-between">
                         <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
                           Single-Axis Mode
                         </Label>
@@ -3194,7 +3178,7 @@ export function PinChartDisplay({
                           id="axis-mode"
                           checked={axisMode === 'single'}
                           onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
-                          className="h-4 w-7"
+                          className="shrink-0"
                         />
                       </div>
                       <p className="text-[0.65rem] text-muted-foreground">
@@ -3212,7 +3196,7 @@ export function PinChartDisplay({
                               id="show-sensors"
                               checked={showSensorParams}
                               onCheckedChange={setShowSensorParams}
-                              className="h-4 w-7"
+                              className="shrink-0"
                             />
                           </div>
                           <p className="text-[0.65rem] text-muted-foreground">
@@ -3231,7 +3215,7 @@ export function PinChartDisplay({
                         id="show-year"
                         checked={showYearInXAxis}
                         onCheckedChange={setShowYearInXAxis}
-                        className="h-4 w-7"
+                        className="shrink-0"
                       />
                     </div>
                     <p className="text-[0.65rem] text-muted-foreground">
@@ -3249,7 +3233,7 @@ export function PinChartDisplay({
                             id="show-days"
                             checked={showDaysFromStart}
                             onCheckedChange={setShowDaysFromStart}
-                            className="h-4 w-7"
+                            className="shrink-0"
                           />
                         </div>
                         <p className="text-[0.65rem] text-muted-foreground">
@@ -3644,26 +3628,17 @@ export function PinChartDisplay({
           className={cn("w-full bg-card p-2", !compactView && "border rounded-md")}
           style={{
             height: `${dynamicChartHeight + (
-              // Add extra height for warning banners and x-axis labels
-              (!compactView && (axisMode === 'multi' || (axisMode === 'single' && visibleParameters.length > 1))) ? 80 : 0
+              // Add extra height for single-axis info banner
+              (!compactView && axisMode === 'single') ? 40 : 0
             )}px`
           }}
         >
-          {/* Multi-Axis Mode Warning Banner */}
-          {axisMode === 'multi' && !compactView && (
-            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-3 py-1.5 mb-2 flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                <span className="font-medium">Multi-Axis Mode:</span> Units are not comparable between variables
-              </p>
-            </div>
-          )}
-          {/* Single Axis Mode Warning Banner - shown when multiple parameters on shared axis */}
-          {axisMode === 'single' && visibleParameters.length > 1 && !compactView && (
-            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-3 py-1.5 mb-2 flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                <span className="font-medium">Multi-Parameter Graph:</span> Y-axis utilizes a dummy variable which is not meaningful for individual metrics
+
+          {/* Single Axis Mode Info Banner */}
+          {axisMode === 'single' && !compactView && (
+            <div className="bg-muted/50 border rounded px-3 py-1.5 mb-2 flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium">Single-Axis Mode:</span> Mouse-over graph area for actual values
               </p>
             </div>
           )}
@@ -3675,10 +3650,8 @@ export function PinChartDisplay({
                 data={finalDisplayData}
                 margin={{
                   top: 5,
-                  right: axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled
-                    ? (appliedStyleRule?.properties.chartRightMargin || 80)
-                    : 12,
-                  left: 5,
+                  right: 12,
+                  left: 0,
                   bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
                 }}
               >
@@ -3707,85 +3680,14 @@ export function PinChartDisplay({
                   } : undefined}
                 />
 
-                {/* Primary Y-Axis (Left) */}
+                {/* Primary Y-Axis (Left) - hidden in single-axis mode */}
                 <YAxis
-                  {...(axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? { yAxisId: "left" } : {})}
-                  tick={{ fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }}
+                  tick={false}
                   stroke="hsl(var(--border))"
-                  width={(showYAxisLabels || appliedStyleRule?.properties.yAxisTitle) ? (appliedStyleRule?.properties.yAxisWidth || 80) : 50}
+                  width={10}
                   domain={yAxisDomain}
                   allowDataOverflow={true}
-                  ticks={yAxisTickInterval ? (() => {
-                    const ticks = [];
-                    for (let i = yAxisDomain[0]; i <= yAxisDomain[1]; i += yAxisTickInterval) {
-                      ticks.push(i);
-                    }
-                    return ticks;
-                  })() : undefined}
-                  tickFormatter={(value) => formatYAxisTick(value, dataRange, dataMax)}
-                  label={(showYAxisLabels || appliedStyleRule?.properties.yAxisTitle || customYAxisLabel) ? (() => {
-                    const labelText = customYAxisLabel || appliedStyleRule?.properties.yAxisTitle || (visibleParameters.length === 1
-                      ? formatParameterWithSource(visibleParameters[0], false)
-                      : 'Value');
-                    const labelOffset = axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? 5 : getLabelOffset(maxTickDigits);
-                    const baseStyle = { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' };
-
-                    // Check if multi-line is enabled
-                    if (appliedStyleRule?.properties.yAxisMultiLine) {
-                      const threshold = appliedStyleRule.properties.yAxisMultiLineWordThreshold || 3;
-                      const lines = splitYAxisTitle(labelText, threshold);
-
-                      // If split into multiple lines, use custom component
-                      if (lines.length > 1) {
-                        return {
-                          content: <MultiLineYAxisLabel value={lines} angle={-90} offset={labelOffset} style={baseStyle} />,
-                          position: 'insideLeft'
-                        };
-                      }
-                    }
-
-                    // Default single-line label
-                    return {
-                      value: labelText,
-                      angle: -90,
-                      position: 'insideLeft',
-                      offset: labelOffset,
-                      style: baseStyle
-                    };
-                  })() : undefined}
                 />
-
-                {/* Secondary Y-Axis (Right) - Calculated */}
-                {axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled && (
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tick={{ fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }}
-                    stroke="hsl(var(--border))"
-                    width={appliedStyleRule.properties.secondaryYAxis.width || 80}
-                    domain={[
-                      (yAxisDomain[0] / appliedStyleRule.properties.secondaryYAxis.divideBy) * 100,
-                      (yAxisDomain[1] / appliedStyleRule.properties.secondaryYAxis.divideBy) * 100
-                    ]}
-                    allowDataOverflow={true}
-                    ticks={yAxisTickInterval ? (() => {
-                      const ticks = [];
-                      const divideBy = appliedStyleRule.properties.secondaryYAxis.divideBy;
-                      for (let i = yAxisDomain[0]; i <= yAxisDomain[1]; i += yAxisTickInterval) {
-                        ticks.push((i / divideBy) * 100);
-                      }
-                      return ticks;
-                    })() : undefined}
-                    tickFormatter={(value) => Math.round(value).toString()}
-                    label={{
-                      value: appliedStyleRule.properties.secondaryYAxis.title,
-                      angle: 90,
-                      position: 'insideRight',
-                      offset: 5,
-                      style: { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }
-                    }}
-                  />
-                )}
 
                 {/* Frame lines - top and right edges */}
                 <ReferenceLine {...(axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? { yAxisId: "left" } : {})} y={yAxisDomain[1]} stroke="hsl(var(--border))" strokeWidth={1} strokeOpacity={0.3} />
@@ -3875,7 +3777,7 @@ export function PinChartDisplay({
 
           {/* Multi Axis Mode */}
           {axisMode === 'multi' && (
-            <div style={{ width: '100%', height: 'calc(100% - 40px)' }}>
+            <div style={{ width: '100%', height: '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
@@ -3883,7 +3785,7 @@ export function PinChartDisplay({
                   top: 5,
                   right: Math.ceil(visibleParameters.length / 2) * 10,
                   left: 10,
-                  bottom: (appliedStyleRule?.properties.chartBottomMargin ?? 10) + 40
+                  bottom: (appliedStyleRule?.properties.chartBottomMargin ?? 10)
                 }}
               >
                 <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
@@ -4140,7 +4042,7 @@ export function PinChartDisplay({
 
           {/* Parameter Controls - On the right side */}
           <div className={cn(
-            "transition-all duration-300 ease-in-out flex-shrink-0",
+            "transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col",
             isParameterPanelExpanded ? "w-72 space-y-2" : "w-8 overflow-hidden"
           )}>
             {/* Collapsed state - just show expand button */}
@@ -4202,7 +4104,7 @@ export function PinChartDisplay({
             )}
 
             {isParameterPanelExpanded && (
-            <div className="space-y-1 h-[210px] overflow-y-auto">
+            <div className="space-y-1 flex-1 overflow-y-auto">
               {(() => {
                 // Apply filters to parameters - now supports multiple selections
                 // Use ALL numeric parameters + MA parameters, regardless of visibility

@@ -335,7 +335,7 @@ function PinPlotInstanceComponent({
               initialCompactView={initialCompactView}
               initialCustomParameterNames={initialCustomParameterNames}
               // Set defaults for merged plots (detected by preParsedData)
-              defaultAxisMode={preParsedData ? 'multi' : 'single'}
+              defaultAxisMode='multi'
               defaultParametersExpanded={preParsedData ? true : false}
               // Date format toggle (only for non-merged plots)
               currentDateFormat={dateFormat}
