@@ -904,6 +904,30 @@ export function PinChartDisplay({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSubcamNmaxFile]);
 
+  // Default to heatmap view for SubCam nmax files
+  React.useEffect(() => {
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      setViewMode('heatmap');
+      // Make all species visible for heatmap (same logic as handleViewModeChange('heatmap'))
+      setParameterStates(prev => {
+        const updated = { ...prev };
+        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+        metadataParams.forEach(param => {
+          if (updated[param]) {
+            updated[param] = { ...updated[param], visible: false };
+          }
+        });
+        speciesColumns.forEach(species => {
+          if (updated[species]) {
+            updated[species] = { ...updated[species], visible: true };
+          }
+        });
+        return updated;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
+
   // Update parameter states when numericParameters changes (e.g., new data loaded)
   React.useEffect(() => {
     setParameterStates(prev => {
