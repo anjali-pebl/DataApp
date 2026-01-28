@@ -528,6 +528,7 @@ export function PinChartDisplay({
   // Unified view mode for all file types
   type ViewMode = 'chart' | 'table' | 'heatmap' | 'tree';
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
+  const [highlightedTaxon, setHighlightedTaxon] = useState<string | null>(null);
 
   // Legacy support: derive old state variables from unified viewMode
   const showTable = viewMode === 'table';
@@ -609,8 +610,10 @@ export function PinChartDisplay({
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-  // Axis mode state - default to multi axis
-  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(initialAxisMode || defaultAxisMode || 'multi');
+  // Axis mode state - default to single for SubCam nmax, multi for everything else
+  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
+    fileType === 'Subcam' ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
+  );
 
   // MA update counter to force data recalculation
   const [maUpdateCounter, setMaUpdateCounter] = useState(0);
@@ -747,15 +750,16 @@ export function PinChartDisplay({
   // }, [data, currentDateFormat]);
 
   // Apply styling rule defaults when rule changes (only watch defaultAxisMode specifically)
+  // Skip for SubCam files which always use single axis
   React.useEffect(() => {
+    if (fileType === 'Subcam') return;
     if (appliedStyleRule?.properties.defaultAxisMode) {
-      // Only update if the value is different to prevent unnecessary re-renders
       setAxisMode(prev => {
         const newMode = appliedStyleRule.properties.defaultAxisMode;
         return newMode && newMode !== prev ? newMode : prev;
       });
     }
-  }, [appliedStyleRule?.properties.defaultAxisMode]);
+  }, [appliedStyleRule?.properties.defaultAxisMode, fileType]);
 
   // Get all parameters (for table view)
   const allParameters = useMemo(() => {
@@ -875,6 +879,31 @@ export function PinChartDisplay({
     return initialState;
   });
 
+  // For nmax chart view: on initial load, only show "Total Observations" and "Cumulative Observations"
+  React.useEffect(() => {
+    if (!isSubcamNmaxFile || viewMode !== 'chart') return;
+    setParameterStates(prev => {
+      const updated = { ...prev };
+      const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+      metadataParams.forEach(param => {
+        if (updated[param]) {
+          const paramLower = param.toLowerCase().trim();
+          updated[param] = {
+            ...updated[param],
+            visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+          };
+        }
+      });
+      speciesColumns.forEach(species => {
+        if (updated[species]) {
+          updated[species] = { ...updated[species], visible: false };
+        }
+      });
+      return updated;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
+
   // Update parameter states when numericParameters changes (e.g., new data loaded)
   React.useEffect(() => {
     setParameterStates(prev => {
@@ -986,8 +1015,18 @@ export function PinChartDisplay({
     if (!showSensorParams && fileType === 'GP') {
       params = params.filter(param => !isHiddenSensorParam(param));
     }
+    // For nmax chart view: put Cumulative before Daily in tooltip/render order
+    if (isSubcamNmaxFile) {
+      params.sort((a, b) => {
+        const aIsCumulative = a.toLowerCase().includes('cumulative');
+        const bIsCumulative = b.toLowerCase().includes('cumulative');
+        if (aIsCumulative && !bIsCumulative) return -1;
+        if (!aIsCumulative && bIsCumulative) return 1;
+        return 0;
+      });
+    }
     return params;
-  }, [numericParameters, parameterStates, showSensorParams, fileType]);
+  }, [numericParameters, parameterStates, showSensorParams, fileType, isSubcamNmaxFile]);
 
   // Calculate dynamic chart height based on number of visible parameters
   const dynamicChartHeight = useMemo(() => {
@@ -1163,36 +1202,63 @@ export function PinChartDisplay({
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
 
-    // Only adjust visibility for nmax files when switching TO heatmap or tree mode
-    if ((mode === 'heatmap' || mode === 'tree') && isSubcamNmaxFile && speciesColumns.length > 0) {
-      setParameterStates(prev => {
-        const updated = { ...prev };
+    // Adjust visibility for nmax files based on view mode
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      if (mode === 'heatmap' || mode === 'tree') {
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Hide all aggregated metadata parameters (first 6)
-        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
-        metadataParams.forEach(param => {
-          if (updated[param]) {
-            updated[param] = { ...updated[param], visible: false };
-          }
+          // Hide all aggregated metadata parameters (first 6)
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            if (updated[param]) {
+              updated[param] = { ...updated[param], visible: false };
+            }
+          });
+
+          // Show ALL species columns (Latin names) by default for nmax files
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: true };
+            }
+          });
+
+          console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
+            mode,
+            hiddenMetadata: metadataParams,
+            visibleSpecies: speciesColumns,
+            totalSpecies: speciesColumns.length
+          });
+
+          return updated;
         });
+      } else if (mode === 'chart') {
+        // Chart mode for nmax: show only "Total Observations" and "Cumulative Observations", hide species
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Show ALL species columns (Latin names) by default for nmax files
-        const defaultVisibleSpeciesCount = speciesColumns.length;
-        speciesColumns.forEach((species, index) => {
-          if (updated[species]) {
-            updated[species] = { ...updated[species], visible: true };
-          }
+          // Show only exact "Total Observations" and "Cumulative Observations"
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            const paramLower = param.toLowerCase().trim();
+            if (updated[param]) {
+              updated[param] = {
+                ...updated[param],
+                visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+              };
+            }
+          });
+
+          // Hide ALL species columns in chart mode
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: false };
+            }
+          });
+
+          return updated;
         });
-
-        console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
-          mode,
-          hiddenMetadata: metadataParams,
-          visibleSpecies: speciesColumns,
-          totalSpecies: speciesColumns.length
-        });
-
-        return updated;
-      });
+      }
     }
   };
 
@@ -2949,6 +3015,11 @@ export function PinChartDisplay({
     return formatted;
   };
 
+  // Display name override for nmax chart view parameters (no-op, keep original names)
+  const getLITUDisplayName = (_parameter: string): string | null => {
+    return null;
+  };
+
   const moveParameter = (parameter: string, direction: 'up' | 'down') => {
     // This would implement parameter reordering - simplified for now
     console.log(`Move ${parameter} ${direction}`);
@@ -3167,23 +3238,28 @@ export function PinChartDisplay({
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-3" align="end">
                     <div className="space-y-3">
-                      <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
+                      {/* Chart Settings header and axis toggle - hidden for SubCam nmax */}
+                      {!isSubcamNmaxFile && (
+                        <>
+                          <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
 
-                      {/* Single/Multi Axis Toggle */}
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
-                          Single-Axis Mode
-                        </Label>
-                        <Switch
-                          id="axis-mode"
-                          checked={axisMode === 'single'}
-                          onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
-                          className="shrink-0"
-                        />
-                      </div>
-                      <p className="text-[0.65rem] text-muted-foreground">
-                        Removes multiple axes for a cleaner look
-                      </p>
+                          {/* Single/Multi Axis Toggle */}
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
+                              Single-Axis Mode
+                            </Label>
+                            <Switch
+                              id="axis-mode"
+                              checked={axisMode === 'single'}
+                              onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
+                              className="shrink-0"
+                            />
+                          </div>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            Removes multiple axes for a cleaner look
+                          </p>
+                        </>
+                      )}
 
                       {/* Show Sensor Parameters Toggle - only for GrowProbe files */}
                       {fileType === 'GP' && (
@@ -3493,6 +3569,7 @@ export function PinChartDisplay({
             <TaxonomicTreeView
               tree={nmaxTaxonomicTree}
               containerHeight={dynamicChartHeight}
+              highlightedTaxon={highlightedTaxon}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
@@ -3502,9 +3579,9 @@ export function PinChartDisplay({
         </div>
       ) : showHeatmap && isSubcamNmaxFile ? (
         // Heatmap View for Subcam nmax files
-        <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
+        <div className="flex overflow-hidden" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Heatmap - Takes up most space */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <HeatmapDisplay
               key={refreshKey}
               data={finalDisplayData}
@@ -3516,25 +3593,30 @@ export function PinChartDisplay({
               containerHeight={dynamicChartHeight}
               brushStartIndex={activeBrushStart}
               brushEndIndex={activeBrushEnd}
-              onBrushChange={timeAxisMode === 'separate' ? handleBrushChange : undefined}
+              onBrushChange={timeAxisMode === 'separate' && !isSubcamNmaxFile ? handleBrushChange : undefined}
               timeFormat={showYearInXAxis ? 'full' : 'short'}
               customColor={heatmapColor}
               customMaxValue={appliedStyleRule?.properties.heatmapMaxValue}
               cellWidth={appliedStyleRule?.properties.heatmapCellWidth ?? 10}
               rowHeight={appliedStyleRule?.properties.heatmapRowHeight ?? 35}
+              onShowInTree={(species) => {
+                setHighlightedTaxon(species);
+                handleViewModeChange('tree');
+                setTimeout(() => setHighlightedTaxon(null), 4000);
+              }}
             />
           </div>
 
-          {/* Species Selection Panel - Right sidebar - Collapsible */}
+          {/* Taxa Selection Panel - Right sidebar - Collapsible */}
           <div className={cn(
-            "border rounded-md bg-card transition-all duration-300 ease-in-out",
+            "border rounded-md bg-card transition-all duration-300 ease-in-out shrink-0",
             isSpeciesPanelExpanded ? "w-64" : "w-12"
           )}>
             {isSpeciesPanelExpanded ? (
               <>
                 <div className="p-3 border-b flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="text-sm font-semibold">Species Selection</h3>
+                    <h3 className="text-sm font-semibold">Taxa</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       {taxonomicallyOrderedSpecies.filter(s => parameterStates[s]?.visible).length} of {taxonomicallyOrderedSpecies.length} visible
                     </p>
@@ -3623,19 +3705,37 @@ export function PinChartDisplay({
         <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Chart - Takes up most space */}
           <div className="flex-1 space-y-3">
+      {/* Color Key - only for nmax chart view */}
+      {isSubcamNmaxFile && viewMode === 'chart' && visibleParameters.length > 0 && (
+        <div className="flex items-center gap-4 px-3 py-2 bg-white border rounded-md">
+          <span className="text-xs font-semibold text-gray-600">Color Key:</span>
+          {visibleParameters.map(param => {
+            const state = parameterStates[param];
+            if (!state) return null;
+            const colorValue = getColorValue(state.color, state.opacity ?? 1.0);
+            const displayName = getLITUDisplayName(param) || param;
+            return (
+              <div key={param} className="flex items-center gap-1.5">
+                <div className="w-4 h-1 rounded-full" style={{ backgroundColor: colorValue }} />
+                <span className="text-xs text-gray-700">{displayName}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {visibleParameters.length > 0 && (
         <div
           className={cn("w-full bg-card p-2", !compactView && "border rounded-md")}
           style={{
             height: `${dynamicChartHeight + (
-              // Add extra height for single-axis info banner
-              (!compactView && axisMode === 'single') ? 40 : 0
+              // Add extra height for single-axis info banner (not for nmax)
+              (!compactView && axisMode === 'single' && !isSubcamNmaxFile) ? 40 : 0
             )}px`
           }}
         >
 
-          {/* Single Axis Mode Info Banner */}
-          {axisMode === 'single' && !compactView && (
+          {/* Single Axis Mode Info Banner - hidden for nmax */}
+          {axisMode === 'single' && !compactView && !isSubcamNmaxFile && (
             <div className="bg-muted/50 border rounded px-3 py-1.5 mb-2 flex items-center gap-2">
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium">Single-Axis Mode:</span> Mouse-over graph area for actual values
@@ -3644,7 +3744,7 @@ export function PinChartDisplay({
           )}
           {/* Single Axis Mode */}
           {axisMode === 'single' && (
-            <div style={{ width: '100%', height: visibleParameters.length > 1 && !compactView ? 'calc(100% - 40px)' : '100%' }}>
+            <div style={{ width: '100%', height: (visibleParameters.length > 1 && !compactView && !isSubcamNmaxFile) ? 'calc(100% - 40px)' : '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
@@ -3680,13 +3780,14 @@ export function PinChartDisplay({
                   } : undefined}
                 />
 
-                {/* Primary Y-Axis (Left) - hidden in single-axis mode */}
+                {/* Primary Y-Axis (Left) - hidden in single-axis mode, fully hidden for nmax */}
                 <YAxis
                   tick={false}
-                  stroke="hsl(var(--border))"
-                  width={10}
+                  stroke={isSubcamNmaxFile ? 'transparent' : 'hsl(var(--border))'}
+                  width={isSubcamNmaxFile ? 1 : 10}
                   domain={yAxisDomain}
                   allowDataOverflow={true}
+                  hide={isSubcamNmaxFile}
                 />
 
                 {/* Frame lines - top and right edges */}
@@ -3761,7 +3862,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }}
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -3823,9 +3924,10 @@ export function PinChartDisplay({
                   const paramColor = getColorValue(parameterStates[parameter].color);
                   // Add gap between axes: increase width for better spacing
                   const axisWidth = (index === 2) ? 65 : 55;
-                  // Use GrowProbe common name if available, otherwise use formatted parameter name
+                  // Use GrowProbe common name if available, LITU name for nmax, otherwise formatted parameter name
                   const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
-                  const labelText = gpCommonName || formatParameterWithSource(parameter, false);
+                  const lituName = getLITUDisplayName(parameter);
+                  const labelText = lituName || gpCommonName || formatParameterWithSource(parameter, false);
 
                   // Calculate base offset and apply custom offsets from style rules
                   let labelOffset = getMultiAxisLabelOffset(domain, paramRange, paramMax);
@@ -3983,7 +4085,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }} // Smaller dots for MA
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -4038,9 +4140,22 @@ export function PinChartDisplay({
         </div>
       )}
 
+      {/* Observations info note - below chart, only for nmax chart view */}
+      {isSubcamNmaxFile && viewMode === 'chart' && (
+        <div className="bg-muted/40 border rounded-md px-3 py-2 flex items-center gap-2">
+          <svg className="w-4 h-4 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+          </svg>
+          <p className="text-xs text-muted-foreground">
+            Data is being displayed as Observations, this does not include any species identification information. Please consult Methodology for more details.
+          </p>
+        </div>
+      )}
+
           </div>
 
-          {/* Parameter Controls - On the right side */}
+          {/* Parameter Controls - On the right side (hidden for nmax chart view) */}
+          {!(isSubcamNmaxFile && viewMode === 'chart') && (
           <div className={cn(
             "transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col",
             isParameterPanelExpanded ? "w-72 space-y-2" : "w-8 overflow-hidden"
@@ -5254,6 +5369,7 @@ export function PinChartDisplay({
             </div>
             )}
           </div>
+          )}
         </div>
       )}
 

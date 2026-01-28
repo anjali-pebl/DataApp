@@ -74,12 +74,19 @@ export function buildTaxonomicTree(
     // Define taxonomic path from root to species
     const path: Array<{ name: string; rank: TreeNode['rank']; originalName?: string }> = [];
 
-    // Clean species name by removing rank annotations like (gen.), (sp.), (fam.), etc.
+    // Clean species name by removing rank annotations like (gen.), (sp.), (fam.), (kingdom), (phylum), etc.
     // This allows proper matching with WoRMS/GBIF taxonomy data
-    const cleanedSpeciesName = speciesName.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/i, '').trim();
+    // Handles both abbreviated forms with dots: (sp.), (gen.), (fam.)
+    // And full rank names without dots: (kingdom), (phylum), (order), (family), (genus), (species)
+    const cleanedSpeciesName = speciesName
+      .replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/i, '')
+      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/i, '')
+      .trim();
 
     // Extract rank annotation from CSV name as fallback
-    const rankAnnotationMatch = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)$/i);
+    // Handles both abbreviated: (phyl.), (sp.) and full: (kingdom), (phylum)
+    const rankAnnotationMatch = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)$/i)
+      || speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)$/i);
     const csvRankHint = rankAnnotationMatch ? rankAnnotationMatch[1].toLowerCase() : null;
 
     // Determine the actual rank of this entry
@@ -94,13 +101,21 @@ export function buildTaxonomicTree(
     // Fallback: If hierarchy matching failed, use CSV rank annotation
     else if (csvRankHint) {
       const rankMap: Record<string, TreeNode['rank']> = {
+        // Abbreviated forms
         'phyl': 'phylum',
         'infraclass': 'class',
         'class': 'class',
         'ord': 'order',
         'fam': 'family',
         'gen': 'genus',
-        'sp': 'species'
+        'sp': 'species',
+        // Full rank names
+        'kingdom': 'kingdom',
+        'phylum': 'phylum',
+        'order': 'order',
+        'family': 'family',
+        'genus': 'genus',
+        'species': 'species'
       };
       actualRank = rankMap[csvRankHint] || 'species';
     }

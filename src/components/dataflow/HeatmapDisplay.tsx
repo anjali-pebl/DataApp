@@ -4,7 +4,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { parseISO, startOfDay, format, isValid, eachDayOfInterval } from 'date-fns';
 import { scaleLinear, scaleBand } from 'd3-scale';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { reorganizeTaxonomicData } from '@/lib/taxonomic-reorganizer';
 import { ResponsiveContainer, LineChart, Line, XAxis, Brush } from 'recharts';
@@ -32,6 +31,7 @@ interface HeatmapDisplayProps {
   customMaxValue?: number; // Custom max value for color scale saturation
   cellWidth?: number; // Width of each cell/column (default: 10)
   rowHeight?: number; // Height of each row (default: 35)
+  onShowInTree?: (speciesName: string) => void;
 }
 
 interface ProcessedCell {
@@ -61,13 +61,49 @@ const HeatmapDisplayComponent = ({
     customColor,
     customMaxValue,
     cellWidth = 10,
-    rowHeight = 35
+    rowHeight = 35,
+    onShowInTree
 }: HeatmapDisplayProps) => {
   // Debug: Check if filteredFlattenedTree is being passed
   console.log('[HEATMAP DISPLAY] filteredFlattenedTree prop:', filteredFlattenedTree ? `${filteredFlattenedTree.length} items` : 'undefined/null');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
+  const [selectedCell, setSelectedCell] = useState<{
+    day: string;
+    species: string;
+    value: number;
+    count: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Click handler for heatmap cells via event delegation
+  const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const target = e.target as SVGElement;
+    const cellData = target.getAttribute('data-cell');
+    if (!cellData) return;
+    try {
+      const parsed = JSON.parse(cellData);
+      setSelectedCell({ ...parsed, x: e.clientX, y: e.clientY });
+    } catch { /* ignore */ }
+  };
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    if (!selectedCell) return;
+    const handleClick = (e: MouseEvent) => {
+      const popup = document.getElementById('heatmap-cell-popup');
+      if (popup && !popup.contains(e.target as Node)) {
+        setSelectedCell(null);
+      }
+    };
+    const timer = setTimeout(() => document.addEventListener('mousedown', handleClick), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [selectedCell]);
 
   const BRUSH_CHART_HEIGHT = 60;
   const heatmapHeight = onBrushChange ? containerHeight - BRUSH_CHART_HEIGHT : containerHeight;
@@ -80,20 +116,30 @@ const HeatmapDisplayComponent = ({
       return speciesRankMap.get(speciesName)!;
     }
     // Fallback to extracting from species name string
-    const match = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
-    return match ? match[1] : null;
+    // Match abbreviated ranks with dot: (phyl.), (ord.), etc.
+    const matchAbbrev = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+    if (matchAbbrev) return matchAbbrev[1];
+    // Match full rank names without dot: (kingdom), (phylum), etc.
+    const matchFull = speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)/);
+    return matchFull ? matchFull[1] : null;
   };
 
   // Get single-letter abbreviation for taxonomic rank
   const getRankAbbreviation = (rank: string | null): string => {
     const abbrevMap: Record<string, string> = {
-      'phyl': 'P',       // Phylum
+      'kingdom': 'K',    // Kingdom
+      'phylum': 'P',     // Phylum (full name)
+      'phyl': 'P',       // Phylum (abbreviated)
       'infraclass': 'I', // Infraclass
       'class': 'C',      // Class
-      'ord': 'O',        // Order
-      'fam': 'F',        // Family
-      'gen': 'G',        // Genus
-      'sp': 'S'          // Species
+      'order': 'O',      // Order (full name)
+      'ord': 'O',        // Order (abbreviated)
+      'family': 'F',     // Family (full name)
+      'fam': 'F',        // Family (abbreviated)
+      'genus': 'G',      // Genus (full name)
+      'gen': 'G',        // Genus (abbreviated)
+      'species': 'S',    // Species (full name)
+      'sp': 'S'          // Species (abbreviated)
     };
     return rank ? (abbrevMap[rank] ?? '?') : '?';
   };
@@ -101,20 +147,28 @@ const HeatmapDisplayComponent = ({
 // Get color for taxonomic rank (matching tree view colors)
   const getRankColor = (rank: string | null): string => {
     const rankColors: Record<string, string> = {
-      'phyl': '#8B5CF6',      // Phylum - purple
+      'kingdom': '#dc2626',    // Kingdom - red-600
+      'phylum': '#8B5CF6',     // Phylum - purple (full name)
+      'phyl': '#8B5CF6',       // Phylum - purple (abbreviated)
       'infraclass': '#A78BFA', // Infraclass - lighter purple
-      'class': '#EF4444',     // Class - red
-      'ord': '#F59E0B',       // Order - amber/orange
-      'fam': '#84CC16',       // Family - lime green
-      'gen': '#10B981',       // Genus - emerald green
-      'sp': '#14B8A6'         // Species - teal
+      'class': '#EF4444',      // Class - red
+      'order': '#F59E0B',      // Order - amber/orange (full name)
+      'ord': '#F59E0B',        // Order - amber/orange (abbreviated)
+      'family': '#84CC16',     // Family - lime green (full name)
+      'fam': '#84CC16',        // Family - lime green (abbreviated)
+      'genus': '#10B981',      // Genus - emerald green (full name)
+      'gen': '#10B981',        // Genus - emerald green (abbreviated)
+      'species': '#14B8A6',    // Species - teal (full name)
+      'sp': '#14B8A6'          // Species - teal (abbreviated)
     };
     return rank ? (rankColors[rank] ?? '#94A3B8') : '#94A3B8';
   };
 
-  // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua")
+  // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua", "Animalia (kingdom)" → "Animalia")
   const stripRankSuffix = (name: string): string => {
-    return name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
+    return name
+      .replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '')
+      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
   };
 
   // Map rank to indent level (hierarchical ordering)
@@ -154,29 +208,28 @@ const HeatmapDisplayComponent = ({
   // Indent pixels per level
   const INDENT_PX_PER_LEVEL = 20;
 
-  // Calculate maximum label width needed based on longest taxa name
+  // Calculate maximum label width needed based on actually displayed taxa names
   const maxLabelWidth = useMemo(() => {
     // Estimate ~6.5 pixels per character for text-xs font
     const CHAR_WIDTH = 6.5;
     const BASE_PADDING = 20; // Base padding for the label area
 
-    const longestName = series.reduce((max, name) => {
-      const cleanName = name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-      const maxClean = max.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-      return cleanName.length > maxClean.length ? name : max;
-    }, '');
-
-    const cleanLongestName = longestName.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-
-    // Calculate width needed: character width + indentation space + square + base padding
-    const estimatedWidth = (cleanLongestName.length * CHAR_WIDTH) +
-                          (maxIndentLevel * INDENT_PX_PER_LEVEL) +
-                          16 + // Colored square (12px) + gap (4px)
-                          BASE_PADDING;
+    // Calculate the effective width needed for each visible taxon (name + its indentation)
+    let maxEffectiveWidth = 0;
+    series.forEach(name => {
+      const cleanName = name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
+      const indentLevel = getIndentLevel(name);
+      // Width = text width + indent offset from right edge (maxIndent - thisIndent) * px
+      const effectiveWidth = (cleanName.length * CHAR_WIDTH) +
+                            (maxIndentLevel - indentLevel) * INDENT_PX_PER_LEVEL +
+                            16 + // Colored square (12px) + gap (4px)
+                            BASE_PADDING;
+      maxEffectiveWidth = Math.max(maxEffectiveWidth, effectiveWidth);
+    });
 
     // Ensure minimum width of 150px
-    return Math.max(150, Math.ceil(estimatedWidth));
-  }, [series]);
+    return Math.max(150, Math.ceil(maxEffectiveWidth));
+  }, [series, speciesIndentMap]);
 
   // Dynamic left margin to accommodate all labels without truncation
   const leftMargin = maxLabelWidth;
@@ -313,9 +366,10 @@ const HeatmapDisplayComponent = ({
 
   const { width, height } = svgDimensions;
 
-  // Calculate plot dimensions based on fixed cell width and row height
-  // This ensures consistent cell sizes across different data volumes
-  const plotWidth = uniqueDays.length * cellWidth;
+  // Calculate plot dimensions - fill container width dynamically, use fixed row height
+  const minPlotWidth = uniqueDays.length * cellWidth;
+  const availablePlotWidth = Math.max(minPlotWidth, width - margin.left - margin.right);
+  const plotWidth = availablePlotWidth;
   const plotHeight = visibleSeries.length * rowHeight;
 
   const xScale = scaleBand<string>().domain(uniqueDays).range([0, plotWidth]).padding(0.05);
@@ -346,16 +400,19 @@ const HeatmapDisplayComponent = ({
   const ranksPresent = useMemo(() => {
     const ranks = new Set(series.map(s => getTaxonomicRank(s)).filter(r => r !== null));
     return Array.from(ranks).sort((a, b) => {
-      const order = { 'ord': 0, 'fam': 1, 'gen': 2, 'sp': 3 };
-      return (order[a as keyof typeof order] || 999) - (order[b as keyof typeof order] || 999);
+      const order: Record<string, number> = { 'kingdom': 0, 'phylum': 1, 'phyl': 1, 'class': 2, 'infraclass': 2, 'order': 3, 'ord': 3, 'family': 4, 'fam': 4, 'genus': 5, 'gen': 5, 'species': 6, 'sp': 6 };
+      return (order[a] ?? 999) - (order[b] ?? 999);
     });
   }, [series]);
 
   const rankLabels: Record<string, string> = {
-    'ord': 'Order',
-    'fam': 'Family',
-    'gen': 'Genus',
-    'sp': 'Species'
+    'kingdom': 'Kingdom',
+    'phylum': 'Phylum', 'phyl': 'Phylum',
+    'class': 'Class', 'infraclass': 'Infraclass',
+    'order': 'Order', 'ord': 'Order',
+    'family': 'Family', 'fam': 'Family',
+    'genus': 'Genus', 'gen': 'Genus',
+    'species': 'Species', 'sp': 'Species'
   };
 
   return (
@@ -369,6 +426,10 @@ const HeatmapDisplayComponent = ({
           <div className="absolute top-[6px] right-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-md shadow-sm z-10">
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-gray-700">Taxonomic Ranks:</span>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#dc2626' }}></div>
+                <span className="text-gray-600">Kingdom</span>
+              </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#8B5CF6' }}></div>
                 <span className="text-gray-600">Phylum</span>
@@ -408,8 +469,7 @@ const HeatmapDisplayComponent = ({
               </div>
             </div>
           </div>
-          <TooltipProvider>
-            <svg width={Math.max(width, plotWidth + margin.left + margin.right)} height={plotHeight + margin.top + margin.bottom}>
+            <svg onClick={handleSvgClick} width={Math.max(width, plotWidth + margin.left + margin.right)} height={plotHeight + margin.top + margin.bottom}>
               {plotWidth > 0 && plotHeight > 0 && (
               <g transform={`translate(${margin.left},${margin.top})`}>
                 {/* Y-axis */}
@@ -626,49 +686,44 @@ const HeatmapDisplayComponent = ({
                           const showText = cell && cell.value > 0 && cellHeight > 8;
 
                           return (
-                            <Tooltip key={`${s}-${day}`} delayDuration={200}>
-                              <TooltipTrigger asChild>
-                                <g
-                                  transform={`translate(${xScale(day)}, ${yScale(s)})`}
-                                  style={{ cursor: 'pointer' }}
+                            <g
+                              key={`${s}-${day}`}
+                              transform={`translate(${xScale(day)}, ${yScale(s)})`}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <rect
+                                width={xScale.bandwidth()}
+                                height={yScale.bandwidth()}
+                                fill={fillColor}
+                                className="stroke-background/50 hover:stroke-foreground"
+                                strokeWidth={1}
+                                data-cell={JSON.stringify({
+                                  day,
+                                  species: s,
+                                  value: cell?.value ?? 0,
+                                  count: cell?.count ?? 0,
+                                })}
+                              />
+                              {showText && (
+                                <text
+                                  x={xScale.bandwidth() / 2}
+                                  y={yScale.bandwidth() / 2}
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                  className="pointer-events-none font-bold select-none"
+                                  style={{
+                                    fontSize: `${fontSize}px`,
+                                    fill: 'white',
+                                    paintOrder: 'stroke',
+                                    stroke: 'rgba(200,200,200,0.7)',
+                                    strokeWidth: '1.2px',
+                                    strokeLinejoin: 'round'
+                                  }}
                                 >
-                                  <rect
-                                    width={xScale.bandwidth()}
-                                    height={yScale.bandwidth()}
-                                    fill={fillColor}
-                                    className="stroke-background/50 hover:stroke-foreground"
-                                    strokeWidth={1}
-                                    style={{ pointerEvents: 'all' }}
-                                  />
-                                  {showText && (
-                                    <text
-                                      x={xScale.bandwidth() / 2}
-                                      y={yScale.bandwidth() / 2}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                      className="pointer-events-none font-bold select-none"
-                                      style={{
-                                        fontSize: `${fontSize}px`,
-                                        fill: 'white',
-                                        paintOrder: 'stroke',
-                                        stroke: 'rgba(200,200,200,0.7)',
-                                        strokeWidth: '1.2px',
-                                        strokeLinejoin: 'round'
-                                      }}
-                                    >
-                                      {Math.min(99, cell.value).toFixed(0)}
-                                    </text>
-                                  )}
-                                </g>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                              <div className="space-y-1">
-                                <p className="font-bold text-sm">{format(parseISO(day), 'PPP')}</p>
-                                <p className="text-sm">{s}: <span className="font-semibold">{cell ? cell.value.toFixed(2) : 'No data'}</span></p>
-                                {cell && <p className="text-muted-foreground text-xs">({cell.count} {cell.count === 1 ? 'record' : 'records'})</p>}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
+                                  {Math.min(99, cell.value).toFixed(0)}
+                                </text>
+                              )}
+                            </g>
                           );
                         })}
                       </React.Fragment>
@@ -678,8 +733,62 @@ const HeatmapDisplayComponent = ({
               </g>
               )}
             </svg>
-          </TooltipProvider>
         </div>
+        {/* Click popup for heatmap cells - rendered outside scrollable container */}
+        {selectedCell && (
+          <div
+            id="heatmap-cell-popup"
+            className="fixed z-[9999]"
+            style={{
+              left: `${Math.min(selectedCell.x + 12, typeof window !== 'undefined' ? window.innerWidth - 280 : 500)}px`,
+              top: `${selectedCell.y > 200 ? selectedCell.y - 12 : selectedCell.y + 12}px`,
+              transform: selectedCell.y > 200 ? 'translateY(-100%)' : 'none',
+            }}
+          >
+            <div className="bg-white border border-gray-200 rounded-lg shadow-xl p-3 max-w-xs">
+              <p className="font-bold text-sm text-gray-900">{format(parseISO(selectedCell.day), 'PPP')}</p>
+              <div className="flex items-center gap-1.5 mt-1">
+                {(() => {
+                  const rank = getTaxonomicRank(selectedCell.species);
+                  const rankColor = getRankColor(rank);
+                  const rankAbbrev = getRankAbbreviation(rank);
+                  const rankLabel = rank ? ({
+                    'phyl': 'Phylum', 'infraclass': 'Infraclass', 'class': 'Class',
+                    'ord': 'Order', 'fam': 'Family', 'gen': 'Genus', 'sp': 'Species'
+                  }[rank] ?? rank) : 'Unknown';
+                  return (
+                    <>
+                      <span className="text-[9px] font-bold px-1 py-0 rounded uppercase leading-tight"
+                        style={{ backgroundColor: rankColor, color: 'white', minWidth: '14px', textAlign: 'center' }}>
+                        {rankAbbrev}
+                      </span>
+                      <span className="text-xs font-medium" style={{ color: rankColor }}>{rankLabel}</span>
+                    </>
+                  );
+                })()}
+              </div>
+              <p className="text-sm mt-1">
+                <span className="text-gray-700">{stripRankSuffix(selectedCell.species)}:</span>{' '}
+                <span className="font-semibold">{selectedCell.value > 0 ? selectedCell.value.toFixed(2) : 'No data'}</span>
+              </p>
+              {selectedCell.count > 0 && (
+                <p className="text-gray-500 text-xs">({selectedCell.count} {selectedCell.count === 1 ? 'record' : 'records'})</p>
+              )}
+              <div className="flex gap-2 mt-2">
+                {onShowInTree && (
+                  <button className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium px-2 py-1 rounded border border-blue-200 transition-colors cursor-pointer"
+                    onClick={() => { onShowInTree(selectedCell.species); setSelectedCell(null); }}>
+                    Show in Tree
+                  </button>
+                )}
+                <button className="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium px-2 py-1 rounded border border-gray-200 transition-colors cursor-pointer"
+                  onClick={() => setSelectedCell(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {onBrushChange && data.length > 0 && (
              <div style={{ height: `${BRUSH_CHART_HEIGHT}px`}} className="w-full mt-1 border rounded-md p-1 shadow-sm bg-card">
                  <ResponsiveContainer width="100%" height="100%">
