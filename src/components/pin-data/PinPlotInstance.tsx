@@ -41,6 +41,11 @@ interface PinPlotInstanceProps {
   startDate?: Date; // Start date of data
   endDate?: Date; // End date of data
   fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
+  // Display overrides for paired FPOD plots
+  hideBrush?: boolean;
+  showDateTimeAxis?: boolean;
+  // Location coordinates for sunrise/sunset shading
+  coordinates?: { lat: number; lng: number };
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -92,6 +97,9 @@ function PinPlotInstanceComponent({
   startDate,
   endDate,
   fileCategories,
+  hideBrush,
+  showDateTimeAxis,
+  coordinates,
   timeAxisMode,
   globalTimeRange,
   globalBrushRange,
@@ -320,6 +328,9 @@ function PinPlotInstanceComponent({
               startDate={startDate}
               endDate={endDate}
               fileCategories={fileCategories}
+              hideBrush={hideBrush}
+              showDateTimeAxis={showDateTimeAxis}
+              coordinates={coordinates}
               timeAxisMode={timeAxisMode}
               globalTimeRange={globalTimeRange}
               globalBrushRange={globalBrushRange}
