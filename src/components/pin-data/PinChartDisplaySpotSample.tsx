@@ -608,8 +608,10 @@ export function PinChartDisplaySpotSample({
 
     if (isMetaFile) {
       // Use specialized eDNA Meta processor (handles wide format with one row per sample)
-      console.log('[SPOT-SAMPLE] Using specialized eDNA Meta processor');
-      result = processEdnaMetaFile(data, sampleIdColumn, fileName || '');
+      // Always use "Station" column for meta files
+      const metaSampleIdColumn = 'Station';
+      console.log('[SPOT-SAMPLE] Using specialized eDNA Meta processor with Station column');
+      result = processEdnaMetaFile(data, metaSampleIdColumn, fileName || '');
     } else {
       // Use standard grouping for long format data (multiple rows per sample)
       // Only pass stationIdColumn as blade ID if it's different from sample ID column
@@ -1502,14 +1504,15 @@ export function PinChartDisplaySpotSample({
           </div>
         )}
 
-        {/* Sample ID Column Selector - hidden for Chem files or if only one option */}
+        {/* Sample ID Column Selector - hidden for Chem files, Meta files, or if only one option */}
         {(() => {
           const upper = fileName?.toUpperCase() || '';
           const isChemFile = upper.includes('CHEMSW') || upper.includes('CHEM-SW') ||
                  upper.includes('CHEMWQ') || upper.includes('CHEM-WQ') ||
                  upper.endsWith('_CHEM.CSV');
+          const isMetaFile = fileName ? isEdnaMetaFile(fileName) : false;
           const hasOnlyOneOption = sampleIdColumnOptions.length <= 1;
-          if (isChemFile || hasOnlyOneOption) return null;
+          if (isChemFile || isMetaFile || hasOnlyOneOption) return null;
 
           return (
             <div className="flex items-center gap-2">

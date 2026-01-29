@@ -1,9 +1,11 @@
 "use client";
 
-import React from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, LabelList } from 'recharts';
+import React, { useState } from 'react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, Cell, LabelList } from 'recharts';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Info } from 'lucide-react';
 import type { AggregatedTaxonomyData } from '@/lib/edna-taxonomy-processor';
-import { categorizeSample } from '@/lib/edna-taxonomy-processor';
 
 interface StackedTaxonomyChartProps {
   data: AggregatedTaxonomyData;
@@ -36,26 +38,59 @@ interface StackedTaxonomyChartProps {
 
 /**
  * Default color palette for common marine phyla
- * Following the spec: Chromista (browns), Metazoa (blues), Plantae (greens)
+ * Colorblind-friendly palette based on Paul Tol and Wong palettes
+ * All colors have sufficient contrast against white backgrounds
  */
 const DEFAULT_PHYLUM_COLORS: { [key: string]: string } = {
-  'Chromista': '#D4A574',      // Sandy brown
-  'Metazoa': '#4A90E2',        // Ocean blue
-  'Plantae': '#7CB342',        // Lime green
-  'Annelida': '#E57373',       // Light red
-  'Arthropoda': '#64B5F6',     // Light blue
-  'Mollusca': '#9575CD',       // Purple
-  'Chordata': '#4DB6AC',       // Teal
-  'Echinodermata': '#FF8A65',  // Coral
-  'Cnidaria': '#81C784',       // Green
-  'Porifera': '#A1887F',       // Brown
-  'Bryozoa': '#F06292',        // Pink
-  'Platyhelminthes': '#FFB74D', // Orange
+  'Chromista': '#882255',      // Wine/magenta
+  'Metazoa': '#0077BB',        // Strong blue
+  'Plantae': '#009988',        // Teal
+  'Annelida': '#CC3311',       // Vermillion/red-orange
+  'Arthropoda': '#33BBEE',     // Cyan
+  'Mollusca': '#AA3377',       // Purple/magenta
+  'Chordata': '#EE7733',       // Orange
+  'Echinodermata': '#0072B2',  // Deep sky blue
+  'Cnidaria': '#009E73',       // Bluish green
+  'Porifera': '#332288',       // Indigo
+  'Bryozoa': '#CC6677',        // Rose
+  'Platyhelminthes': '#AA4499', // Violet
+  'Ochrophyta': '#997700',     // Olive/dark yellow
+  'Myzozoa': '#6699CC',        // Light steel blue
+  'Chlorophyta': '#117733',    // Dark green
+  'Nematoda': '#CC4411',       // Dark orange-red
+  'Cercozoa': '#5566AA',       // Muted blue
+  'Haptophyta': '#44AA99',     // Teal green
+  'Nemertea': '#994455',       // Dark rose
+  'Bigyra': '#666633',         // Olive brown
+  'Ciliophora': '#448899',     // Steel teal
 };
 
 /**
+ * Extended colorblind-friendly palette for additional phyla
+ * These colors maintain good contrast and colorblind accessibility
+ */
+const EXTENDED_COLORS = [
+  '#4477AA', // Blue
+  '#66CCEE', // Cyan
+  '#228833', // Green
+  '#CCBB44', // Olive yellow (dark enough for white bg)
+  '#EE6677', // Red/pink
+  '#AA3377', // Purple
+  '#BBBBBB', // Grey
+  '#885533', // Brown
+  '#CC6644', // Burnt orange
+  '#336688', // Steel blue
+  '#779944', // Moss green
+  '#AA6688', // Mauve
+  '#557799', // Slate
+  '#886644', // Tan brown
+  '#668844', // Olive green
+  '#995566', // Dusty rose
+];
+
+/**
  * Generate a color for a phylum not in the default palette
- * Uses a simple hash function for consistency
+ * Uses extended colorblind-friendly palette with hash-based selection
  */
 function generatePhylumColor(phylum: string): string {
   let hash = 0;
@@ -63,8 +98,8 @@ function generatePhylumColor(phylum: string): string {
     hash = phylum.charCodeAt(i) + ((hash << 5) - hash);
   }
 
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 60%, 60%)`;
+  const index = Math.abs(hash) % EXTENDED_COLORS.length;
+  return EXTENDED_COLORS[index];
 }
 
 /**
@@ -120,7 +155,7 @@ export function StackedTaxonomyChart({
 
   // Extract styling properties with defaults
   const styles = {
-    chartMarginTop: spotSampleStyles?.chartMarginTop ?? 40,
+    chartMarginTop: spotSampleStyles?.chartMarginTop ?? 20,
     chartMarginRight: spotSampleStyles?.chartMarginRight ?? 150,
     chartMarginLeft: spotSampleStyles?.chartMarginLeft ?? 60,
     chartMarginBottom: spotSampleStyles?.chartMarginBottom ?? 80,
@@ -137,8 +172,8 @@ export function StackedTaxonomyChart({
     yAxisTitleFontWeight: spotSampleStyles?.yAxisTitleFontWeight ?? 'bold',
     yAxisTitleAlign: spotSampleStyles?.yAxisTitleAlign ?? 'center',
     chartHeight: spotSampleStyles?.chartHeight ?? 600,
-    barSize: spotSampleStyles?.barSize ?? 40,
-    barCategoryGap: spotSampleStyles?.barCategoryGap ?? "10%"
+    barSize: spotSampleStyles?.barSize ?? 60,
+    barCategoryGap: spotSampleStyles?.barCategoryGap ?? "5%"
   };
 
   // Merge default colors with custom colors
@@ -148,6 +183,16 @@ export function StackedTaxonomyChart({
   const getPhylumColor = (phylum: string): string => {
     return colorPalette[phylum] || generatePhylumColor(phylum);
   };
+
+  // Track which phylum is currently hovered for highlighting
+  const [hoveredPhylum, setHoveredPhylum] = useState<string | null>(null);
+
+  // Track which phylum dialog is open
+  const [showActionDialog, setShowActionDialog] = useState(false);
+  const [selectedPhylum, setSelectedPhylum] = useState<string | null>(null);
+
+  // Gray color for non-hovered elements
+  const GRAYED_OUT_COLOR = '#E0E0E0';
 
   // Transform aggregated data into Recharts format
   // Each object represents one sample with percentages for each phylum
@@ -190,40 +235,37 @@ export function StackedTaxonomyChart({
   console.log('[STACKED-TAXONOMY-CHART] Chart data:', chartData);
   console.log('[STACKED-TAXONOMY-CHART] Phyla by abundance:', phylaSortedByAbundance.map(p => `${p}: ${phylumTotalAbundance[p].toFixed(1)}`));
 
-  // Custom tooltip showing detailed breakdown
+  // Custom tooltip showing only the hovered phylum
   const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const totalTaxa = payload[0]?.payload?._totalTaxa || 0;
+    if (active && payload && payload.length && hoveredPhylum) {
+      // Find the entry for the hovered phylum
+      const hoveredEntry = payload.find((entry: any) => {
+        if (entry.dataKey.startsWith('_')) return false;
+        const originalPhylum = entry.payload[`_${entry.dataKey}_original`];
+        return originalPhylum === hoveredPhylum;
+      });
+
+      if (!hoveredEntry) return null;
+
+      const percentage = hoveredEntry.value;
+      const originalPhylum = hoveredEntry.payload[`_${hoveredEntry.dataKey}_original`];
+      const count = data.phylumCounts[originalPhylum]?.[label] || 0;
+      const phylumColor = getPhylumColor(originalPhylum);
 
       return (
         <div className="bg-white border border-gray-300 rounded shadow-lg p-3 max-w-xs">
           <p className="font-semibold text-sm mb-2">{label}</p>
-          <p className="text-xs text-gray-600 mb-2">Total Taxa: {totalTaxa}</p>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {payload.map((entry: any, index: number) => {
-              // Skip internal fields
-              if (entry.dataKey.startsWith('_')) return null;
-
-              const percentage = entry.value;
-              // Extract original phylum name from the stored field
-              const originalPhylum = entry.payload[`_${entry.dataKey}_original`];
-              const count = data.phylumCounts[originalPhylum][label];
-
-              return (
-                <div key={index} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1">
-                    <span
-                      className="inline-block w-3 h-3 rounded"
-                      style={{ backgroundColor: entry.fill }}
-                    ></span>
-                    <span className="font-medium">{entry.dataKey}:</span>
-                  </div>
-                  <span className="ml-2">
-                    {count} ({percentage.toFixed(1)}%)
-                  </span>
-                </div>
-              );
-            })}
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block w-4 h-4 rounded"
+              style={{ backgroundColor: phylumColor }}
+            ></span>
+            <div>
+              <p className="font-medium text-sm">{hoveredEntry.dataKey}</p>
+              <p className="text-sm text-gray-700">
+                {count} taxa ({percentage.toFixed(1)}%)
+              </p>
+            </div>
           </div>
         </div>
       );
@@ -231,46 +273,16 @@ export function StackedTaxonomyChart({
     return null;
   };
 
-  // Identify Control vs Farm sites using intelligent categorization
-  // Handles both naming conventions:
-  // - ALGA style: ALGA_C_S, ALGA_F_L (_C_ and _F_ patterns)
-  // - NORF style: NORF_Control_1, NORF_Farm_1 (Control and Farm keywords)
-  const sampleCategories = data.samples.map(sample => ({
-    sample,
-    category: categorizeSample(sample)
-  }));
-
-  const hasControlSites = sampleCategories.some(s => s.category === 'control');
-  const hasFarmSites = sampleCategories.some(s => s.category === 'farm');
-  const hasControlFarmPattern = hasControlSites && hasFarmSites;
-
-  // Calculate separator position (midpoint between control and farm)
-  let separatorX = null;
-  if (hasControlFarmPattern) {
-    const controlCount = sampleCategories.filter(s => s.category === 'control').length;
-    const farmCount = sampleCategories.filter(s => s.category === 'farm').length;
-    separatorX = controlCount - 0.5; // Position between last control and first farm
-
-    console.log('[STACKED-TAXONOMY-CHART] Detected Control/Farm pattern:', {
-      controlSites: sampleCategories.filter(s => s.category === 'control').map(s => s.sample),
-      farmSites: sampleCategories.filter(s => s.category === 'farm').map(s => s.sample),
-      controlCount,
-      farmCount,
-      separatorX
-    });
-  } else {
-    console.log('[STACKED-TAXONOMY-CHART] No Control/Farm pattern detected. Sample categories:', sampleCategories);
-  }
 
   return (
     <div className="relative w-full" style={{ height: styles.chartHeight, overflow: 'visible' }}>
       {/* Chart Title */}
-      <div className="text-center mb-2">
+      <div className="text-center pt-6 mb-2">
         <h3 className="text-lg font-semibold text-gray-800">{customTitle}</h3>
       </div>
 
       {/* Stacked Bar Chart */}
-      <ResponsiveContainer width={width} height={styles.chartHeight - 60} style={{ overflow: 'visible' }}>
+      <ResponsiveContainer width={width} height={styles.chartHeight - 50} style={{ overflow: 'visible' }}>
         <BarChart
           data={chartData}
           margin={{
@@ -290,7 +302,10 @@ export function StackedTaxonomyChart({
               value: 'Sampling Location',
               position: 'insideBottom',
               offset: -15,
-              style: { fontSize: `${styles.xAxisLabelFontSize}px`, fontWeight: 'normal' }
+              style: {
+                fontSize: `${styles.yAxisTitleFontSize}px`,
+                fontWeight: styles.yAxisTitleFontWeight
+              }
             }}
             tick={{ fontSize: styles.xAxisLabelFontSize, angle: styles.xAxisLabelRotation, textAnchor: 'end' }}
             height={styles.chartMarginBottom}
@@ -314,7 +329,7 @@ export function StackedTaxonomyChart({
             tick={{ fontSize: styles.yAxisLabelFontSize }}
           />
 
-          <Tooltip content={<CustomTooltip />} />
+          <RechartsTooltip content={<CustomTooltip />} />
 
           <Legend
             verticalAlign="top"
@@ -325,63 +340,116 @@ export function StackedTaxonomyChart({
               fontSize: '12px'
             }}
             iconType="square"
-            formatter={(value) => <span style={{ fontSize: '11px' }}>{value}</span>}
-            payload={phylaSortedAlphabetically.map(phylum => ({
-              value: getPhylumDisplayName(phylum),
-              type: 'square',
-              color: getPhylumColor(phylum),
-              id: phylum
-            }))}
+            onMouseEnter={(e: any) => {
+              if (e && e.id) setHoveredPhylum(e.id);
+            }}
+            onMouseLeave={() => setHoveredPhylum(null)}
+            onClick={(e: any) => {
+              if (e && e.id) {
+                setSelectedPhylum(e.id);
+                setShowActionDialog(true);
+              }
+            }}
+            formatter={(value, entry: any) => {
+              const phylum = entry.id;
+              const isHovered = hoveredPhylum === phylum;
+              const isGrayedOut = hoveredPhylum !== null && !isHovered;
+              return (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    color: isGrayedOut ? '#999' : '#333',
+                    fontWeight: isHovered ? 600 : 400,
+                    cursor: 'pointer',
+                    textDecoration: isHovered ? 'underline' : 'none'
+                  }}
+                >
+                  {value}
+                </span>
+              );
+            }}
+            payload={phylaSortedAlphabetically.map(phylum => {
+              const isHovered = hoveredPhylum === phylum;
+              const isGrayedOut = hoveredPhylum !== null && !isHovered;
+              return {
+                value: getPhylumDisplayName(phylum),
+                type: 'square',
+                color: isGrayedOut ? GRAYED_OUT_COLOR : getPhylumColor(phylum),
+                id: phylum
+              };
+            })}
           />
 
           {/* Create a Bar component for each phylum - sorted by abundance (most abundant at bottom) */}
           {phylaSortedByAbundance.map((phylum, index) => {
             const displayName = getPhylumDisplayName(phylum);
+            const isHovered = hoveredPhylum === phylum;
+            const isGrayedOut = hoveredPhylum !== null && !isHovered;
+            const barColor = isGrayedOut ? GRAYED_OUT_COLOR : getPhylumColor(phylum);
+
             return (
               <Bar
                 key={phylum}
                 dataKey={displayName}
                 name={displayName}
                 stackId="a"
-                fill={getPhylumColor(phylum)}
+                fill={barColor}
                 radius={index === phylaSortedByAbundance.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                onMouseEnter={() => setHoveredPhylum(phylum)}
+                onMouseLeave={() => setHoveredPhylum(null)}
+                style={{
+                  cursor: 'pointer',
+                  transition: 'opacity 0.15s ease-in-out'
+                }}
               >
+                {/* Use Cell components to apply colors per bar segment */}
+                {chartData.map((entry, cellIndex) => (
+                  <Cell
+                    key={`cell-${cellIndex}`}
+                    fill={isGrayedOut ? GRAYED_OUT_COLOR : getPhylumColor(phylum)}
+                    opacity={isGrayedOut ? 0.4 : 1}
+                  />
+                ))}
                 <LabelList
                   dataKey={displayName}
                   position="center"
                   formatter={(value: number) => value > 5 ? `${Math.round(value)}%` : ''}
-                  style={{ fontSize: 10, fill: '#fff', fontWeight: 400 }}
+                  style={{
+                    fontSize: 10,
+                    fill: isGrayedOut ? '#999' : '#fff',
+                    fontWeight: 400
+                  }}
                 />
               </Bar>
             );
           })}
 
-          {/* Add vertical separator line between Control and Farm sites if applicable */}
-          {separatorX !== null && (
-            <line
-              x1={separatorX}
-              y1={0}
-              x2={separatorX}
-              y2={height - 140}
-              stroke="#999"
-              strokeWidth={1}
-              strokeDasharray="4 4"
-            />
-          )}
         </BarChart>
       </ResponsiveContainer>
 
-      {/* Annotations for Control/Farm groupings - Commented out per user request */}
-      {/* {hasControlFarmPattern && (
-        <div className="absolute top-10 left-0 right-0 flex justify-around px-20">
-          <div className="text-xs font-semibold text-gray-600 text-center">
-            Control Sites
-          </div>
-          <div className="text-xs font-semibold text-gray-600 text-center">
-            Farm Sites
-          </div>
-        </div>
-      )} */}
+      {/* Compact Search Dialog */}
+      <Dialog open={showActionDialog} onOpenChange={setShowActionDialog}>
+        <DialogContent className="sm:max-w-[280px] p-3">
+          <Button
+            onClick={() => {
+              if (selectedPhylum) {
+                const searchQuery = encodeURIComponent(`${selectedPhylum} phylum marine biology`);
+                window.open(`https://www.google.com/search?q=${searchQuery}`, '_blank');
+              }
+              setShowActionDialog(false);
+              setSelectedPhylum(null);
+            }}
+            className="w-full justify-start gap-2"
+            variant="outline"
+          >
+            <Info className="w-4 h-4" />
+            <div className="flex flex-col items-start">
+              <span className="font-semibold">Search Online</span>
+              <span className="text-xs text-gray-500">Open a Google search for this phylum</span>
+            </div>
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -229,7 +229,7 @@ export function RarefactionChart({
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full flex flex-col items-center">
       <div style={{ width: `${chartSize}px`, height: `${chartSize}px`, position: 'relative' }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
@@ -355,7 +355,7 @@ export function RarefactionChart({
         )}
       </div>
 
-      <details className="border rounded p-2 mt-2">
+      <details open className="border rounded p-2 mt-2">
         <summary className="cursor-pointer font-medium text-xs">
           View Sample Details ({rarefactionCurve.dataPoints.length} samples)
         </summary>

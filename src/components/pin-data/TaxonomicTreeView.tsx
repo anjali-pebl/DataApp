@@ -1,27 +1,28 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown, Edit, Info, Loader2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ChevronRight, ChevronDown, Edit, Info } from 'lucide-react';
 import type { TreeNode } from '@/lib/taxonomic-tree-builder';
 import { getRankColor, getRankIndentation } from '@/lib/taxonomic-tree-builder';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
 
 interface TaxonomicTreeViewProps {
   tree: TreeNode;
   containerHeight: number;
   onSpeciesClick?: (speciesName: string) => void;
+  highlightedTaxon?: string | null;
 }
 
 interface TreeNodeComponentProps {
   node: TreeNode;
   level: number;
   onSpeciesClick?: (speciesName: string) => void;
+  highlightedTaxon?: string | null;
 }
 
-function TreeNodeComponent({ node, level, onSpeciesClick }: TreeNodeComponentProps) {
+function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: TreeNodeComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true); // Auto-expand entire tree to show all species
 
   const hasChildren = node.children.length > 0;
@@ -56,16 +57,22 @@ function TreeNodeComponent({ node, level, onSpeciesClick }: TreeNodeComponentPro
     }
   };
 
+  const nodeName = node.originalName || node.name;
+  const isHighlighted = highlightedTaxon === nodeName;
+
   return (
     <div className="font-mono text-[10px] leading-tight">
       {/* Current Node */}
       <div
+        data-taxon-name={nodeName}
         className={cn(
           "flex items-center gap-1 py-0 px-1 hover:bg-gray-100 rounded cursor-pointer transition-colors",
           // CSV entry nodes: emerald background, full opacity
           isCSVEntry && "bg-emerald-50 opacity-100",
           // Parent-only nodes (not in CSV): semi-transparent
-          !isCSVEntry && "opacity-25"
+          !isCSVEntry && "opacity-25",
+          // Highlighted taxon from heatmap "Show in Tree"
+          isHighlighted && "!bg-yellow-200 !opacity-100 ring-2 ring-yellow-400 rounded"
         )}
         style={{ paddingLeft: `${indentation + 4}px` }}
         onClick={() => hasChildren && setIsExpanded(!isExpanded)}
@@ -158,6 +165,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick }: TreeNodeComponentPro
               node={child}
               level={level + 1}
               onSpeciesClick={onSpeciesClick}
+              highlightedTaxon={highlightedTaxon}
             />
           ))}
         </div>
@@ -166,12 +174,22 @@ function TreeNodeComponent({ node, level, onSpeciesClick }: TreeNodeComponentPro
   );
 }
 
-export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: TaxonomicTreeViewProps) {
+export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highlightedTaxon }: TaxonomicTreeViewProps) {
+  const treeContainerRef = useRef<HTMLDivElement>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
-  const [showInfoDialog, setShowInfoDialog] = useState(false);
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
-  const [speciesInfo, setSpeciesInfo] = useState<string>('');
-  const [isFetchingInfo, setIsFetchingInfo] = useState(false);
+
+  // Scroll to highlighted taxon when it changes
+  useEffect(() => {
+    if (!highlightedTaxon || !treeContainerRef.current) return;
+    const timer = setTimeout(() => {
+      const el = treeContainerRef.current?.querySelector(`[data-taxon-name="${CSS.escape(highlightedTaxon)}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [highlightedTaxon]);
 
   // Handle species click - show action options
   const handleSpeciesClick = (speciesName: string) => {
@@ -191,52 +209,13 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: Tax
     setSelectedSpecies(null);
   };
 
-  // Handle Fetch Info action
-  const handleFetchInfo = async () => {
+  // Handle Fetch Info action - open Google search in new tab
+  const handleFetchInfo = () => {
     if (!selectedSpecies) return;
-
-    console.log('[TAXONOMIC TREE] Fetch info clicked for:', selectedSpecies);
+    const query = encodeURIComponent(selectedSpecies);
+    window.open(`https://www.google.com/search?q=${query}`, '_blank');
     setShowActionDialog(false);
-    setShowInfoDialog(true);
-    setIsFetchingInfo(true);
-    setSpeciesInfo('');
-
-    try {
-      const response = await fetch('/api/species-info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ speciesName: selectedSpecies })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch species information');
-      }
-
-      setSpeciesInfo(data.info || 'No information available');
-      console.log('[TAXONOMIC TREE] Species info fetched successfully');
-
-    } catch (error) {
-      console.error('[TAXONOMIC TREE] Error fetching species info:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setSpeciesInfo(`Error fetching information: ${errorMessage}`);
-
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to fetch species information'
-      });
-    } finally {
-      setIsFetchingInfo(false);
-    }
-  };
-
-  // Close info dialog
-  const handleCloseInfoDialog = () => {
-    setShowInfoDialog(false);
     setSelectedSpecies(null);
-    setSpeciesInfo('');
   };
 
   return (
@@ -245,7 +224,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: Tax
       style={{ height: `${containerHeight}px` }}
     >
       {/* Tree Container */}
-      <div className="flex-1 px-2 py-2">
+      <div ref={treeContainerRef} className="flex-1 px-2 py-2">
         {tree.children.length > 0 ? (
           tree.children.map((child, index) => (
             <TreeNodeComponent
@@ -253,6 +232,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: Tax
               node={child}
               level={0}
               onSpeciesClick={handleSpeciesClick}
+              highlightedTaxon={highlightedTaxon}
             />
           ))
         ) : (
@@ -290,8 +270,8 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: Tax
             >
               <Info className="w-4 h-4" />
               <div className="flex flex-col items-start">
-                <span className="font-semibold">Fetch Species Info</span>
-                <span className="text-xs text-gray-500">Get common name, taxonomy, and habitat information</span>
+                <span className="font-semibold">Search Online</span>
+                <span className="text-xs text-gray-500">Open a Google search for this taxon</span>
               </div>
             </Button>
           </div>
@@ -309,39 +289,6 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick }: Tax
         </DialogContent>
       </Dialog>
 
-      {/* Species Info Display Dialog */}
-      <Dialog open={showInfoDialog} onOpenChange={setShowInfoDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Info className="w-5 h-5" />
-              Species Information
-            </DialogTitle>
-            <DialogDescription>
-              {selectedSpecies}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {isFetchingInfo ? (
-              <div className="flex items-center justify-center gap-2 py-8">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                <span className="text-sm text-gray-600">Fetching species information...</span>
-              </div>
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {speciesInfo || 'No information available'}
-                </div>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button onClick={handleCloseInfoDialog}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

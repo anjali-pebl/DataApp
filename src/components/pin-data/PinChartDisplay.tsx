@@ -3511,58 +3511,60 @@ export function PinChartDisplay({
             </div>
           )}
 
-          {/* Unified View Mode Selector - always shows all 4 options */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-medium">View:</span>
-            <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
-              <Button
-                variant={viewMode === 'chart' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('chart')}
-                className="h-7 px-2 text-xs"
-              >
-                <BarChart3 className="h-3 w-3 mr-1" />
-                Chart
-              </Button>
-              <Button
-                variant={viewMode === 'table' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('table')}
-                className="h-7 px-2 text-xs"
-              >
-                <TableIcon className="h-3 w-3 mr-1" />
-                Table
-              </Button>
-              <Button
-                variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('heatmap')}
-                className="h-7 px-2 text-xs"
-                disabled={!isSubcamNmaxFile && !isHaplotypeFile}
-                title={!isSubcamNmaxFile && !isHaplotypeFile ? 'Heatmap view only available for nmax and hapl files' : ''}
-              >
-                <Grid3x3 className="h-3 w-3 mr-1" />
-                Heatmap
-              </Button>
-              <Button
-                variant={viewMode === 'tree' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('tree')}
-                className="h-7 px-2 text-xs"
-                disabled={!isSubcamNmaxFile}
-                title={!isSubcamNmaxFile ? 'Tree view only available for nmax files' : ''}
-              >
-                <Network className="h-3 w-3 mr-1" />
-                Tree
-              </Button>
+          {/* Unified View Mode Selector - hide for haplotype files which have their own internal view mode */}
+          {!isHaplotypeFile && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">View:</span>
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+                <Button
+                  variant={viewMode === 'chart' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('chart')}
+                  className="h-7 px-2 text-xs"
+                >
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  Chart
+                </Button>
+                <Button
+                  variant={viewMode === 'table' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('table')}
+                  className="h-7 px-2 text-xs"
+                >
+                  <TableIcon className="h-3 w-3 mr-1" />
+                  Table
+                </Button>
+                <Button
+                  variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('heatmap')}
+                  className="h-7 px-2 text-xs"
+                  disabled={!isSubcamNmaxFile}
+                  title={!isSubcamNmaxFile ? 'Heatmap view only available for nmax files' : ''}
+                >
+                  <Grid3x3 className="h-3 w-3 mr-1" />
+                  Heatmap
+                </Button>
+                <Button
+                  variant={viewMode === 'tree' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('tree')}
+                  className="h-7 px-2 text-xs"
+                  disabled={!isSubcamNmaxFile}
+                  title={!isSubcamNmaxFile ? 'Tree view only available for nmax files' : ''}
+                >
+                  <Network className="h-3 w-3 mr-1" />
+                  Tree
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Refresh & Settings - always in same position, shown only for Chart and Heatmap views */}
-          {(viewMode === 'chart' || viewMode === 'heatmap') && (
+          {/* Refresh & Settings - always in same position, shown only for Chart and Heatmap views (not for haplotype files which have their own controls) */}
+          {!isHaplotypeFile && (viewMode === 'chart' || viewMode === 'heatmap') && (
             <div className="flex items-center gap-0.5">
-              {/* Refresh Button - shown only for Heatmap view on NMAX/Hapl files */}
-              {viewMode === 'heatmap' && (isSubcamNmaxFile || (isHaplotypeFile && haplotypeData)) && (
+              {/* Refresh Button - shown only for Heatmap view on NMAX files */}
+              {viewMode === 'heatmap' && isSubcamNmaxFile && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -3581,7 +3583,7 @@ export function PinChartDisplay({
               )}
 
               {/* Chart/Heatmap Settings */}
-              {viewMode === 'heatmap' && (isSubcamNmaxFile || (isHaplotypeFile && haplotypeData)) ? (
+              {viewMode === 'heatmap' && isSubcamNmaxFile ? (
                 <StylingRulesDialog
                   open={showStylingRules}
                   onOpenChange={setShowStylingRules}
@@ -4055,8 +4057,6 @@ export function PinChartDisplay({
           <HaplotypeHeatmap
             haplotypeData={haplotypeData}
             containerHeight={dynamicChartHeight}
-            rowHeight={appliedStyleRule?.properties.heatmapRowHeight ?? 20}
-            cellWidth={appliedStyleRule?.properties.heatmapCellWidth ?? 30}
             spotSampleStyles={appliedStyleRule?.properties.spotSample}
             onStyleRuleUpdate={handleStyleRuleUpdate}
             rawFileId={rawFileInfo?.id}

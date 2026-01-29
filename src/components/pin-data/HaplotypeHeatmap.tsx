@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Save, TableIcon, TrendingUp, Settings } from "lucide-react";
+import { TableIcon, TrendingUp, Settings } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { HaplotypeCellData, HaplotypeParseResult, HaplotypeMetadata } from './csvParser';
@@ -22,8 +22,6 @@ import { Network, ArrowUpDown } from 'lucide-react';
 interface HaplotypeHeatmapProps {
   haplotypeData: HaplotypeParseResult;
   containerHeight: number;
-  rowHeight?: number; // Height of each species row (default: 15)
-  cellWidth?: number; // Width of each cell/column (default: 12)
   spotSampleStyles?: {
     xAxisLabelRotation?: number;
     xAxisLabelFontSize?: number;
@@ -72,8 +70,6 @@ function getRankAbbreviation(rank: string): string {
 export function HaplotypeHeatmap({
   haplotypeData,
   containerHeight,
-  rowHeight = 15,
-  cellWidth = 12,
   spotSampleStyles,
   onStyleRuleUpdate,
   rawFileId,
@@ -86,6 +82,7 @@ export function HaplotypeHeatmap({
   fileCategories
 }: HaplotypeHeatmapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
   const { toast } = useToast();
 
@@ -102,6 +99,9 @@ export function HaplotypeHeatmap({
   // View mode state
   const [viewMode, setViewMode] = useState<HaplotypeViewMode>('heatmap');
 
+  // Highlighted taxon for tree view linking
+  const [highlightedTaxon, setHighlightedTaxon] = useState<string | null>(null);
+
   // Sort mode state (hierarchical by default)
   const [sortMode, setSortMode] = useState<SortMode>('hierarchical');
 
@@ -109,7 +109,7 @@ export function HaplotypeHeatmap({
   const curveFitModel: CurveFitModel = 'logarithmic';
   const showFittedCurve = true;
   const [showRarefactionSettings, setShowRarefactionSettings] = useState(false);
-  const [rarefactionChartSize, setRarefactionChartSize] = useState(300);
+  const [rarefactionChartSize, setRarefactionChartSize] = useState(500);
   const [rarefactionLegendXOffset, setRarefactionLegendXOffset] = useState(25);
   const [rarefactionLegendYOffset, setRarefactionLegendYOffset] = useState(100);
   const [rarefactionYAxisTitleOffset, setRarefactionYAxisTitleOffset] = useState(20);
@@ -135,23 +135,7 @@ export function HaplotypeHeatmap({
   const [isFetchingTaxonomy, setIsFetchingTaxonomy] = useState(false);
   const [taxonomyFetchProgress, setTaxonomyFetchProgress] = useState({ current: 0, total: 0 });
 
-  // Adjustable cell width and height
-  const [adjustableCellWidth, setAdjustableCellWidth] = useState(cellWidth);
-  const [adjustableRowHeight, setAdjustableRowHeight] = useState(rowHeight);
-
-  // Handler to save current settings as style rule
-  const handleSaveSettings = () => {
-    if (onStyleRuleUpdate) {
-      onStyleRuleUpdate("_Hapl.csv", {
-        heatmapCellWidth: adjustableCellWidth,
-        heatmapRowHeight: adjustableRowHeight
-      });
-      toast({
-        title: "Settings Saved",
-        description: `Cell dimensions saved: ${adjustableCellWidth}px × ${adjustableRowHeight}px for _Hapl files`,
-      });
-    }
-  };
+  // Fixed row height for heatmap (responsive width is calculated dynamically)
 
   // Sync enrichedData when haplotypeData changes (file edits detected)
   useEffect(() => {
@@ -230,22 +214,37 @@ export function HaplotypeHeatmap({
   const heatmapHeight = containerHeight - FILTER_PANEL_HEIGHT;
   const treeViewHeight = containerHeight - TREE_VIEW_FILTER_HEIGHT;
 
+  // Set up ResizeObserver for container width tracking
   useEffect(() => {
-    const resizeObserver = new ResizeObserver(entries => {
+    resizeObserverRef.current = new ResizeObserver(entries => {
       if (!entries || entries.length === 0) return;
       const { width } = entries[0].contentRect;
       setSvgDimensions({ width, height: heatmapHeight });
     });
 
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
+    return () => {
+      resizeObserverRef.current?.disconnect();
+    };
+  }, [heatmapHeight]);
+
+  // Callback ref to measure container when it mounts/unmounts
+  const setContainerRef = React.useCallback((node: HTMLDivElement | null) => {
+    // Disconnect from previous element
+    if (containerRef.current && resizeObserverRef.current) {
+      resizeObserverRef.current.unobserve(containerRef.current);
     }
 
-    return () => {
-      if (containerRef.current) {
-        resizeObserver.unobserve(containerRef.current);
+    containerRef.current = node;
+
+    // Connect to new element and measure immediately
+    if (node && resizeObserverRef.current) {
+      resizeObserverRef.current.observe(node);
+      // Immediate measurement for when switching back to heatmap view
+      const rect = node.getBoundingClientRect();
+      if (rect.width > 0) {
+        setSvgDimensions({ width: rect.width, height: heatmapHeight });
       }
-    };
+    }
   }, [heatmapHeight]);
 
   // Build taxonomic tree from enriched data
@@ -413,43 +412,6 @@ export function HaplotypeHeatmap({
               <Label htmlFor="showGBIF-empty" className="text-sm cursor-pointer">Show Taxonomy</Label>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Label htmlFor="cellHeight-empty" className="text-sm font-medium whitespace-nowrap">Cell Height:</Label>
-            <input
-              id="cellHeight-empty"
-              type="range"
-              min="10"
-              max="100"
-              value={adjustableRowHeight}
-              onChange={(e) => setAdjustableRowHeight(Number(e.target.value))}
-              className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-            />
-            <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableRowHeight}px</span>
-
-            <Label htmlFor="cellWidth-empty" className="text-sm font-medium whitespace-nowrap ml-6">Cell Width:</Label>
-            <input
-              id="cellWidth-empty"
-              type="range"
-              min="5"
-              max="150"
-              value={adjustableCellWidth}
-              onChange={(e) => setAdjustableCellWidth(Number(e.target.value))}
-              className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-            />
-            <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableCellWidth}px</span>
-
-            {onStyleRuleUpdate && (
-              <Button
-                onClick={handleSaveSettings}
-                size="sm"
-                className="ml-4 h-8 gap-2"
-                variant="outline"
-              >
-                <Save className="h-4 w-4" />
-                Save as _hapl Style
-              </Button>
-            )}
-          </div>
         </div>
 
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
@@ -461,11 +423,22 @@ export function HaplotypeHeatmap({
 
   const { width } = svgDimensions;
 
-  // Calculate plot dimensions based on adjustable cell width and row height
-  const plotWidth = sites.length * adjustableCellWidth;
-  const plotHeight = filteredSpecies.length * adjustableRowHeight;
+  // Calculate plot dimensions responsively based on container width
+  // Minimum cell width of 30px to ensure readability, but expand to fill space
+  const MIN_CELL_WIDTH = 30;
+  const ROW_HEIGHT = 20;
 
-  // Use fixed bandwidth for xScale based on adjustable cellWidth
+  // Available width for the heatmap plot area
+  const availableWidth = Math.max(0, width - margin.left - margin.right);
+
+  // Calculate cell width: use available width divided by number of sites, with minimum
+  const calculatedCellWidth = sites.length > 0 ? Math.max(MIN_CELL_WIDTH, availableWidth / sites.length) : MIN_CELL_WIDTH;
+
+  // Plot dimensions
+  const plotWidth = sites.length * calculatedCellWidth;
+  const plotHeight = filteredSpecies.length * ROW_HEIGHT;
+
+  // Use scaleBand for responsive cell sizing
   const xScale = scaleBand<string>()
     .domain(sites)
     .range([0, plotWidth])
@@ -648,43 +621,6 @@ export function HaplotypeHeatmap({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <Label htmlFor="cellHeight" className="text-sm font-medium whitespace-nowrap">Cell Height:</Label>
-          <input
-            id="cellHeight"
-            type="range"
-            min="10"
-            max="100"
-            value={adjustableRowHeight}
-            onChange={(e) => setAdjustableRowHeight(Number(e.target.value))}
-            className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-          />
-          <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableRowHeight}px</span>
-
-          <Label htmlFor="cellWidth" className="text-sm font-medium whitespace-nowrap ml-6">Cell Width:</Label>
-          <input
-            id="cellWidth"
-            type="range"
-            min="5"
-            max="150"
-            value={adjustableCellWidth}
-            onChange={(e) => setAdjustableCellWidth(Number(e.target.value))}
-            className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-          />
-          <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableCellWidth}px</span>
-
-          {onStyleRuleUpdate && (
-            <Button
-              onClick={handleSaveSettings}
-              size="sm"
-              className="ml-4 h-8 gap-2"
-              variant="outline"
-            >
-              <Save className="h-4 w-4" />
-              Save as _hapl Style
-            </Button>
-          )}
-        </div>
           </>
         )}
       </div>
@@ -694,7 +630,7 @@ export function HaplotypeHeatmap({
         /* Rarefaction View */
         <div
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-4 bg-white overflow-auto"
+          className="flex-1 w-full border rounded-md p-4 bg-white overflow-auto flex items-center justify-center"
         >
           <RarefactionChart
             haplotypeData={enrichedData}
@@ -714,6 +650,7 @@ export function HaplotypeHeatmap({
         <TaxonomicTreeView
           tree={taxonomicTree}
           containerHeight={treeViewHeight}
+          highlightedTaxon={highlightedTaxon}
           onSpeciesClick={(speciesName) => {
             console.log('[HAPLOTYPE HEATMAP] Species clicked:', speciesName);
             console.log('[HAPLOTYPE HEATMAP] Callback available:', {
@@ -732,7 +669,7 @@ export function HaplotypeHeatmap({
       ) : (
         /* Heatmap View */
         <div
-          ref={containerRef}
+          ref={setContainerRef}
           style={{ height: `${heatmapHeight}px` }}
           className="flex-1 w-full border rounded-md p-2 bg-white overflow-auto"
         >
@@ -753,10 +690,10 @@ export function HaplotypeHeatmap({
                     y={-10}
                     textAnchor="start"
                     dominantBaseline="middle"
-                    className="font-bold"
+                    className="font-semibold"
                     style={{
-                      fontSize: `${styles.yAxisLabelFontSize}px`,
-                      fill: '#4b5563'
+                      fontSize: `${styles.yAxisTitleFontSize}px`,
+                      fill: '#374151'
                     }}
                   >
                     Species Name
@@ -819,6 +756,21 @@ export function HaplotypeHeatmap({
                       </text>
                     </g>
                   ))}
+
+                  {/* X-axis title */}
+                  <text
+                    x={plotWidth / 2}
+                    y={-95}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="font-semibold"
+                    style={{
+                      fontSize: `${styles.yAxisTitleFontSize}px`,
+                      fill: '#374151'
+                    }}
+                  >
+                    Site
+                  </text>
                 </g>
 
                 {/* Y-axis (Species names on left) */}
@@ -1034,13 +986,21 @@ export function HaplotypeHeatmap({
                           return (
                             <Tooltip key={`${species}-${site}`} delayDuration={100}>
                               <TooltipTrigger asChild>
-                                <g transform={`translate(${xScale(site)}, ${yScale(species)})`}>
+                                <g
+                                  transform={`translate(${xScale(site)}, ${yScale(species)})`}
+                                  className="cursor-pointer"
+                                  onClick={() => {
+                                    setHighlightedTaxon(species);
+                                    setViewMode('tree');
+                                    setTimeout(() => setHighlightedTaxon(null), 4000);
+                                  }}
+                                >
                                   {/* Cell background */}
                                   <rect
                                     width={xScale.bandwidth()}
                                     height={yScale.bandwidth()}
                                     fill={fillColor}
-                                    className="stroke-background/50"
+                                    className="stroke-background/50 hover:stroke-primary hover:stroke-2"
                                     strokeWidth={1}
                                   />
 
@@ -1109,6 +1069,9 @@ export function HaplotypeHeatmap({
                                   )}
                                 </>
                               )}
+                              <p className="text-xs text-blue-600 mt-2 pt-2 border-t border-gray-200 cursor-pointer hover:underline">
+                                Click to show in Tree view
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         );
