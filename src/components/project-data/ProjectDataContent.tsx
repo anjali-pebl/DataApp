@@ -24,6 +24,7 @@ export interface ProjectDataContentProps {
   setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
   groupFilesBySource: (files: any[]) => Record<string, any[]>;
   globalPinColorMap: Map<string, string>;
+  onPairedFileClick?: (stdFile: PinFile & { pinLabel: string }, avgFile: PinFile & { pinLabel: string }) => void;
 }
 
 export function ProjectDataContent({
@@ -42,7 +43,8 @@ export function ProjectDataContent({
   multiFileMergeMode,
   setMultiFileMergeMode,
   groupFilesBySource,
-  globalPinColorMap
+  globalPinColorMap,
+  onPairedFileClick
 }: ProjectDataContentProps) {
   // Show skeleton while loading
   if (isLoading) {
@@ -95,6 +97,7 @@ export function ProjectDataContent({
             multiFileMergeMode={multiFileMergeMode}
             setMultiFileMergeMode={setMultiFileMergeMode}
             pinColorMap={globalPinColorMap}
+            onPairedFileClick={onPairedFileClick}
           />
         );
       })}

@@ -45,7 +45,12 @@ export const FILE_CATEGORY_RULES: FileCategoryRule[] = [
     tile: 'GrowProbe',
   },
 
-  // FPOD - with optional 24hr category
+  // FPOD - with Std and Avg 24hrs categories
+  {
+    contains: '_std',
+    tile: 'FPOD',
+    category: 'Std',
+  },
   {
     contains: '24hr',
     tile: 'FPOD',

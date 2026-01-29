@@ -16,6 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { getMergedFilesByProjectAction } from '@/app/api/merged-files/actions';
 import type { MergedFile } from '@/lib/supabase/merged-files-service';
 import { categorizeFile } from '@/lib/file-categorization-config';
+import { createPairedTimelineEntries, type PairedTimelineEntry } from '@/lib/fpod-file-pairing';
 
 // Lazy load MergeFilesDialog - only loads when user clicks merge button
 const MergeFilesDialog = dynamic(
@@ -52,6 +53,8 @@ interface DataTimelineProps {
   onMultiFileMergeModeChange?: (mode: boolean) => void;
   viewMode?: 'table' | 'timeline';
   pinColorMap?: Map<string, string>; // Optional external color map for consistent colors across tiles
+  tileName?: string; // Name of the tile (e.g., 'FPOD') - used for file pairing
+  onPairedFileClick?: (stdFile: PinFile & { pinLabel: string }, avgFile: PinFile & { pinLabel: string }) => void;
 }
 
 interface FileWithDateRange {
@@ -219,7 +222,7 @@ const parseFileGrouping = (fileName: string): { project: string; dataType: strin
   return { project, dataType, station, groupKey };
 };
 
-export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap }: DataTimelineProps) {
+export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap, tileName, onPairedFileClick }: DataTimelineProps) {
   const { toast } = useToast();
   const [filesWithDates, setFilesWithDates] = useState<FileWithDateRange[]>([]);
   const [internalViewMode, setInternalViewMode] = useState<'table' | 'timeline'>('timeline');
@@ -248,6 +251,12 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
   // Raw CSV viewer state
   const [showRawViewer, setShowRawViewer] = useState(false);
   const [selectedFileForRaw, setSelectedFileForRaw] = useState<{ id: string; name: string } | null>(null);
+
+  // FPOD file pairing map: fileId -> PairedTimelineEntry
+  const [pairingMap, setPairingMap] = useState<Map<string, PairedTimelineEntry>>(new Map());
+
+  // All files without pairing (for table view)
+  const [allFilesWithDates, setAllFilesWithDates] = useState<FileWithDateRange[]>([]);
 
   // Toggle file selection for multi-file mode
   const toggleFileSelection = (fileId: string) => {
@@ -397,6 +406,36 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
   const startRename = (file: PinFile & { pinLabel: string }) => {
     setRenamingFileId(file.id);
     setRenameValue(file.fileName);
+  };
+
+  // Handle file click - routes to paired handler if file is part of an FPOD pair
+  const handleFileOpen = (file: PinFile & { pinLabel: string }) => {
+    const pairing = pairingMap.get(file.id);
+    console.log('[FPOD-PAIRING] handleFileOpen:', {
+      fileName: file.fileName,
+      fileId: file.id,
+      hasPairing: !!pairing,
+      isPaired: pairing?.isPaired,
+      pairedFileName: pairing?.pairedFile?.fileName,
+      hasCallback: !!onPairedFileClick,
+      pairingMapSize: pairingMap.size,
+    });
+    if (pairing?.isPaired && pairing.pairedFile && onPairedFileClick) {
+      console.log('[FPOD-PAIRING] Routing to paired click handler');
+      onPairedFileClick(pairing.displayFile, pairing.pairedFile);
+    } else {
+      console.log('[FPOD-PAIRING] Routing to normal file click');
+      onFileClick(file);
+    }
+  };
+
+  // Get display name for a file, appending paired indicator if applicable
+  const getPairedDisplayName = (file: PinFile & { pinLabel: string }): string | null => {
+    const pairing = pairingMap.get(file.id);
+    if (pairing?.isPaired) {
+      return '(Std + Avg)';
+    }
+    return null;
   };
 
   // Bulk fetch missing dates
@@ -587,6 +626,22 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     });
   }, [filesWithDates, sortOrder]);
 
+  // Apply sorting to allFilesWithDates (for table view - shows all files without pairing)
+  const sortedAllFilesWithDates = useMemo(() => {
+    if (!sortOrder) return allFilesWithDates;
+
+    return [...allFilesWithDates].sort((a, b) => {
+      const nameA = a.file.fileName;
+      const nameB = b.file.fileName;
+
+      if (sortOrder === 'asc') {
+        return nameA.localeCompare(nameB);
+      } else {
+        return nameB.localeCompare(nameA);
+      }
+    });
+  }, [allFilesWithDates, sortOrder]);
+
   // Helper function to extract prefix from pin label
   const getPinPrefix = (pinLabel: string): string => {
     // Extract the location identifier by removing data type suffixes
@@ -737,16 +792,50 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
   useEffect(() => {
     if (files.length === 0) {
       setFilesWithDates([]);
+      setPairingMap(new Map());
       return;
     }
 
+    // Apply FPOD pairing when tileName is 'FPOD' and not in stack plot selection mode
+    const shouldPair = tileName === 'FPOD' && !stackPlotMode && selectedFileIds.size === 0;
+    let filesToDisplay = files;
+    const newPairingMap = new Map<string, PairedTimelineEntry>();
+
+    console.log('[FPOD-PAIRING] Init effect running:', {
+      tileName,
+      shouldPair,
+      stackPlotMode,
+      selectedFileIdsSize: selectedFileIds.size,
+      fileCount: files.length,
+      fileNames: files.map(f => f.fileName),
+    });
+
+    if (shouldPair) {
+      const pairedEntries = createPairedTimelineEntries(files);
+      console.log('[FPOD-PAIRING] Paired entries:', pairedEntries.map(e => ({
+        display: e.displayFile.fileName,
+        paired: e.pairedFile?.fileName || null,
+        isPaired: e.isPaired,
+      })));
+      // Build a display list using only the displayFile from each entry
+      filesToDisplay = pairedEntries.map(entry => entry.displayFile);
+      // Build pairing map keyed by displayFile id
+      for (const entry of pairedEntries) {
+        newPairingMap.set(entry.displayFile.id, entry);
+      }
+      console.log('[FPOD-PAIRING] Display files after pairing:', filesToDisplay.map(f => f.fileName));
+      console.log('[FPOD-PAIRING] Pairing map size:', newPairingMap.size);
+    }
+
+    setPairingMap(newPairingMap);
+
     // Sort files alphabetically by fileName
-    const sortedFiles = [...files].sort((a, b) =>
+    const sortedFiles = [...filesToDisplay].sort((a, b) =>
       a.fileName.localeCompare(b.fileName)
     );
 
-    // Initialize files with date range data from database
-    const initialFiles = sortedFiles.map(file => {
+    // Helper to create FileWithDateRange from a file
+    const createFileWithDateRange = (file: PinFile & { pinLabel: string }): FileWithDateRange => {
       let startDate: string | null = null;
       let endDate: string | null = null;
       let totalDays: number | null = null;
@@ -775,11 +864,19 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
           loading: false
         }
       };
-    });
+    };
 
+    // Initialize files with date range data from database (for timeline - may be paired)
+    const initialFiles = sortedFiles.map(createFileWithDateRange);
     setFilesWithDates(initialFiles);
+
+    // Also store ALL files without pairing (for table view)
+    const allSortedFiles = [...files].sort((a, b) => a.fileName.localeCompare(b.fileName));
+    const allInitialFiles = allSortedFiles.map(createFileWithDateRange);
+    setAllFilesWithDates(allInitialFiles);
+
     setHasAnalyzed(true); // Mark as analyzed since dates are from database
-  }, [files]);
+  }, [files, tileName, stackPlotMode, selectedFileIds.size]);
 
   // Calculate timeline bounds and headers
   const timelineData = useMemo(() => {
@@ -1090,13 +1187,14 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
   const getTimelineDisplayName = (
     file: PinFile & { pinLabel: string },
     dateRange: { startDate: string | null; endDate: string | null },
-    allFiles: FileWithDateRange[]
+    allFiles: FileWithDateRange[],
+    skipCategories: boolean = false
   ): string => {
     const dateRangeStr = formatDateRangeForDisplay(dateRange.startDate, dateRange.endDate);
 
     // Merged files
     if (isMergedFile(file)) {
-      const categories = getFileCategories(file.fileName);
+      const categories = skipCategories ? '' : getFileCategories(file.fileName);
 
       // Use the actual pin label if available and not generic
       let locationLabel = file.pinLabel;
@@ -1122,13 +1220,13 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     if (!hasValidId || !hasValidLabel) {
       // Check if this is an "All Locations" file (files with "all" in name)
       if (file.pinLabel === 'All Locations') {
-        const categories = getFileCategories(file.fileName);
+        const categories = skipCategories ? '' : getFileCategories(file.fileName);
         return categories
           ? `All Locations • ${dateRangeStr} (${categories})`
           : `All Locations • ${dateRangeStr}`;
       }
 
-      const categories = getFileCategories(file.fileName);
+      const categories = skipCategories ? '' : getFileCategories(file.fileName);
       return categories
         ? `Unassigned • ${dateRangeStr} (${categories})`
         : `Unassigned • ${dateRangeStr}`;
@@ -1139,6 +1237,11 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     // - Water/Crop files
     // - "All Locations" files (since they aggregate data from multiple locations)
     // - Files with multiple files at same location
+    // But skip if this is a paired file (paired indicator shown separately)
+    if (skipCategories) {
+      return `${file.pinLabel} • ${dateRangeStr}`;
+    }
+
     const fileNameLower = file.fileName.toLowerCase();
     const isWaterOrCrop = fileNameLower.includes('chem') ||
                           fileNameLower.includes('_wq') ||
@@ -1340,10 +1443,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         </div>
       </div>
 
-        {/* TABLE VIEW: Detailed Start/End Dates */}
+        {/* TABLE VIEW: Detailed Start/End Dates - Shows ALL files without pairing */}
         {viewMode === 'table' && (
         <div className="space-y-1">
-          {sortedFilesWithDates.length > 0 && (
+          {sortedAllFilesWithDates.length > 0 && (
             <div className="bg-white rounded p-3 transition-all duration-300 border">
               <table className="w-full table-fixed border-collapse">
                 <thead>
@@ -1357,7 +1460,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                   </tr>
                 </thead>
                 <tbody>
-                {sortedFilesWithDates.map((fileWithDate, index) => {
+                {sortedAllFilesWithDates.map((fileWithDate, index) => {
                     const { file, dateRange } = fileWithDate;
                     const color = pinColorMap.get(file.pinLabel) || COLORS[0];
                     
@@ -1449,7 +1552,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                               </PopoverTrigger>
                               <PopoverContent className="min-w-[400px] p-0" align="start">
                               <div className="flex flex-col">
-                                {/* Open option */}
+                                {/* Open option - always opens single file in table view */}
                                 <button
                                   onClick={() => {
                                     setOpenMenuFileId(null);
@@ -2039,16 +2142,21 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                             <PopoverTrigger asChild>
                               <button
                                 className="text-xs font-mono flex-1 min-w-0 truncate text-left hover:text-primary hover:underline transition-colors cursor-pointer"
-                                title={getTimelineDisplayName(file, dateRange, sortedFilesWithDates)}
+                                title={getTimelineDisplayName(file, dateRange, sortedFilesWithDates, !!pairingMap.get(file.id)?.isPaired)}
                               >
-                                {getTimelineDisplayName(file, dateRange, sortedFilesWithDates)}
+                                {getTimelineDisplayName(file, dateRange, sortedFilesWithDates, !!pairingMap.get(file.id)?.isPaired)}
+                                {getPairedDisplayName(file) && (
+                                  <span className="ml-1">
+                                    {getPairedDisplayName(file)}
+                                  </span>
+                                )}
                               </button>
                             </PopoverTrigger>
                             <PopoverContent className="min-w-[400px] p-0" align="start">
                             <div className="flex flex-col">
                               {/* Open option */}
                               <button
-                                onClick={() => onFileClick(fileWithDate.file)}
+                                onClick={() => handleFileOpen(fileWithDate.file)}
                                 className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
                                 data-testid="open-chart-button"
                               >

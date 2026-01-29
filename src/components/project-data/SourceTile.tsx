@@ -28,6 +28,7 @@ export interface SourceTileProps {
   multiFileMergeMode: 'union' | 'intersection';
   setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
   pinColorMap: Map<string, string>;
+  onPairedFileClick?: (stdFile: PinFile & { pinLabel: string }, avgFile: PinFile & { pinLabel: string }) => void;
 }
 
 export function SourceTile({
@@ -45,7 +46,8 @@ export function SourceTile({
   onAddFilesToMergedFile,
   multiFileMergeMode,
   setMultiFileMergeMode,
-  pinColorMap
+  pinColorMap,
+  onPairedFileClick
 }: SourceTileProps) {
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>([]);
   const [viewMode, setViewMode] = React.useState<'table' | 'timeline'>('timeline');
@@ -230,6 +232,8 @@ export function SourceTile({
           onMultiFileMergeModeChange={setMultiFileMergeMode}
           viewMode={viewMode}
           pinColorMap={pinColorMap}
+          tileName={label}
+          onPairedFileClick={onPairedFileClick}
         />
       </div>
     </div>

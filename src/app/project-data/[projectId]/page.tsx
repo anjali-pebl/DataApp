@@ -118,7 +118,27 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     startDate?: Date;
     endDate?: Date;
     fileCategories?: string[];
+    coordinates?: { lat: number; lng: number };
   } | null>(null);
+
+  // Helper to get coordinates from pin or area
+  const getFileCoordinates = useCallback((file: PinFile): { lat: number; lng: number } | undefined => {
+    // Try pin first
+    if (file.pinId) {
+      const pin = pins.find(p => p.id === file.pinId);
+      if (pin) {
+        return { lat: pin.lat, lng: pin.lng };
+      }
+    }
+    // Fallback to area (use first corner as proxy)
+    if (file.areaId) {
+      const area = areas.find(a => a.id === file.areaId);
+      if (area && area.path && area.path.length > 0) {
+        return { lat: area.path[0].lat, lng: area.path[0].lng };
+      }
+    }
+    return undefined;
+  }, [pins, areas]);
 
   // Compute all files with fileSource property
   const allFiles = useMemo(() => {
@@ -393,7 +413,8 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
           pinLabel,
           startDate,
           endDate,
-          fileCategories
+          fileCategories,
+          coordinates: getFileCoordinates(file)
         });
         setShowMarineDeviceModal(true);
       } else {
@@ -411,7 +432,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
         description: 'Failed to open file.'
       });
     }
-  }, [getFileDateRange, toast]);
+  }, [getFileDateRange, toast, getFileCoordinates]);
 
   // Handle merged file click
   const handleMergedFileClick = useCallback(async (mergedFile: MergedFile) => {
@@ -639,6 +660,60 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     });
   }, [toast]);
 
+  // Handle paired FPOD file click - downloads both _std and _24hr files and opens modal
+  const handlePairedFileClick = useCallback(async (
+    stdFile: PinFile & { pinLabel: string },
+    avgFile: PinFile & { pinLabel: string }
+  ) => {
+    try {
+      // Download both files in parallel
+      const [stdContent, avgContent] = await Promise.all([
+        fileStorageService.downloadFile(stdFile.filePath),
+        fileStorageService.downloadFile(avgFile.filePath),
+      ]);
+
+      if (!stdContent || !avgContent) {
+        toast({
+          variant: 'destructive',
+          title: 'Download Failed',
+          description: 'Could not download one or both paired FPOD files.',
+        });
+        return;
+      }
+
+      const stdActualFile = new File([stdContent], stdFile.fileName, {
+        type: stdFile.fileType || 'text/csv',
+      });
+      const avgActualFile = new File([avgContent], avgFile.fileName, {
+        type: avgFile.fileType || 'text/csv',
+      });
+
+      // Extract metadata from the std file
+      const pinLabel = stdFile.pinLabel || 'Unassigned';
+      const dateRange = await getFileDateRange(stdFile);
+
+      setSelectedFileType('FPOD');
+      setSelectedFiles([stdActualFile, avgActualFile]);
+      setSelectedFileMetadata({
+        pinLabel,
+        startDate: dateRange?.start,
+        endDate: dateRange?.end,
+        fileCategories: categorizeFile(stdFile.fileName)
+          .map(c => c.category)
+          .filter((c): c is string => c !== undefined),
+        coordinates: getFileCoordinates(stdFile)
+      });
+      setShowMarineDeviceModal(true);
+    } catch (error) {
+      console.error('Error opening paired FPOD files:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to open paired FPOD files.',
+      });
+    }
+  }, [getFileDateRange, toast, getFileCoordinates]);
+
   // Clear all filters
   const handleClearAllFilters = useCallback(() => {
     setSelectedPins([]);
@@ -697,6 +772,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
           setMultiFileMergeMode={setMultiFileMergeMode}
           groupFilesBySource={groupFilesBySource}
           globalPinColorMap={globalPinColorMap}
+          onPairedFileClick={handlePairedFileClick}
         />
       </main>
 

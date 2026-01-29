@@ -2,7 +2,8 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import dynamic from 'next/dynamic';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Brush, Tooltip as RechartsTooltip, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Brush, Tooltip as RechartsTooltip, ReferenceLine, ReferenceArea } from 'recharts';
+import SunCalc from 'suncalc';
 import { format, parseISO, isValid } from 'date-fns';
 import { HexColorPicker } from 'react-colorful';
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,8 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useFileViewTracking } from "@/hooks/use-analytics";
-import { ChevronUp, ChevronDown, BarChart3, Info, TableIcon, ChevronRight, ChevronLeft, Settings, Circle, Filter, AlertCircle, Database, Clock, Palette, Eye, Grid3x3, Ruler, Network, RefreshCw, BookOpen } from "lucide-react";
-import { MethodologyModal } from "@/components/methodology";
+import { ChevronUp, ChevronDown, BarChart3, Info, TableIcon, ChevronRight, ChevronLeft, Settings, Circle, Filter, AlertCircle, Database, Clock, Palette, Eye, Grid3x3, Ruler, Network, RefreshCw } from "lucide-react";
 import { cn } from '@/lib/utils';
 import { getParameterLabelWithUnit } from '@/lib/units';
 import type { ParsedDataPoint } from './csvParser';
@@ -52,6 +52,11 @@ interface PinChartDisplayProps {
   startDate?: Date; // Start date of data
   endDate?: Date; // End date of data
   fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
+  // Display overrides for paired FPOD plots
+  hideBrush?: boolean;
+  showDateTimeAxis?: boolean;
+  // Location coordinates for sunrise/sunset shading
+  coordinates?: { lat: number; lng: number };
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -201,6 +206,130 @@ const format24HourTick = (timeValue: string | number): string => {
   } catch (e) {
     return String(timeValue);
   }
+};
+
+// Estimate timezone offset (in hours) from longitude
+// This is an approximation: each 15 degrees of longitude = 1 hour offset
+// More accurate than using local machine timezone for remote locations
+const getTimezoneOffsetFromLongitude = (lng: number): number => {
+  return Math.round(lng / 15);
+};
+
+// Format UTC date to a specific timezone offset (in hours)
+const formatDateInTimezone = (date: Date, offsetHours: number, formatStr: string): string => {
+  // Create a new date adjusted for the timezone offset
+  const utcTime = date.getTime();
+  const offsetMs = offsetHours * 60 * 60 * 1000;
+  const adjustedDate = new Date(utcTime + offsetMs);
+
+  // Format using UTC methods to avoid double-conversion
+  const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+  const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+  const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+
+  if (formatStr === 'dd/MM HH:mm') {
+    return `${day}/${month} ${hours}:${minutes}`;
+  }
+  return `${day}/${month} ${hours}:${minutes}`;
+};
+
+// Format as date + time for 24hr average FPOD data
+// If coordinates provided, uses location's timezone; otherwise falls back to local
+// If timeOnly is true, only shows HH:mm (for 24hr averaged files)
+const formatDateTimeTick = (timeValue: string | number, coordinates?: { lat: number; lng: number }, timeOnly?: boolean): string => {
+  try {
+    const dateObj = typeof timeValue === 'string' ? parseISO(timeValue) : new Date(timeValue);
+    if (!isValid(dateObj)) return String(timeValue);
+
+    // If coordinates provided, format in the location's estimated timezone
+    if (coordinates) {
+      const offsetHours = getTimezoneOffsetFromLongitude(coordinates.lng);
+      const utcTime = dateObj.getTime();
+      const offsetMs = offsetHours * 60 * 60 * 1000;
+      const adjustedDate = new Date(utcTime + offsetMs);
+
+      const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+      const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+
+      if (timeOnly) {
+        return `${hours}:${minutes}`;
+      }
+
+      const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+      const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+      return `${day}/${month} ${hours}:${minutes}`;
+    }
+
+    // Fallback to local timezone
+    return format(dateObj, timeOnly ? 'HH:mm' : 'dd/MM HH:mm');
+  } catch (e) {
+    return String(timeValue);
+  }
+};
+
+// Custom tooltip that sorts items by value (highest first) and shows color dots
+// Accepts optional coordinates to display time in location's timezone
+const CustomChartTooltip = ({ active, payload, label, coordinates }: any) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  let formattedLabel = String(label);
+  try {
+    const date = parseISO(String(label));
+    if (isValid(date)) {
+      if (coordinates) {
+        // Format in location's timezone
+        const offsetHours = getTimezoneOffsetFromLongitude(coordinates.lng);
+        const utcTime = date.getTime();
+        const offsetMs = offsetHours * 60 * 60 * 1000;
+        const adjustedDate = new Date(utcTime + offsetMs);
+
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const dayName = days[adjustedDate.getUTCDay()];
+        const monthName = months[adjustedDate.getUTCMonth()];
+        const dayNum = String(adjustedDate.getUTCDate()).padStart(2, '0');
+        const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+        const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(adjustedDate.getUTCSeconds()).padStart(2, '0');
+        formattedLabel = `${dayName}, ${monthName} ${dayNum}, ${hours}:${minutes}:${seconds}`;
+      } else {
+        formattedLabel = format(date, 'EEE, MMM dd, HH:mm:ss');
+      }
+    }
+  } catch { /* keep raw label */ }
+
+  // Sort by value descending so the highest line appears first (matches visual chart order)
+  const sorted = [...payload]
+    .filter((entry: any) => entry.value != null)
+    .sort((a: any, b: any) => (Number(b.value) || 0) - (Number(a.value) || 0));
+
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--background))',
+      border: '1px solid hsl(var(--border))',
+      fontSize: '0.7rem',
+      padding: '8px',
+      borderRadius: '6px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    }}>
+      <div style={{ marginBottom: 4, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{formattedLabel}</div>
+      {sorted.map((entry: any, i: number) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '1px 0', color: 'hsl(var(--foreground))' }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            backgroundColor: entry.color, display: 'inline-block', flexShrink: 0,
+          }} />
+          <span>{entry.name}:</span>
+          <span style={{ fontWeight: 500 }}>
+            {typeof entry.value === 'number'
+              ? entry.value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })
+              : 'N/A'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 // Calculate nice round numbers for Y-axis scaling
@@ -432,6 +561,9 @@ export function PinChartDisplay({
   startDate,
   endDate,
   fileCategories,
+  hideBrush,
+  showDateTimeAxis,
+  coordinates,
   timeAxisMode = 'separate',
   globalTimeRange,
   globalBrushRange,
@@ -528,6 +660,7 @@ export function PinChartDisplay({
   // Unified view mode for all file types
   type ViewMode = 'chart' | 'table' | 'heatmap' | 'tree';
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
+  const [highlightedTaxon, setHighlightedTaxon] = useState<string | null>(null);
 
   // Legacy support: derive old state variables from unified viewMode
   const showTable = viewMode === 'table';
@@ -609,8 +742,10 @@ export function PinChartDisplay({
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-  // Axis mode state - default to multi axis
-  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(initialAxisMode || defaultAxisMode || 'multi');
+  // Axis mode state - default to single for SubCam and FPOD, multi for everything else
+  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
+    (fileType === 'Subcam' || fileType === 'FPOD') ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
+  );
 
   // MA update counter to force data recalculation
   const [maUpdateCounter, setMaUpdateCounter] = useState(0);
@@ -634,6 +769,9 @@ export function PinChartDisplay({
   const [unitFilter, setUnitFilter] = useState<string[]>(is24hrFile ? ['DPM'] : []);
   const [stationFilter, setStationFilter] = useState<string[]>([]);
 
+  // FPOD unit toggle - switches all parameters between Clicks and DPM
+  const [fpodUnitMode, setFpodUnitMode] = useState<'DPM' | 'Clicks'>('DPM');
+
   // Reset filters to default when file changes
   React.useEffect(() => {
     if (fileName?.endsWith('_24hr.csv')) {
@@ -645,6 +783,25 @@ export function PinChartDisplay({
     setDateFilter([]);
     setStationFilter([]);
   }, [fileName]);
+
+  // FPOD unit toggle effect - show only matching unit parameters
+  React.useEffect(() => {
+    if (fileType !== 'FPOD') return;
+    setParameterStates(prev => {
+      const updated = { ...prev };
+      for (const param of Object.keys(updated)) {
+        const isDPM = param.includes('(DPM)');
+        const isClicks = param.includes('(Clicks)');
+        if (isDPM || isClicks) {
+          updated[param] = {
+            ...updated[param],
+            visible: fpodUnitMode === 'DPM' ? isDPM : isClicks,
+          };
+        }
+      }
+      return updated;
+    });
+  }, [fpodUnitMode, fileType]);
 
   // X-axis year display toggle
   const [showYearInXAxis, setShowYearInXAxis] = useState(false);
@@ -684,7 +841,6 @@ export function PinChartDisplay({
 
   // Styling rules state - load from localStorage if available
   const [showStylingRules, setShowStylingRules] = useState(false);
-  const [showMethodologyModal, setShowMethodologyModal] = useState(false);
   const [styleRules, setStyleRules] = useState<StyleRule[]>(() => {
     // Load saved style rules from localStorage
     if (typeof window !== 'undefined') {
@@ -747,15 +903,16 @@ export function PinChartDisplay({
   // }, [data, currentDateFormat]);
 
   // Apply styling rule defaults when rule changes (only watch defaultAxisMode specifically)
+  // Skip for SubCam files which always use single axis
   React.useEffect(() => {
+    if (fileType === 'Subcam') return;
     if (appliedStyleRule?.properties.defaultAxisMode) {
-      // Only update if the value is different to prevent unnecessary re-renders
       setAxisMode(prev => {
         const newMode = appliedStyleRule.properties.defaultAxisMode;
         return newMode && newMode !== prev ? newMode : prev;
       });
     }
-  }, [appliedStyleRule?.properties.defaultAxisMode]);
+  }, [appliedStyleRule?.properties.defaultAxisMode, fileType]);
 
   // Get all parameters (for table view)
   const allParameters = useMemo(() => {
@@ -875,6 +1032,55 @@ export function PinChartDisplay({
     return initialState;
   });
 
+  // For nmax chart view: on initial load, only show "Total Observations" and "Cumulative Observations"
+  React.useEffect(() => {
+    if (!isSubcamNmaxFile || viewMode !== 'chart') return;
+    setParameterStates(prev => {
+      const updated = { ...prev };
+      const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+      metadataParams.forEach(param => {
+        if (updated[param]) {
+          const paramLower = param.toLowerCase().trim();
+          updated[param] = {
+            ...updated[param],
+            visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+          };
+        }
+      });
+      speciesColumns.forEach(species => {
+        if (updated[species]) {
+          updated[species] = { ...updated[species], visible: false };
+        }
+      });
+      return updated;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
+
+  // Default to heatmap view for SubCam nmax files
+  React.useEffect(() => {
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      setViewMode('heatmap');
+      // Make all species visible for heatmap (same logic as handleViewModeChange('heatmap'))
+      setParameterStates(prev => {
+        const updated = { ...prev };
+        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+        metadataParams.forEach(param => {
+          if (updated[param]) {
+            updated[param] = { ...updated[param], visible: false };
+          }
+        });
+        speciesColumns.forEach(species => {
+          if (updated[species]) {
+            updated[species] = { ...updated[species], visible: true };
+          }
+        });
+        return updated;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
+
   // Update parameter states when numericParameters changes (e.g., new data loaded)
   React.useEffect(() => {
     setParameterStates(prev => {
@@ -986,8 +1192,18 @@ export function PinChartDisplay({
     if (!showSensorParams && fileType === 'GP') {
       params = params.filter(param => !isHiddenSensorParam(param));
     }
+    // For nmax chart view: put Cumulative before Daily in tooltip/render order
+    if (isSubcamNmaxFile) {
+      params.sort((a, b) => {
+        const aIsCumulative = a.toLowerCase().includes('cumulative');
+        const bIsCumulative = b.toLowerCase().includes('cumulative');
+        if (aIsCumulative && !bIsCumulative) return -1;
+        if (!aIsCumulative && bIsCumulative) return 1;
+        return 0;
+      });
+    }
     return params;
-  }, [numericParameters, parameterStates, showSensorParams, fileType]);
+  }, [numericParameters, parameterStates, showSensorParams, fileType, isSubcamNmaxFile]);
 
   // Calculate dynamic chart height based on number of visible parameters
   const dynamicChartHeight = useMemo(() => {
@@ -1015,38 +1231,27 @@ export function PinChartDisplay({
     const visibleCount = visibleParameters.length;
     const hasExplicitHeight = appliedStyleRule?.properties.chartHeight !== undefined;
 
-    // console.log('[CHART HEIGHT DEBUG]', {
-    //   fileName,
-    //   baseHeight,
-    //   visibleCount,
-    //   hasExplicitHeight,
-    //   appliedStyleRule: appliedStyleRule?.styleName
-    // });
+    // FPOD files: taller charts since parameter panel and info banner are hidden
+    if (fileType === 'FPOD' && !hasExplicitHeight) {
+      return 350;
+    }
 
     // If a styling rule explicitly sets chartHeight, always use it (don't cap it)
     if (hasExplicitHeight) {
-      // console.log('[CHART HEIGHT] Using explicit height from styling rule:', baseHeight);
       return baseHeight;
     }
 
     // For plots WITHOUT explicit height styling, use larger heights for better visibility
     // Extra height added to accommodate x-axis labels
     if (visibleCount === 1) {
-      const finalHeight = Math.min(baseHeight, 270);
-      // console.log('[CHART HEIGHT] Dynamic height for 1 param:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 270);
     } else if (visibleCount === 2) {
-      const finalHeight = Math.min(baseHeight, 300);
-      // console.log('[CHART HEIGHT] Dynamic height for 2 params:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 300);
     } else if (visibleCount === 3) {
-      const finalHeight = Math.min(baseHeight, 330);
-      // console.log('[CHART HEIGHT] Dynamic height for 3 params:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 330);
     }
 
     // For 4+ parameters, use larger height
-    // console.log('[CHART HEIGHT] Using full height for 4+ params:', baseHeight);
     return Math.max(baseHeight, 350);
   }, [visibleParameters.length, appliedStyleRule?.properties.chartHeight, appliedStyleRule?.properties.heatmapRowHeight, fileName, appliedStyleRule?.styleName, showHeatmap, isSubcamNmaxFile, speciesColumns, parameterStates, showHaplotypeHeatmap, isHaplotypeFile, haplotypeData, adjustableNmaxRowHeight, nmaxViewMode]);
 
@@ -1163,36 +1368,63 @@ export function PinChartDisplay({
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
 
-    // Only adjust visibility for nmax files when switching TO heatmap or tree mode
-    if ((mode === 'heatmap' || mode === 'tree') && isSubcamNmaxFile && speciesColumns.length > 0) {
-      setParameterStates(prev => {
-        const updated = { ...prev };
+    // Adjust visibility for nmax files based on view mode
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      if (mode === 'heatmap' || mode === 'tree') {
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Hide all aggregated metadata parameters (first 6)
-        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
-        metadataParams.forEach(param => {
-          if (updated[param]) {
-            updated[param] = { ...updated[param], visible: false };
-          }
+          // Hide all aggregated metadata parameters (first 6)
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            if (updated[param]) {
+              updated[param] = { ...updated[param], visible: false };
+            }
+          });
+
+          // Show ALL species columns (Latin names) by default for nmax files
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: true };
+            }
+          });
+
+          console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
+            mode,
+            hiddenMetadata: metadataParams,
+            visibleSpecies: speciesColumns,
+            totalSpecies: speciesColumns.length
+          });
+
+          return updated;
         });
+      } else if (mode === 'chart') {
+        // Chart mode for nmax: show only "Total Observations" and "Cumulative Observations", hide species
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Show ALL species columns (Latin names) by default for nmax files
-        const defaultVisibleSpeciesCount = speciesColumns.length;
-        speciesColumns.forEach((species, index) => {
-          if (updated[species]) {
-            updated[species] = { ...updated[species], visible: true };
-          }
+          // Show only exact "Total Observations" and "Cumulative Observations"
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            const paramLower = param.toLowerCase().trim();
+            if (updated[param]) {
+              updated[param] = {
+                ...updated[param],
+                visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+              };
+            }
+          });
+
+          // Hide ALL species columns in chart mode
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: false };
+            }
+          });
+
+          return updated;
         });
-
-        console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
-          mode,
-          hiddenMetadata: metadataParams,
-          visibleSpecies: speciesColumns,
-          totalSpecies: speciesColumns.length
-        });
-
-        return updated;
-      });
+      }
     }
   };
 
@@ -1677,6 +1909,195 @@ export function PinChartDisplay({
 
     return dataWithDays;
   }, [displayData, showDaysFromStart, isSubcamNmaxFile, maxDaysToShow]);
+
+  // Calculate nighttime periods for 24hr FPOD charts based on sunrise/sunset
+  // For 24hr averaged files, we calculate AVERAGE sunrise/sunset across the file's date range
+  const nighttimePeriods = useMemo(() => {
+    // Only calculate for 24hr files with coordinates
+    if (!showDateTimeAxis || !coordinates || finalDisplayData.length === 0) {
+      return [];
+    }
+
+    const { lat, lng } = coordinates;
+
+    // Get data point times sorted
+    const dataTimestamps = finalDisplayData
+      .filter(point => point.time)
+      .map(point => ({
+        time: point.time,
+        timestamp: new Date(point.time).getTime()
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (dataTimestamps.length === 0) return [];
+
+    // Helper: find nearest data point time that is >= target hour (0-23)
+    const findDataPointNearHour = (targetHour: number): string | null => {
+      // Data points are like "2025-03-13T06:00:00.000Z" - we need to match by hour
+      for (const dp of dataTimestamps) {
+        const hour = new Date(dp.time).getUTCHours();
+        if (hour >= targetHour) return dp.time;
+      }
+      return null;
+    };
+
+    // Helper: find nearest data point time that is <= target hour
+    const findDataPointBeforeHour = (targetHour: number): string | null => {
+      for (let i = dataTimestamps.length - 1; i >= 0; i--) {
+        const hour = new Date(dataTimestamps[i].time).getUTCHours();
+        if (hour <= targetHour) return dataTimestamps[i].time;
+      }
+      return null;
+    };
+
+    // Parse date range from filename (e.g., "_2503_2506" = March 2025 to June 2025)
+    // Format: YYMM_YYMM
+    const parseDateRangeFromFilename = (name: string): { startDate: Date; endDate: Date } | null => {
+      // Look for pattern like _2503_2506 or _2406_2407
+      const match = name.match(/_(\d{2})(\d{2})_(\d{2})(\d{2})/);
+      if (match) {
+        const [, startYear, startMonth, endYear, endMonth] = match;
+        const startDate = new Date(2000 + parseInt(startYear), parseInt(startMonth) - 1, 15); // Mid-month
+        const endDate = new Date(2000 + parseInt(endYear), parseInt(endMonth) - 1, 15);
+        return { startDate, endDate };
+      }
+      return null;
+    };
+
+    const dateRange = fileName ? parseDateRangeFromFilename(fileName) : null;
+
+    // Calculate average sunrise/sunset times across the date range
+    let avgSunriseHour = 6; // Default fallback
+    let avgSunsetHour = 18; // Default fallback
+
+    if (dateRange) {
+      const { startDate, endDate } = dateRange;
+      const sunriseHours: number[] = [];
+      const sunsetHours: number[] = [];
+
+      // Sample dates across the range (every 7 days)
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const sunTimes = SunCalc.getTimes(currentDate, lat, lng);
+
+        if (sunTimes.sunrise && isValid(sunTimes.sunrise)) {
+          // Get hour in UTC (since data is in UTC)
+          sunriseHours.push(sunTimes.sunrise.getUTCHours() + sunTimes.sunrise.getUTCMinutes() / 60);
+        }
+        if (sunTimes.sunset && isValid(sunTimes.sunset)) {
+          sunsetHours.push(sunTimes.sunset.getUTCHours() + sunTimes.sunset.getUTCMinutes() / 60);
+        }
+
+        currentDate.setDate(currentDate.getDate() + 7); // Sample every 7 days
+      }
+
+      if (sunriseHours.length > 0) {
+        avgSunriseHour = sunriseHours.reduce((a, b) => a + b, 0) / sunriseHours.length;
+      }
+      if (sunsetHours.length > 0) {
+        avgSunsetHour = sunsetHours.reduce((a, b) => a + b, 0) / sunsetHours.length;
+      }
+
+      console.log('[NIGHTTIME] ═══════════════════════════════════════');
+      console.log('[NIGHTTIME] File:', fileName);
+      console.log('[NIGHTTIME] Date range:', startDate.toDateString(), 'to', endDate.toDateString());
+      console.log('[NIGHTTIME] Coordinates: lat=' + lat + ', lng=' + lng);
+      console.log('[NIGHTTIME] Sampled', sunriseHours.length, 'dates');
+      console.log('[NIGHTTIME] Avg sunrise hour (UTC):', avgSunriseHour.toFixed(2), '(' + Math.floor(avgSunriseHour) + ':' + Math.round((avgSunriseHour % 1) * 60).toString().padStart(2, '0') + ')');
+      console.log('[NIGHTTIME] Avg sunset hour (UTC):', avgSunsetHour.toFixed(2), '(' + Math.floor(avgSunsetHour) + ':' + Math.round((avgSunsetHour % 1) * 60).toString().padStart(2, '0') + ')');
+      console.log('[NIGHTTIME] ═══════════════════════════════════════');
+    } else {
+      // Fallback: use a single representative date if filename parsing fails
+      const representativeDate = new Date(dataTimestamps[0].time);
+      const sunTimes = SunCalc.getTimes(representativeDate, lat, lng);
+      if (sunTimes.sunrise && isValid(sunTimes.sunrise)) {
+        avgSunriseHour = sunTimes.sunrise.getUTCHours() + sunTimes.sunrise.getUTCMinutes() / 60;
+      }
+      if (sunTimes.sunset && isValid(sunTimes.sunset)) {
+        avgSunsetHour = sunTimes.sunset.getUTCHours() + sunTimes.sunset.getUTCMinutes() / 60;
+      }
+      console.log('[NIGHTTIME] No date range in filename, using representative date');
+    }
+
+    const periods: Array<{ start: string; end: string }> = [];
+
+    // Validate reasonable sunrise/sunset hours (sanity check)
+    // Sunrise should be between 3-10 UTC, Sunset between 15-23 UTC for most locations
+    const validSunrise = avgSunriseHour >= 3 && avgSunriseHour <= 12;
+    const validSunset = avgSunsetHour >= 15 && avgSunsetHour <= 23;
+
+    if (!validSunrise || !validSunset) {
+      console.warn('[NIGHTTIME] Invalid sunrise/sunset hours detected:', {
+        avgSunriseHour,
+        avgSunsetHour,
+        validSunrise,
+        validSunset
+      });
+      // Fall back to reasonable defaults
+      if (!validSunrise) avgSunriseHour = 6;
+      if (!validSunset) avgSunsetHour = 20;
+    }
+
+    // Find daytime boundaries (hours >= sunrise AND < sunset)
+    // This handles wrap-around when data starts late in the day (e.g., 23:00)
+    const sunriseHourRounded = Math.round(avgSunriseHour);
+    const sunsetHourRounded = Math.round(avgSunsetHour);
+
+    // Helper to check if an hour is during daytime
+    const isDaytime = (hour: number) => hour >= sunriseHourRounded && hour < sunsetHourRounded;
+
+    // Find where daytime STARTS (first hour that is daytime)
+    let daytimeStartIndex = -1;
+    for (let i = 0; i < dataTimestamps.length; i++) {
+      const hour = new Date(dataTimestamps[i].time).getUTCHours();
+      if (isDaytime(hour)) {
+        daytimeStartIndex = i;
+        break;
+      }
+    }
+
+    // Find where daytime ENDS (last hour that is daytime)
+    let daytimeEndIndex = -1;
+    for (let i = dataTimestamps.length - 1; i >= 0; i--) {
+      const hour = new Date(dataTimestamps[i].time).getUTCHours();
+      if (isDaytime(hour)) {
+        daytimeEndIndex = i;
+        break;
+      }
+    }
+
+    console.log('[NIGHTTIME] Daytime range: index', daytimeStartIndex, 'to', daytimeEndIndex,
+      '(hours ' + (daytimeStartIndex >= 0 ? new Date(dataTimestamps[daytimeStartIndex].time).getUTCHours() : 'N/A') +
+      ' to ' + (daytimeEndIndex >= 0 ? new Date(dataTimestamps[daytimeEndIndex].time).getUTCHours() : 'N/A') + ')');
+
+    // Left nighttime: from data start to just before daytime starts
+    if (daytimeStartIndex > 0) {
+      const leftStart = dataTimestamps[0].time;
+      const leftEnd = dataTimestamps[daytimeStartIndex - 1].time;
+      periods.push({ start: leftStart, end: leftEnd });
+      console.log('[NIGHTTIME] Left nighttime: index 0 to', daytimeStartIndex - 1,
+        '(hours ' + new Date(leftStart).getUTCHours() + ' to ' + new Date(leftEnd).getUTCHours() + ')');
+    }
+
+    // Right nighttime: from just after daytime ends to data end
+    if (daytimeEndIndex !== -1 && daytimeEndIndex < dataTimestamps.length - 1) {
+      const rightStart = dataTimestamps[daytimeEndIndex + 1].time;
+      const rightEnd = dataTimestamps[dataTimestamps.length - 1].time;
+      periods.push({ start: rightStart, end: rightEnd });
+      console.log('[NIGHTTIME] Right nighttime: index', daytimeEndIndex + 1, 'to', dataTimestamps.length - 1,
+        '(hours ' + new Date(rightStart).getUTCHours() + ' to ' + new Date(rightEnd).getUTCHours() + ')');
+    }
+
+    // Log all data hours for debugging
+    const dataHours = dataTimestamps.map(d => new Date(d.time).getUTCHours());
+    console.log('[NIGHTTIME] Data hours:', dataHours.join(', '));
+    console.log('[NIGHTTIME] Final periods:', periods.length, '- Sunrise ~' + sunriseHourRounded + ':00 UTC, Sunset ~' + sunsetHourRounded + ':00 UTC');
+    console.log('[NIGHTTIME] Period details:', JSON.stringify(periods.map(p => ({
+      start: new Date(p.start).getUTCHours() + ':00',
+      end: new Date(p.end).getUTCHours() + ':00'
+    }))));
+    return periods;
+  }, [showDateTimeAxis, coordinates, finalDisplayData, fileName]);
 
   // Calculate Y-axis domain based on visible parameters in finalDisplayData (for single axis mode)
   const yAxisDomain = useMemo(() => {
@@ -2949,6 +3370,11 @@ export function PinChartDisplay({
     return formatted;
   };
 
+  // Display name override for nmax chart view parameters (no-op, keep original names)
+  const getLITUDisplayName = (_parameter: string): string | null => {
+    return null;
+  };
+
   const moveParameter = (parameter: string, direction: 'up' | 'down') => {
     // This would implement parameter reordering - simplified for now
     console.log(`Move ${parameter} ${direction}`);
@@ -3025,8 +3451,8 @@ export function PinChartDisplay({
               {/* Location */}
               {pinLabel && <span>{pinLabel}</span>}
 
-              {/* Time Period */}
-              {(startDate || endDate) && (
+              {/* Time Period - hidden for 24hr avg plots */}
+              {!showDateTimeAxis && (startDate || endDate) && (
                 <>
                   {pinLabel && <span className="text-muted-foreground">•</span>}
                   <span className="font-normal">
@@ -3060,6 +3486,31 @@ export function PinChartDisplay({
 
         {/* View Controls - always consistent layout */}
         <div className="flex items-center gap-3">
+          {/* FPOD Unit Toggle - Clicks / DPM */}
+          {fileType === 'FPOD' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">Unit:</span>
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+                <Button
+                  variant={fpodUnitMode === 'DPM' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setFpodUnitMode('DPM')}
+                  className="h-7 px-2 text-xs"
+                >
+                  DPM
+                </Button>
+                <Button
+                  variant={fpodUnitMode === 'Clicks' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setFpodUnitMode('Clicks')}
+                  className="h-7 px-2 text-xs"
+                >
+                  Clicks
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Unified View Mode Selector - always shows all 4 options */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">View:</span>
@@ -3167,23 +3618,28 @@ export function PinChartDisplay({
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-3" align="end">
                     <div className="space-y-3">
-                      <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
+                      {/* Chart Settings header and axis toggle - hidden for SubCam nmax */}
+                      {!isSubcamNmaxFile && (
+                        <>
+                          <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
 
-                      {/* Single/Multi Axis Toggle */}
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
-                          Single-Axis Mode
-                        </Label>
-                        <Switch
-                          id="axis-mode"
-                          checked={axisMode === 'single'}
-                          onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
-                          className="shrink-0"
-                        />
-                      </div>
-                      <p className="text-[0.65rem] text-muted-foreground">
-                        Removes multiple axes for a cleaner look
-                      </p>
+                          {/* Single/Multi Axis Toggle */}
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
+                              Single-Axis Mode
+                            </Label>
+                            <Switch
+                              id="axis-mode"
+                              checked={axisMode === 'single'}
+                              onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
+                              className="shrink-0"
+                            />
+                          </div>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            Removes multiple axes for a cleaner look
+                          </p>
+                        </>
+                      )}
 
                       {/* Show Sensor Parameters Toggle - only for GrowProbe files */}
                       {fileType === 'GP' && (
@@ -3205,7 +3661,9 @@ export function PinChartDisplay({
                         </>
                       )}
 
-                      {/* X-Axis Settings Section */}
+                      {/* X-Axis Settings Section - hidden for 24hr FPOD files */}
+                      {!showDateTimeAxis && (
+                        <>
                       <p className="text-xs font-semibold border-b pb-2 pt-2">X-Axis Settings</p>
                     <div className="flex items-center justify-between">
                       <Label htmlFor="show-year" className="text-xs cursor-pointer">
@@ -3221,6 +3679,8 @@ export function PinChartDisplay({
                     <p className="text-[0.65rem] text-muted-foreground">
                       {showYearInXAxis ? 'Format: DD/MM/YY' : 'Format: DD/MM'}
                     </p>
+                        </>
+                      )}
 
                     {/* Days from start toggle - only show for nmax files */}
                     {isSubcamNmaxFile && (
@@ -3342,16 +3802,6 @@ export function PinChartDisplay({
           )}
         </div>
 
-        {/* Methodology Button - matching Water and Crop Samples styling */}
-        {projectId && tileName && (
-          <Button
-            className="h-9 px-2.5 text-xs rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 shrink-0"
-            onClick={() => setShowMethodologyModal(true)}
-          >
-            <BookOpen className="h-3.5 w-3.5 mr-1" />
-            METHODOLOGY
-          </Button>
-        )}
       </div>
 
       {/* Chart or Table View */}
@@ -3493,6 +3943,7 @@ export function PinChartDisplay({
             <TaxonomicTreeView
               tree={nmaxTaxonomicTree}
               containerHeight={dynamicChartHeight}
+              highlightedTaxon={highlightedTaxon}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
@@ -3502,9 +3953,9 @@ export function PinChartDisplay({
         </div>
       ) : showHeatmap && isSubcamNmaxFile ? (
         // Heatmap View for Subcam nmax files
-        <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
+        <div className="flex overflow-hidden" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Heatmap - Takes up most space */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <HeatmapDisplay
               key={refreshKey}
               data={finalDisplayData}
@@ -3516,25 +3967,30 @@ export function PinChartDisplay({
               containerHeight={dynamicChartHeight}
               brushStartIndex={activeBrushStart}
               brushEndIndex={activeBrushEnd}
-              onBrushChange={timeAxisMode === 'separate' ? handleBrushChange : undefined}
+              onBrushChange={timeAxisMode === 'separate' && !isSubcamNmaxFile ? handleBrushChange : undefined}
               timeFormat={showYearInXAxis ? 'full' : 'short'}
               customColor={heatmapColor}
               customMaxValue={appliedStyleRule?.properties.heatmapMaxValue}
               cellWidth={appliedStyleRule?.properties.heatmapCellWidth ?? 10}
               rowHeight={appliedStyleRule?.properties.heatmapRowHeight ?? 35}
+              onShowInTree={(species) => {
+                setHighlightedTaxon(species);
+                handleViewModeChange('tree');
+                setTimeout(() => setHighlightedTaxon(null), 4000);
+              }}
             />
           </div>
 
-          {/* Species Selection Panel - Right sidebar - Collapsible */}
+          {/* Taxa Selection Panel - Right sidebar - Collapsible */}
           <div className={cn(
-            "border rounded-md bg-card transition-all duration-300 ease-in-out",
+            "border rounded-md bg-card transition-all duration-300 ease-in-out shrink-0",
             isSpeciesPanelExpanded ? "w-64" : "w-12"
           )}>
             {isSpeciesPanelExpanded ? (
               <>
                 <div className="p-3 border-b flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="text-sm font-semibold">Species Selection</h3>
+                    <h3 className="text-sm font-semibold">Taxa</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       {taxonomicallyOrderedSpecies.filter(s => parameterStates[s]?.visible).length} of {taxonomicallyOrderedSpecies.length} visible
                     </p>
@@ -3623,19 +4079,42 @@ export function PinChartDisplay({
         <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Chart - Takes up most space */}
           <div className="flex-1 space-y-3">
+      {/* Color Key - only for nmax chart view */}
+      {isSubcamNmaxFile && viewMode === 'chart' && visibleParameters.length > 0 && (
+        <div className="flex items-center gap-4 px-3 py-2 bg-white border rounded-md">
+          <span className="text-xs font-semibold text-gray-600">Color Key:</span>
+          {visibleParameters.map(param => {
+            const state = parameterStates[param];
+            if (!state) return null;
+            const colorValue = getColorValue(state.color, state.opacity ?? 1.0);
+            const displayName = getLITUDisplayName(param) || param;
+            return (
+              <div key={param} className="flex items-center gap-1.5">
+                <div className="w-4 h-1 rounded-full" style={{ backgroundColor: colorValue }} />
+                <span className="text-xs text-gray-700">{displayName}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {visibleParameters.length > 0 && (
         <div
-          className={cn("w-full bg-card p-2", !compactView && "border rounded-md")}
+          className={cn(
+            "w-full p-2",
+            // Use white background for FPOD with nighttime shading, otherwise use card background
+            showDateTimeAxis ? "bg-white" : "bg-card",
+            !compactView && "border rounded-md"
+          )}
           style={{
             height: `${dynamicChartHeight + (
-              // Add extra height for single-axis info banner
-              (!compactView && axisMode === 'single') ? 40 : 0
+              // Add extra height for single-axis info banner (not for nmax or FPOD)
+              (!compactView && axisMode === 'single' && !isSubcamNmaxFile && fileType !== 'FPOD') ? 40 : 0
             )}px`
           }}
         >
 
-          {/* Single Axis Mode Info Banner */}
-          {axisMode === 'single' && !compactView && (
+          {/* Single Axis Mode Info Banner - hidden for nmax and FPOD (FPOD shows hint in parent header) */}
+          {axisMode === 'single' && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD' && (
             <div className="bg-muted/50 border rounded px-3 py-1.5 mb-2 flex items-center gap-2">
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium">Single-Axis Mode:</span> Mouse-over graph area for actual values
@@ -3644,7 +4123,11 @@ export function PinChartDisplay({
           )}
           {/* Single Axis Mode */}
           {axisMode === 'single' && (
-            <div style={{ width: '100%', height: visibleParameters.length > 1 && !compactView ? 'calc(100% - 40px)' : '100%' }}>
+            <div style={{
+              width: '100%',
+              height: (visibleParameters.length > 1 && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD') ? 'calc(100% - 40px)' : '100%',
+              backgroundColor: showDateTimeAxis ? '#ffffff' : undefined
+            }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
@@ -3654,8 +4137,35 @@ export function PinChartDisplay({
                   left: 0,
                   bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
                 }}
+                style={{ backgroundColor: showDateTimeAxis ? '#ffffff' : undefined }}
               >
-                <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
+                <CartesianGrid
+                  strokeDasharray="2 2"
+                  stroke="hsl(var(--border))"
+                  vertical={false}
+                />
+
+                {/* Nighttime shading for 24hr FPOD files */}
+                {nighttimePeriods.map((period, index) => {
+                  // Validate that period times exist in the data
+                  const startExists = finalDisplayData.some(d => d.time === period.start);
+                  const endExists = finalDisplayData.some(d => d.time === period.end);
+                  if (!startExists || !endExists) {
+                    console.warn('[NIGHTTIME] Skipping period - times not found in data:', { period, startExists, endExists });
+                    return null;
+                  }
+                  return (
+                    <ReferenceArea
+                      key={`night-${index}`}
+                      x1={period.start}
+                      x2={period.end}
+                      fill="#1e293b"
+                      fillOpacity={0.15}
+                      strokeOpacity={0}
+                      ifOverflow="hidden"
+                    />
+                  );
+                })}
 
                 <XAxis
                   dataKey={showDaysFromStart ? "dayNumber" : "time"}
@@ -3664,13 +4174,15 @@ export function PinChartDisplay({
                   tickFormatter={(value) =>
                     showDaysFromStart
                       ? `Day ${Math.round(value)}`
+                      : showDateTimeAxis
+                      ? formatDateTimeTick(value, coordinates, true)
                       : appliedStyleRule?.properties.xAxisRange
                       ? format24HourTick(value)
                       : formatDateTick(value, dataSource, showYearInXAxis)
                   }
                   height={appliedStyleRule?.properties.xAxisTitle
                     ? 45 + (appliedStyleRule.properties.xAxisTitlePosition || 20)
-                    : 45
+                    : showDateTimeAxis ? 60 : 45
                   }
                   label={appliedStyleRule?.properties.xAxisTitle ? {
                     value: appliedStyleRule.properties.xAxisTitle,
@@ -3680,13 +4192,14 @@ export function PinChartDisplay({
                   } : undefined}
                 />
 
-                {/* Primary Y-Axis (Left) - hidden in single-axis mode */}
+                {/* Primary Y-Axis (Left) - hidden in single-axis mode, fully hidden for nmax */}
                 <YAxis
                   tick={false}
-                  stroke="hsl(var(--border))"
-                  width={10}
+                  stroke={isSubcamNmaxFile ? 'transparent' : 'hsl(var(--border))'}
+                  width={isSubcamNmaxFile ? 1 : 10}
                   domain={yAxisDomain}
                   allowDataOverflow={true}
+                  hide={isSubcamNmaxFile}
                 />
 
                 {/* Frame lines - top and right edges */}
@@ -3696,27 +4209,7 @@ export function PinChartDisplay({
                 )}
 
                 <RechartsTooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    fontSize: '0.7rem',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number, name: string) => [
-                    typeof value === 'number' ? value.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:3}) : 'N/A',
-                    name
-                  ]}
-                  labelFormatter={(label) => {
-                    try {
-                      const date = parseISO(String(label));
-                      return isValid(date) ? format(date, 'EEE, MMM dd, HH:mm:ss') : String(label);
-                    } catch {
-                      return String(label);
-                    }
-                  }}
+                  content={<CustomChartTooltip coordinates={coordinates} />}
                   isAnimationActive={false}
                 />
 
@@ -3761,7 +4254,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }}
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -3797,13 +4290,15 @@ export function PinChartDisplay({
                   tickFormatter={(value) =>
                     showDaysFromStart
                       ? `Day ${Math.round(value)}`
+                      : showDateTimeAxis
+                      ? formatDateTimeTick(value, coordinates, true)
                       : appliedStyleRule?.properties.xAxisRange
                       ? format24HourTick(value)
                       : formatDateTick(value, dataSource, showYearInXAxis)
                   }
                   height={appliedStyleRule?.properties.xAxisTitle
                     ? 45 + (appliedStyleRule.properties.xAxisTitlePosition || 20)
-                    : 45
+                    : showDateTimeAxis ? 60 : 45
                   }
                   label={appliedStyleRule?.properties.xAxisTitle ? {
                     value: appliedStyleRule.properties.xAxisTitle,
@@ -3823,9 +4318,10 @@ export function PinChartDisplay({
                   const paramColor = getColorValue(parameterStates[parameter].color);
                   // Add gap between axes: increase width for better spacing
                   const axisWidth = (index === 2) ? 65 : 55;
-                  // Use GrowProbe common name if available, otherwise use formatted parameter name
+                  // Use GrowProbe common name if available, LITU name for nmax, otherwise formatted parameter name
                   const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
-                  const labelText = gpCommonName || formatParameterWithSource(parameter, false);
+                  const lituName = getLITUDisplayName(parameter);
+                  const labelText = lituName || gpCommonName || formatParameterWithSource(parameter, false);
 
                   // Calculate base offset and apply custom offsets from style rules
                   let labelOffset = getMultiAxisLabelOffset(domain, paramRange, paramMax);
@@ -3913,27 +4409,7 @@ export function PinChartDisplay({
                 )}
 
                 <RechartsTooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    fontSize: '0.7rem',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number, name: string) => [
-                    typeof value === 'number' ? value.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:3}) : 'N/A',
-                    name
-                  ]}
-                  labelFormatter={(label) => {
-                    try {
-                      const date = parseISO(String(label));
-                      return isValid(date) ? format(date, 'EEE, MMM dd, HH:mm:ss') : String(label);
-                    } catch {
-                      return String(label);
-                    }
-                  }}
+                  content={<CustomChartTooltip coordinates={coordinates} />}
                   isAnimationActive={false}
                 />
 
@@ -3983,7 +4459,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }} // Smaller dots for MA
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -3999,8 +4475,8 @@ export function PinChartDisplay({
         </div>
       )}
 
-      {/* Time Range Brush - only show in separate mode OR if last plot in common mode */}
-      {data.length > 10 && (timeAxisMode === 'separate' || isLastPlot) && (
+      {/* Time Range Brush - only show in separate mode OR if last plot in common mode; hidden for 24hr avg plots */}
+      {data.length > 10 && !hideBrush && (timeAxisMode === 'separate' || isLastPlot) && (
         <div className="relative h-16 w-full border rounded-md bg-card p-1">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 2, right: 15, left: 15, bottom: 0 }}>
@@ -4038,9 +4514,22 @@ export function PinChartDisplay({
         </div>
       )}
 
+      {/* Observations info note - below chart, only for nmax chart view */}
+      {isSubcamNmaxFile && viewMode === 'chart' && (
+        <div className="bg-muted/40 border rounded-md px-3 py-2 flex items-center gap-2">
+          <svg className="w-4 h-4 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+          </svg>
+          <p className="text-xs text-muted-foreground">
+            Data is being displayed as Observations, this does not include any species identification information. Please consult Methodology for more details.
+          </p>
+        </div>
+      )}
+
           </div>
 
-          {/* Parameter Controls - On the right side */}
+          {/* Parameter Controls - On the right side (hidden for nmax chart view and FPOD files) */}
+          {!(isSubcamNmaxFile && viewMode === 'chart') && fileType !== 'FPOD' && (
           <div className={cn(
             "transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col",
             isParameterPanelExpanded ? "w-72 space-y-2" : "w-8 overflow-hidden"
@@ -5254,6 +5743,7 @@ export function PinChartDisplay({
             </div>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -5571,15 +6061,6 @@ export function PinChartDisplay({
         />
       )}
 
-      {/* Methodology Modal */}
-      {projectId && tileName && (
-        <MethodologyModal
-          open={showMethodologyModal}
-          onOpenChange={setShowMethodologyModal}
-          projectId={projectId}
-          tileName={tileName}
-        />
-      )}
     </div>
   );
 }
