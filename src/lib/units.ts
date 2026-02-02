@@ -152,7 +152,7 @@ export const PARAMETER_TO_UNIT_TYPE: Record<string, UnitType> = {
  * Parameter display names and units mapping
  * Maps parameter keys to their display names and unit symbols
  */
-export const PARAMETER_DISPLAY_INFO: Record<string, { label: string; unit: string }> = {
+export const PARAMETER_DISPLAY_INFO: Record<string, { label: string; unit: string; tooltip?: string }> = {
   // Marine/Meteo parameters
   'waveHeight': { label: 'Sig. Wave Height', unit: 'm' },
   'waveDirection': { label: 'Wave Direction', unit: '° North' },
@@ -178,7 +178,7 @@ export const PARAMETER_DISPLAY_INFO: Record<string, { label: string; unit: strin
   // GP file parameters
   'Temp': { label: 'Temp', unit: '°C' },
   'Temperature': { label: 'Temperature', unit: '°C' },
-  'IR': { label: 'IR', unit: 'a.u.' },
+  'IR': { label: 'Turbidity', unit: 'a.u.', tooltip: 'Turbidity (arbitrary units)' },
   'Vis': { label: 'Vis', unit: 'a.u.' },
   'Lux': { label: 'Light', unit: 'Lux' },
   'accel_x': { label: 'accel_x', unit: 'g' },
@@ -231,4 +231,19 @@ export function getParameterLabelWithUnit(parameterKey: string): string {
     return `${info.label} (${info.unit})`;
   }
   return parameterKey; // Fallback to raw parameter name if not in mapping
+}
+
+/**
+ * Get parameter tooltip/title for display
+ * Returns the tooltip if defined, otherwise returns the label with full unit description
+ */
+export function getParameterTooltip(parameterKey: string): string {
+  const info = PARAMETER_DISPLAY_INFO[parameterKey];
+  if (info?.tooltip) {
+    return info.tooltip;
+  }
+  if (info && info.unit) {
+    return `${info.label} (${info.unit})`;
+  }
+  return parameterKey;
 }

@@ -55,6 +55,8 @@ export function SourceTile({
   const [isDragging, setIsDragging] = React.useState(false);
   const [startY, setStartY] = React.useState(0);
   const [scrollTop, setScrollTop] = React.useState(0);
+  // Per-tile merge mode enabled state (default off)
+  const [isMergeEnabled, setIsMergeEnabled] = React.useState(false);
 
   // Get all categories for a file in this specific tile
   const getFileCategories = (fileName: string): string[] => {
@@ -228,8 +230,8 @@ export function SourceTile({
           projectId={projectId}
           onMergedFileClick={onMergedFileClick}
           onAddFilesToMergedFile={onAddFilesToMergedFile}
-          multiFileMergeMode={multiFileMergeMode}
-          onMultiFileMergeModeChange={setMultiFileMergeMode}
+          multiFileMergeMode={isMergeEnabled}
+          onMultiFileMergeModeChange={setIsMergeEnabled}
           viewMode={viewMode}
           pinColorMap={pinColorMap}
           tileName={label}

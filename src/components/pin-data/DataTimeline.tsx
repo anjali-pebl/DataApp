@@ -918,23 +918,18 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       return { months: [], years: [], minDate: null, maxDate: null, totalDays: 0 };
     }
 
-    let minDate = new Date(Math.min(...allStartDates.map(d => d.getTime())));
-    let maxDate = new Date(Math.max(...allEndDates.map(d => d.getTime())));
+    const dataMinDate = new Date(Math.min(...allStartDates.map(d => d.getTime())));
+    const dataMaxDate = new Date(Math.max(...allEndDates.map(d => d.getTime())));
 
-    // If all data falls within a short range (e.g., same month), expand to show full month(s)
-    // This ensures bars don't span 100% width when all data has the same date
-    const actualRange = differenceInDays(maxDate, minDate) + 1;
-    if (actualRange < 14) {
-      // Expand timeline to show the full month(s) the data falls in
-      minDate = startOfMonth(minDate);
-      maxDate = endOfMonth(maxDate);
-    }
+    // Always expand timeline to show full months so month cells are never cut off
+    const minDate = startOfMonth(dataMinDate);
+    const maxDate = endOfMonth(dataMaxDate);
 
     // Generate ALL months between minDate and maxDate for proper alignment
     // This ensures month headers align with the timeline bars
     const months = eachMonthOfInterval({
-      start: startOfMonth(minDate),
-      end: endOfMonth(maxDate)
+      start: minDate,
+      end: maxDate
     });
 
     // Generate year headers based on actual data months
@@ -1855,6 +1850,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                               return total + differenceInDays(endOfMonth(month), startOfMonth(month)) + 1;
                             }, 0);
                             const widthPercent = (yearDays / timelineData.totalDays) * 100;
+                            const isLast = index === timelineData.years.length - 1;
 
                             return (
                               <div
@@ -1863,7 +1859,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                 style={{
                                   width: `${widthPercent}%`,
                                   minWidth: '30px',
-                                  borderRight: timelineData.years.length > 1 ? '1.5px solid rgba(0,0,0,0.15)' : 'none'
+                                  borderRight: timelineData.years.length > 1 && !isLast ? '1.5px solid rgba(0,0,0,0.15)' : 'none'
                                 }}
                               >
                                 <span className="truncate">{yearData.year}</span>
@@ -1882,6 +1878,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                             const monthDuration = differenceInDays(monthEnd, monthStart) + 1;
                             const widthPercent = (monthDuration / timelineData.totalDays) * 100;
 
+                            const isLast = index === timelineData.months.length - 1;
                             return (
                               <div
                                 key={index}
@@ -1889,7 +1886,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                 style={{
                                   width: `${widthPercent}%`,
                                   minWidth: timelineData.months.length <= 6 ? '20px' : '12px',
-                                  borderRight: timelineData.months.length > 1 ? '1.5px solid rgba(0,0,0,0.12)' : 'none'
+                                  borderRight: timelineData.months.length > 1 && !isLast ? '1.5px solid rgba(0,0,0,0.12)' : 'none'
                                 }}
                                 title={format(month, 'MMMM yyyy')}
                               >

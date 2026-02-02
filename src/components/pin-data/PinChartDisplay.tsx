@@ -109,28 +109,39 @@ interface PinChartDisplayProps {
 }
 
 // Color palette matching the marine data theme
+// Chart color CSS variables reordered to alternate cool-warm
+// This ensures sequential parameters get mixed warm/cool colors
 const CHART_COLORS = [
-  '--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5',
-  '--chart-6', '--chart-7', '--chart-8', '--chart-9'
+  '--chart-1', // Blue (cool)
+  '--chart-2', // Red/pink (warm)
+  '--chart-5', // Cyan (cool)
+  '--chart-7', // Burnt orange (warm)
+  '--chart-3', // Green (cool)
+  '--chart-6', // Purple (warm)
+  '--chart-9', // Steel blue (cool)
+  '--chart-4', // Olive yellow (warm)
+  '--chart-8', // Grey (neutral)
 ];
 
 // Colorblind-friendly palette for quick picking (Paul Tol scheme)
+// Ordered to alternate cool-warm so sequential parameters get mixed colors
 const DEFAULT_COLOR_PALETTE = [
-  '#4477AA', // Blue
-  '#EE6677', // Red/pink
-  '#228833', // Green
-  '#CCBB44', // Olive yellow
-  '#66CCEE', // Cyan
-  '#AA3377', // Purple
-  '#CC6644', // Burnt orange
-  '#BBBBBB', // Grey
+  '#4477AA', // Blue (cool)
+  '#EE6677', // Red/pink (warm)
+  '#66CCEE', // Cyan (cool)
+  '#CC6644', // Burnt orange (warm)
+  '#228833', // Green (cool)
+  '#AA3377', // Purple (warm)
+  '#336688', // Steel blue (cool)
+  '#CCBB44', // Olive yellow (warm)
+  '#BBBBBB', // Grey (neutral)
 ];
 
 // Common names for GrowProbe parameters (used for tooltips and Y-axis labels)
 // Keys are normalized (lowercase, no special chars) for flexible matching
 const GROWPROBE_COMMON_NAMES: Record<string, string> = {
   'temp': 'Temperature (degrees Celsius)',
-  'ir': 'Infrared Radiation (arbitrary units)',
+  'ir': 'Turbidity (arbitrary units)',
   'vis': 'Visible Light (arbitrary units)',
   'light': 'Light Intensity (Lux)',
   'lux': 'Light Intensity (Lux)',
@@ -154,8 +165,8 @@ function getGrowProbeCommonName(parameter: string): string | null {
   return GROWPROBE_COMMON_NAMES[normalized] || null;
 }
 
-// Hidden sensor parameters (accelerometer and magnetic field) - shown via toggle
-const HIDDEN_SENSOR_PARAMS_PATTERNS = ['accel_', 'mag_'];
+// Hidden sensor parameters (accelerometer, magnetic field, visible light) - shown via toggle
+const HIDDEN_SENSOR_PARAMS_PATTERNS = ['accel_', 'mag_', 'vis'];
 
 // Helper to check if parameter is a hidden sensor param
 function isHiddenSensorParam(parameter: string): boolean {
@@ -268,9 +279,10 @@ const formatDateTimeTick = (timeValue: string | number, coordinates?: { lat: num
   }
 };
 
-// Custom tooltip that sorts items by value (highest first) and shows color dots
+// Custom tooltip that sorts items by visual position on chart (highest line first)
 // Accepts optional coordinates to display time in location's timezone
-const CustomChartTooltip = ({ active, payload, label, coordinates }: any) => {
+// Accepts optional parameterDomains to normalize values for visual sorting in multi-axis mode
+const CustomChartTooltip = ({ active, payload, label, coordinates, parameterDomains }: any) => {
   if (!active || !payload || payload.length === 0) return null;
 
   let formattedLabel = String(label);
@@ -299,10 +311,30 @@ const CustomChartTooltip = ({ active, payload, label, coordinates }: any) => {
     }
   } catch { /* keep raw label */ }
 
-  // Sort by value descending so the highest line appears first (matches visual chart order)
+  // Sort by visual position on chart (highest line visually = first in tooltip)
+  // In multi-axis mode, normalize each value to 0-1 based on its axis domain
   const sorted = [...payload]
     .filter((entry: any) => entry.value != null)
-    .sort((a: any, b: any) => (Number(b.value) || 0) - (Number(a.value) || 0));
+    .sort((a: any, b: any) => {
+      const aValue = Number(a.value) || 0;
+      const bValue = Number(b.value) || 0;
+
+      // If we have parameter domains, sort by normalized visual position
+      if (parameterDomains) {
+        const aDomain = parameterDomains[a.dataKey];
+        const bDomain = parameterDomains[b.dataKey];
+
+        if (aDomain && bDomain) {
+          // Normalize to 0-1 range (where 1 = top of axis, 0 = bottom)
+          const aNormalized = (aValue - aDomain[0]) / (aDomain[1] - aDomain[0]);
+          const bNormalized = (bValue - bDomain[0]) / (bDomain[1] - bDomain[0]);
+          return bNormalized - aNormalized; // Descending (higher visual position first)
+        }
+      }
+
+      // Fallback: sort by raw value descending
+      return bValue - aValue;
+    });
 
   return (
     <div style={{
@@ -473,16 +505,17 @@ const MultiLineYAxisLabel = ({
 };
 
 // Fallback color palette when CSS variables aren't loaded (Paul Tol colorblind-friendly)
+// Fallback colors for CSS variables (ordered to alternate cool-warm)
 const FALLBACK_COLORS: Record<string, string> = {
-  '--chart-1': '#4477AA', // Blue
-  '--chart-2': '#EE6677', // Red/pink
-  '--chart-3': '#228833', // Green
-  '--chart-4': '#CCBB44', // Olive yellow
-  '--chart-5': '#66CCEE', // Cyan
-  '--chart-6': '#AA3377', // Purple
-  '--chart-7': '#CC6644', // Burnt orange
-  '--chart-8': '#BBBBBB', // Grey
-  '--chart-9': '#336688', // Steel blue
+  '--chart-1': '#4477AA', // Blue (cool)
+  '--chart-2': '#EE6677', // Red/pink (warm)
+  '--chart-3': '#66CCEE', // Cyan (cool)
+  '--chart-4': '#CC6644', // Burnt orange (warm)
+  '--chart-5': '#228833', // Green (cool)
+  '--chart-6': '#AA3377', // Purple (warm)
+  '--chart-7': '#336688', // Steel blue (cool)
+  '--chart-8': '#CCBB44', // Olive yellow (warm)
+  '--chart-9': '#BBBBBB', // Grey (neutral)
 };
 
 // Convert HSL CSS variable to hex color
@@ -985,6 +1018,9 @@ export function PinChartDisplay({
     // Show only first 4 parameters by default (unless initial values provided)
     const defaultVisibleCount = 4;
 
+    // GrowProbe priority parameters that should always be visible by default
+    const gpPriorityParams = ['temp', 'ir', 'lux', 'light'];
+
     // Check if we have initial visibility settings from a saved view
     const hasInitialSettings = initialVisibleParameters && initialVisibleParameters.length > 0;
 
@@ -996,15 +1032,38 @@ export function PinChartDisplay({
     //   initialColors: initialParameterColors ? Object.keys(initialParameterColors) : []
     // });
 
+    // Separate parameters into non-hidden and hidden for color assignment
+    // Non-hidden parameters get colors first to avoid duplicates in the default view
+    const nonHiddenParams = numericParameters.filter(p => !isHiddenSensorParam(p));
+    const hiddenParams = numericParameters.filter(p => isHiddenSensorParam(p));
+    let orderedParams = [...nonHiddenParams, ...hiddenParams];
+
+    // For FPOD files, group DPM and Click parameters together so each group
+    // gets mixed warm/cool colors from the alternating palette
+    if (fileType === 'FPOD') {
+      const dpmParams = orderedParams.filter(p => p.includes('(DPM)'));
+      const clickParams = orderedParams.filter(p => p.includes('(Clicks)'));
+      const otherParams = orderedParams.filter(p => !p.includes('(DPM)') && !p.includes('(Clicks)'));
+      orderedParams = [...dpmParams, ...clickParams, ...otherParams];
+    }
+
+    // Create a color index map based on the reordered parameters
+    const colorIndexMap = new Map<string, number>();
+    orderedParams.forEach((param, idx) => colorIndexMap.set(param, idx));
+
     numericParameters.forEach((param, index) => {
-      // Convert CSS variable to hex immediately to ensure unique colors
-      const cssVar = CHART_COLORS[index % CHART_COLORS.length];
+      // Use the reordered color index so hidden params get colors last
+      const colorIndex = colorIndexMap.get(param) ?? index;
+      const cssVar = CHART_COLORS[colorIndex % CHART_COLORS.length];
       const hexColor = cssVarToHex(cssVar);
 
-      // Determine visibility: use initial if provided, otherwise default to first N
+      // For GrowProbe files, show priority parameters by default
+      const isGPPriority = fileType === 'GP' && gpPriorityParams.includes(param.toLowerCase());
+
+      // Determine visibility: use initial if provided, otherwise default to first N (or GP priority)
       const visible = hasInitialSettings
         ? initialVisibleParameters.includes(param)
-        : index < defaultVisibleCount;
+        : (index < defaultVisibleCount || isGPPriority);
 
       // Get color: use initial if provided, otherwise generate default
       const color = (initialParameterColors && initialParameterColors[param]) || hexColor;
@@ -1114,16 +1173,41 @@ export function PinChartDisplay({
       const defaultVisibleCount = numericParameters.length <= 3 ? numericParameters.length :
                                    ((fileType === 'GP' || dataSource === 'marine') ? 4 : 5);
 
+      // GrowProbe priority parameters that should always be visible by default
+      const gpPriorityParams = ['temp', 'ir', 'lux', 'light'];
+
+      // Separate parameters into non-hidden and hidden for color assignment
+      // Non-hidden parameters get colors first to avoid duplicates in the default view
+      const nonHiddenParams = numericParameters.filter(p => !isHiddenSensorParam(p));
+      const hiddenParams = numericParameters.filter(p => isHiddenSensorParam(p));
+      let orderedParams = [...nonHiddenParams, ...hiddenParams];
+
+      // For FPOD files, group DPM and Click parameters together so each group
+      // gets mixed warm/cool colors from the alternating palette
+      if (fileType === 'FPOD') {
+        const dpmParams = orderedParams.filter(p => p.includes('(DPM)'));
+        const clickParams = orderedParams.filter(p => p.includes('(Clicks)'));
+        const otherParams = orderedParams.filter(p => !p.includes('(DPM)') && !p.includes('(Clicks)'));
+        orderedParams = [...dpmParams, ...clickParams, ...otherParams];
+      }
+
+      // Create a color index map based on the reordered parameters
+      const colorIndexMap = new Map<string, number>();
+      orderedParams.forEach((param, idx) => colorIndexMap.set(param, idx));
+
       numericParameters.forEach((param, index) => {
         // Preserve existing state if parameter already exists
         if (prev[param]) {
           newState[param] = prev[param];
         } else {
-          // Initialize new parameter with hex color and apply styling rules
-          const cssVar = CHART_COLORS[index % CHART_COLORS.length];
+          // Use the reordered color index so hidden params get colors last
+          const colorIndex = colorIndexMap.get(param) ?? index;
+          const cssVar = CHART_COLORS[colorIndex % CHART_COLORS.length];
           const hexColor = cssVarToHex(cssVar);
+          // For GrowProbe files, show priority parameters by default
+          const isGPPriority = fileType === 'GP' && gpPriorityParams.includes(param.toLowerCase());
           newState[param] = {
-            visible: index < defaultVisibleCount,
+            visible: index < defaultVisibleCount || isGPPriority,
             color: hexColor, // Store as hex, not CSS variable
             opacity: appliedStyleRule?.properties.defaultOpacity ?? 1.0,
             lineStyle: appliedStyleRule?.properties.defaultLineStyle ?? 'solid',
@@ -3446,12 +3530,13 @@ export function PinChartDisplay({
         {/* File header - location, time period, category, and filename */}
         <div className="flex flex-col gap-0.5 flex-1">
           {/* Main header: Location • Time Period (Categories) */}
+          {/* For 24hr avg: Location [Category] within [date range] */}
           {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
             <div className="text-xs font-semibold text-foreground flex items-center gap-2">
               {/* Location */}
               {pinLabel && <span>{pinLabel}</span>}
 
-              {/* Time Period - hidden for 24hr avg plots */}
+              {/* Time Period - shown with bullet for regular plots */}
               {!showDateTimeAxis && (startDate || endDate) && (
                 <>
                   {pinLabel && <span className="text-muted-foreground">•</span>}
@@ -3473,6 +3558,22 @@ export function PinChartDisplay({
                   {category}
                 </span>
               ))}
+
+              {/* Date range for 24hr avg plots - shown after category with "within" */}
+              {showDateTimeAxis && (startDate || endDate) && (
+                <>
+                  <span className="font-normal italic">within</span>
+                  <span className="font-normal">
+                    {startDate && endDate
+                      ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                      : startDate
+                      ? format(startDate, 'MMM d, yyyy')
+                      : endDate
+                      ? format(endDate, 'MMM d, yyyy')
+                      : ''}
+                  </span>
+                </>
+              )}
             </div>
           )}
 
@@ -4079,15 +4180,18 @@ export function PinChartDisplay({
         <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Chart - Takes up most space */}
           <div className="flex-1 space-y-3">
-      {/* Color Key - only for nmax chart view */}
-      {isSubcamNmaxFile && viewMode === 'chart' && visibleParameters.length > 0 && (
-        <div className="flex items-center gap-4 px-3 py-2 bg-white border rounded-md">
-          <span className="text-xs font-semibold text-gray-600">Color Key:</span>
+      {/* Color Key - for nmax and FPOD chart view */}
+      {(isSubcamNmaxFile || fileType === 'FPOD') && viewMode === 'chart' && visibleParameters.length > 0 && (
+        <div className="flex items-center gap-4 px-3 py-2 bg-white border rounded-md flex-wrap">
           {visibleParameters.map(param => {
             const state = parameterStates[param];
             if (!state) return null;
             const colorValue = getColorValue(state.color, state.opacity ?? 1.0);
-            const displayName = getLITUDisplayName(param) || param;
+            // For FPOD, strip unit suffix like "(DPM)" or "(Clicks)" for cleaner display
+            let displayName = getLITUDisplayName(param) || param;
+            if (fileType === 'FPOD') {
+              displayName = displayName.replace(/\s*\((DPM|Clicks)\)\s*$/, '');
+            }
             return (
               <div key={param} className="flex items-center gap-1.5">
                 <div className="w-4 h-1 rounded-full" style={{ backgroundColor: colorValue }} />
@@ -4192,14 +4296,22 @@ export function PinChartDisplay({
                   } : undefined}
                 />
 
-                {/* Primary Y-Axis (Left) - hidden in single-axis mode, fully hidden for nmax */}
+                {/* Primary Y-Axis (Left) - shown with labels for FPOD, hidden for others in single-axis mode, fully hidden for nmax */}
                 <YAxis
-                  tick={false}
+                  tick={fileType === 'FPOD' ? { fontSize: '0.6rem', fill: 'hsl(var(--muted-foreground))' } : false}
                   stroke={isSubcamNmaxFile ? 'transparent' : 'hsl(var(--border))'}
-                  width={isSubcamNmaxFile ? 1 : 10}
+                  width={isSubcamNmaxFile ? 1 : fileType === 'FPOD' ? 50 : 10}
                   domain={yAxisDomain}
                   allowDataOverflow={true}
                   hide={isSubcamNmaxFile}
+                  tickFormatter={fileType === 'FPOD' ? (value) => formatYAxisTick(value, dataRange, dataMax) : undefined}
+                  label={fileType === 'FPOD' ? {
+                    value: fpodUnitMode === 'DPM' ? 'DPM' : 'Clicks',
+                    angle: -90,
+                    position: 'insideLeft',
+                    offset: 10,
+                    style: { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))', fontWeight: 500 }
+                  } : undefined}
                 />
 
                 {/* Frame lines - top and right edges */}
@@ -4409,7 +4521,7 @@ export function PinChartDisplay({
                 )}
 
                 <RechartsTooltip
-                  content={<CustomChartTooltip coordinates={coordinates} />}
+                  content={<CustomChartTooltip coordinates={coordinates} parameterDomains={parameterDomains} />}
                   isAnimationActive={false}
                 />
 
