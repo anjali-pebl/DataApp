@@ -742,7 +742,7 @@ export function PinChartDisplay({
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-  // Axis mode state - default to single for SubCam and FPOD, multi for everything else
+// Axis mode state - default to single for SubCam and FPOD, multi for everything else
   const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
     (fileType === 'Subcam' || fileType === 'FPOD') ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
   );
@@ -4107,13 +4107,13 @@ export function PinChartDisplay({
           )}
           style={{
             height: `${dynamicChartHeight + (
-              // Add extra height for single-axis info banner (not for nmax or FPOD)
+// Add extra height for single-axis info banner (not for nmax or FPOD)
               (!compactView && axisMode === 'single' && !isSubcamNmaxFile && fileType !== 'FPOD') ? 40 : 0
             )}px`
           }}
         >
 
-          {/* Single Axis Mode Info Banner - hidden for nmax and FPOD (FPOD shows hint in parent header) */}
+{/* Single Axis Mode Info Banner - hidden for nmax and FPOD (FPOD shows hint in parent header) */}
           {axisMode === 'single' && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD' && (
             <div className="bg-muted/50 border rounded px-3 py-1.5 mb-2 flex items-center gap-2">
               <p className="text-xs text-muted-foreground">
@@ -4123,7 +4123,7 @@ export function PinChartDisplay({
           )}
           {/* Single Axis Mode */}
           {axisMode === 'single' && (
-            <div style={{
+<div style={{
               width: '100%',
               height: (visibleParameters.length > 1 && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD') ? 'calc(100% - 40px)' : '100%',
               backgroundColor: showDateTimeAxis ? '#ffffff' : undefined
@@ -4528,7 +4528,7 @@ export function PinChartDisplay({
 
           </div>
 
-          {/* Parameter Controls - On the right side (hidden for nmax chart view and FPOD files) */}
+{/* Parameter Controls - On the right side (hidden for nmax chart view and FPOD files) */}
           {!(isSubcamNmaxFile && viewMode === 'chart') && fileType !== 'FPOD' && (
           <div className={cn(
             "transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col",
