@@ -365,6 +365,7 @@ const LeafletMap = ({
     const pinLayerRef = useRef<LayerGroup | null>(null);
     const lineLayerRef = useRef<LayerGroup | null>(null);
     const hasInitializedRef = useRef(false);
+    const hasInitialProjectZoomRef = useRef(false); // Track if we've done initial zoom to active project
     const activeLicenseAreaRef = useRef<string | null>(null); // Track active License area for visibility override
 
     // Return early if Leaflet is not available (SSR)
@@ -485,6 +486,62 @@ const LeafletMap = ({
             }
         };
     }, []); // Only run once
+
+    // Initial zoom to fit active project content (runs when page loads/reloads)
+    useEffect(() => {
+        // Only run once per page visit, when map is ready and we have an active project
+        if (hasInitialProjectZoomRef.current || !mapRef.current || !activeProjectId) return;
+
+        // Find the main License area for the active project
+        const projectAreas = areas.filter(a => a.projectId === activeProjectId);
+
+        // Look for a License area first (matches double-click behavior)
+        const licenseArea = projectAreas.find(a =>
+            a.label && a.label.toLowerCase().includes('license') && a.path && a.path.length >= 3
+        );
+
+        // If no License area, use any area with a valid path
+        const targetArea = licenseArea || projectAreas.find(a => a.path && a.path.length >= 3);
+
+        if (!targetArea || !targetArea.path) {
+            return;
+        }
+
+        hasInitialProjectZoomRef.current = true;
+
+        // Set this as the active License area to force visibility of nested items
+        activeLicenseAreaRef.current = targetArea.id;
+
+        // Calculate bounds from area path
+        const lats = targetArea.path.map(p => p.lat);
+        const lngs = targetArea.path.map(p => p.lng);
+        const bounds = L.latLngBounds(
+            L.latLng(Math.min(...lats), Math.min(...lngs)),
+            L.latLng(Math.max(...lats), Math.max(...lngs))
+        );
+
+        // Fit bounds with padding
+        mapRef.current.fitBounds(bounds, {
+            padding: [50, 50],
+            animate: false
+        });
+
+        // Trigger moveend to update visibility
+        mapRef.current.fire('moveend');
+
+        // Clear active License area after a delay
+        setTimeout(() => {
+            activeLicenseAreaRef.current = null;
+            if (mapRef.current) {
+                mapRef.current.fire('moveend');
+            }
+        }, 600);
+
+        // Reset zoom flag when component unmounts (so it zooms again when navigating back)
+        return () => {
+            hasInitialProjectZoomRef.current = false;
+        };
+    }, [activeProjectId, areas]);
 
     // Render pins with click handlers for deletion
     useEffect(() => {

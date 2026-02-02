@@ -2375,85 +2375,54 @@ function MapDrawingPageContent() {
 
   const goToProjectLocation = useCallback((locationKey: string) => {
     const location = dynamicProjects[locationKey];
+
     if (location && mapRef.current) {
-      // Get all objects for this project
-      const projectPins = pins.filter(pin => pin.projectId === locationKey);
-      const projectLines = lines.filter(line => line.projectId === locationKey);
+      // Get areas for this project
       const projectAreas = areas.filter(area => area.projectId === locationKey);
-      const totalObjects = projectPins.length + projectLines.length + projectAreas.length;
-      
-      if (totalObjects > 0) {
-        // Calculate bounds that include all project objects
-        let minLat = Infinity, maxLat = -Infinity;
-        let minLng = Infinity, maxLng = -Infinity;
-        
-        // Process pins
-        projectPins.forEach(pin => {
-          minLat = Math.min(minLat, pin.lat);
-          maxLat = Math.max(maxLat, pin.lat);
-          minLng = Math.min(minLng, pin.lng);
-          maxLng = Math.max(maxLng, pin.lng);
-        });
-        
-        // Process lines
-        projectLines.forEach(line => {
-          if (line.points) {
-            line.points.forEach(point => {
-              minLat = Math.min(minLat, point.lat);
-              maxLat = Math.max(maxLat, point.lat);
-              minLng = Math.min(minLng, point.lng);
-              maxLng = Math.max(maxLng, point.lng);
-            });
-          }
-        });
-        
-        // Process areas
-        projectAreas.forEach(area => {
-          if (area.points) {
-            area.points.forEach(point => {
-              minLat = Math.min(minLat, point.lat);
-              maxLat = Math.max(maxLat, point.lat);
-              minLng = Math.min(minLng, point.lng);
-              maxLng = Math.max(maxLng, point.lng);
-            });
-          }
-        });
-        
-        // Add some padding around the bounds
-        const latPadding = (maxLat - minLat) * 0.1 || 0.01;
-        const lngPadding = (maxLng - minLng) * 0.1 || 0.01;
-        
-        // Fit bounds to show all objects
+
+      // Find the main License area (similar to auto-zoom in LeafletMap)
+      const licenseArea = projectAreas.find(a =>
+        a.label && a.label.toLowerCase().includes('license') && a.path && a.path.length >= 3
+      );
+
+      // If no License area, use any area with a valid path
+      const targetArea = licenseArea || projectAreas.find(a => a.path && a.path.length >= 3);
+
+      if (targetArea && targetArea.path) {
+        // Calculate bounds from area path
+        const lats = targetArea.path.map(p => p.lat);
+        const lngs = targetArea.path.map(p => p.lng);
+
+        // Fit bounds with padding
         mapRef.current.fitBounds([
-          [minLat - latPadding, minLng - lngPadding],
-          [maxLat + latPadding, maxLng + lngPadding]
-        ], { padding: [20, 20] });
-        
+          [Math.min(...lats), Math.min(...lngs)],
+          [Math.max(...lats), Math.max(...lngs)]
+        ], { padding: [50, 50] });
+
         toast({
           title: `Viewing ${location.name}`,
-          description: `Showing all ${totalObjects} project objects`,
+          description: `Showing ${targetArea.label}`,
           duration: 3000
         });
       } else if (location.lat && location.lon) {
-        // Fallback to project location if no objects (only for hardcoded projects with coordinates)
+        // Fallback to project location if no areas
         mapRef.current.setView([location.lat, location.lon], 12);
         toast({
           title: `Navigated to ${location.name}`,
-          description: `No objects found - showing project location`,
+          description: `No License area found - showing project location`,
           duration: 3000
         });
       } else {
-        // For dynamic projects without coordinates, just show a message
         toast({
           title: location.name,
-          description: `This project has no objects or location to display`,
+          description: `This project has no License area to display`,
           duration: 3000
         });
       }
-      
+
       setShowProjectsDialog(false);
     }
-  }, [toast, pins, lines, areas, dynamicProjects]);
+  }, [toast, areas, dynamicProjects]);
 
   // Project management handlers
   const toggleProjectVisibility = useCallback((projectKey: string) => {
