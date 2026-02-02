@@ -99,15 +99,16 @@ body {
     --input: 0 0% 89.8%; /* Light gray input background */
     --ring: 178 48% 32%; /* PEBL Deep Teal for focus rings */
     
-    --chart-1: 220 70% 50%; /* Vibrant Blue #3B82F6 */
-    --chart-2: 16 85% 55%; /* Vibrant Orange #FF6B35 */
-    --chart-3: 142 69% 45%; /* Emerald Green #10B981 */
-    --chart-4: 280 70% 55%; /* Vibrant Purple #A855F7 */
-    --chart-5: 345 75% 55%; /* Rose Pink #F43F5E */
-    --chart-6: 25 95% 53%; /* Amber #F59E0B */
-    --chart-7: 195 100% 50%; /* Cyan #06B6D4 */
-    --chart-8: 120 60% 40%; /* Forest Green #22C55E */
-    --chart-9: 0 84% 60%; /* Red #EF4444 */
+    /* Colorblind-friendly chart colors (Paul Tol palette) */
+    --chart-1: 210 40% 47%; /* Blue #4477AA */
+    --chart-2: 354 78% 67%; /* Red/pink #EE6677 */
+    --chart-3: 132 60% 33%; /* Green #228833 */
+    --chart-4: 53 60% 53%; /* Olive yellow #CCBB44 */
+    --chart-5: 195 77% 67%; /* Cyan #66CCEE */
+    --chart-6: 327 53% 43%; /* Purple #AA3377 */
+    --chart-7: 16 56% 53%; /* Burnt orange #CC6644 */
+    --chart-8: 0 0% 73%; /* Grey #BBBBBB */
+    --chart-9: 207 45% 36%; /* Steel blue #336688 */
 
     --radius: 0.5rem;
 
@@ -151,15 +152,16 @@ body {
     --input: 240 10% 25%; /* Dark input background */
     --ring: 178 61% 44%; /* PEBL Bright Teal for ring in dark mode */
 
-    --chart-1: 220 70% 60%; /* Lighter Vibrant Blue #60A5FA */
-    --chart-2: 16 85% 65%; /* Lighter Orange #FF8A65 */
-    --chart-3: 142 69% 55%; /* Lighter Emerald #34D399 */
-    --chart-4: 280 70% 65%; /* Lighter Purple #C084FC */
-    --chart-5: 345 75% 65%; /* Lighter Rose #FB7185 */
-    --chart-6: 25 95% 63%; /* Lighter Amber #FCD34D */
-    --chart-7: 195 100% 60%; /* Lighter Cyan #22D3EE */
-    --chart-8: 120 60% 50%; /* Lighter Forest Green #4ADE80 */
-    --chart-9: 0 84% 70%; /* Lighter Red #F87171 */
+    /* Colorblind-friendly chart colors - lighter for dark mode */
+    --chart-1: 210 50% 57%; /* Lighter Blue #5588BB */
+    --chart-2: 354 78% 72%; /* Lighter Red/pink #F28899 */
+    --chart-3: 132 50% 45%; /* Lighter Green #44AA55 */
+    --chart-4: 53 70% 63%; /* Lighter Olive yellow #DDCC55 */
+    --chart-5: 195 80% 72%; /* Lighter Cyan #77DDFF */
+    --chart-6: 327 55% 53%; /* Lighter Purple #BB4488 */
+    --chart-7: 16 60% 63%; /* Lighter Burnt orange #DD8866 */
+    --chart-8: 0 0% 80%; /* Lighter Grey #CCCCCC */
+    --chart-9: 207 50% 46%; /* Lighter Steel blue #4477AA */
 
     /* Dark Sidebar variables - derived */
     --sidebar-background: 240 8% 12%;

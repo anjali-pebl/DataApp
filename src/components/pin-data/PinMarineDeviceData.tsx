@@ -2351,7 +2351,7 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
         [subtractedPlot.id]: {
           params: [resultParamName], // Make the difference parameter visible by default
           colors: {
-            [resultParamName]: '#3b82f6' // Default blue color
+            [resultParamName]: '#4477AA' // Colorblind-friendly blue
           },
           settings: {
             [resultParamName]: {

@@ -504,7 +504,7 @@ export function WhiskerPlot({
           {/* Box plots */}
           {parameterData.map((group, index) => {
             const x = spacing * index + spacing / 2;
-            const color = sampleIdColors[group.sampleId] || '#3b82f6';
+            const color = sampleIdColors[group.sampleId] || '#4477AA'; // Colorblind-friendly blue
             // Create unique key from group properties
             const uniqueKey = `${group.date}-${group.sampleId}-${group.bladeId || 'no-blade'}-${index}`;
 

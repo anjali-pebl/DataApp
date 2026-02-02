@@ -270,18 +270,18 @@ export function buildTaxonomicTree(
 }
 
 /**
- * Get display color for taxonomic rank
+ * Get display color for taxonomic rank (Paul Tol colorblind-friendly palette)
  */
 export function getRankColor(rank: TreeNode['rank']): string {
   const colorMap: Record<TreeNode['rank'], string> = {
-    kingdom: '#dc2626', // red-600
-    phylum: '#ea580c', // orange-600
-    class: '#d97706', // amber-600
-    order: '#ca8a04', // yellow-600
-    family: '#65a30d', // lime-600
-    genus: '#16a34a', // green-600
-    species: '#059669', // emerald-600
-    unknown: '#6b7280' // gray-500
+    kingdom: '#882255', // Wine
+    phylum: '#AA3377',  // Purple
+    class: '#EE6677',   // Red/pink
+    order: '#CCBB44',   // Olive yellow
+    family: '#228833',  // Green
+    genus: '#66CCEE',   // Cyan
+    species: '#4477AA', // Blue
+    unknown: '#BBBBBB'  // Grey
   };
 
   return colorMap[rank];

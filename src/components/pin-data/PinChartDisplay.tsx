@@ -114,16 +114,16 @@ const CHART_COLORS = [
   '--chart-6', '--chart-7', '--chart-8', '--chart-9'
 ];
 
-// Palette of 8 contrasting colors for quick picking
+// Colorblind-friendly palette for quick picking (Paul Tol scheme)
 const DEFAULT_COLOR_PALETTE = [
-  '#3b82f6', // Blue
-  '#ef4444', // Red
-  '#10b981', // Green
-  '#f59e0b', // Amber
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#f97316', // Orange
+  '#4477AA', // Blue
+  '#EE6677', // Red/pink
+  '#228833', // Green
+  '#CCBB44', // Olive yellow
+  '#66CCEE', // Cyan
+  '#AA3377', // Purple
+  '#CC6644', // Burnt orange
+  '#BBBBBB', // Grey
 ];
 
 // Common names for GrowProbe parameters (used for tooltips and Y-axis labels)
@@ -472,17 +472,17 @@ const MultiLineYAxisLabel = ({
   );
 };
 
-// Fallback color palette when CSS variables aren't loaded
+// Fallback color palette when CSS variables aren't loaded (Paul Tol colorblind-friendly)
 const FALLBACK_COLORS: Record<string, string> = {
-  '--chart-1': '#3b82f6', // blue
-  '--chart-2': '#10b981', // green
-  '--chart-3': '#f59e0b', // amber
-  '--chart-4': '#ef4444', // red
-  '--chart-5': '#8b5cf6', // purple
-  '--chart-6': '#06b6d4', // cyan
-  '--chart-7': '#ec4899', // pink
-  '--chart-8': '#f97316', // orange
-  '--chart-9': '#14b8a6', // teal
+  '--chart-1': '#4477AA', // Blue
+  '--chart-2': '#EE6677', // Red/pink
+  '--chart-3': '#228833', // Green
+  '--chart-4': '#CCBB44', // Olive yellow
+  '--chart-5': '#66CCEE', // Cyan
+  '--chart-6': '#AA3377', // Purple
+  '--chart-7': '#CC6644', // Burnt orange
+  '--chart-8': '#BBBBBB', // Grey
+  '--chart-9': '#336688', // Steel blue
 };
 
 // Convert HSL CSS variable to hex color
@@ -493,11 +493,11 @@ const cssVarToHex = (cssVar: string): string => {
     .getPropertyValue(cssVar.replace('--', ''))
     .trim();
 
-  if (!hslValue) return FALLBACK_COLORS[cssVar] || '#3b82f6'; // Use fallback palette
+  if (!hslValue) return FALLBACK_COLORS[cssVar] || '#4477AA'; // Use fallback palette (colorblind-friendly)
 
   // Parse HSL string like "220 100% 50%"
   const matches = hslValue.match(/(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%/);
-  if (!matches) return FALLBACK_COLORS[cssVar] || '#3b82f6';
+  if (!matches) return FALLBACK_COLORS[cssVar] || '#4477AA'; // Colorblind-friendly blue
 
   const h = parseFloat(matches[1]) / 360;
   const s = parseFloat(matches[2]) / 100;
@@ -1647,16 +1647,16 @@ export function PinChartDisplay({
       return relationships;
     }
 
-    // Define colors for parent-child pairs
+    // Define colors for parent-child pairs (Paul Tol colorblind-friendly palette)
     const colors = [
-      '#ef4444', // red
-      '#3b82f6', // blue
-      '#10b981', // green
-      '#f59e0b', // amber
-      '#8b5cf6', // violet
-      '#ec4899', // pink
-      '#14b8a6', // teal
-      '#f97316', // orange
+      '#4477AA', // Blue
+      '#EE6677', // Red/pink
+      '#228833', // Green
+      '#CCBB44', // Olive yellow
+      '#66CCEE', // Cyan
+      '#AA3377', // Purple
+      '#CC6644', // Burnt orange
+      '#BBBBBB', // Grey
     ];
 
     let colorIndex = 0;

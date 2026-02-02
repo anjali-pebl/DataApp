@@ -35,10 +35,10 @@ interface ProjectDataPageProps {
   params: Promise<{ projectId: string }>;
 }
 
-// Helper: Color palette for pins
+// Colorblind-friendly palette for pins (Paul Tol scheme)
 const COLORS = [
-  '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+  '#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE',
+  '#AA3377', '#CC6644', '#BBBBBB', '#336688', '#885533',
 ];
 
 // Helper: Get pin prefix for consistent coloring

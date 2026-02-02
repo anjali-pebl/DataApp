@@ -490,13 +490,13 @@ export function HaplotypeHeatmap({
 
   // Get color based on taxonomy confidence
   const getGBIFColor = (metadata: HaplotypeMetadata | null): string => {
-    if (!metadata?.taxonomyConfidence) return '#d1d5db'; // gray
+    if (!metadata?.taxonomyConfidence) return '#BBBBBB'; // grey (colorblind-friendly)
 
     switch (metadata.taxonomyConfidence) {
-      case 'high': return '#10b981'; // green
-      case 'medium': return '#f59e0b'; // amber
-      case 'low': return '#ef4444'; // red
-      default: return '#d1d5db'; // gray
+      case 'high': return '#228833'; // green (Paul Tol)
+      case 'medium': return '#CCBB44'; // olive yellow (Paul Tol)
+      case 'low': return '#EE6677'; // red/pink (Paul Tol)
+      default: return '#BBBBBB'; // grey
     }
   };
 

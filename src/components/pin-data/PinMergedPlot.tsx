@@ -147,18 +147,18 @@ const getColorValue = (colorString: string): string => {
   return `hsl(var(${colorString}))`;
 };
 
-// CSS var to hex converter
+// CSS var to hex converter (Paul Tol colorblind-friendly palette)
 const cssVarToHex = (cssVar: string): string => {
   if (cssVar.startsWith('#')) return cssVar;
-  // Default colors for common chart variables
+  // Default colors for common chart variables (colorblind-friendly)
   const colorMap: Record<string, string> = {
-    '--chart-1': '#3b82f6',
-    '--chart-2': '#10b981',
-    '--chart-3': '#f59e0b',
-    '--chart-4': '#ef4444',
-    '--chart-5': '#8b5cf6',
+    '--chart-1': '#4477AA', // Blue
+    '--chart-2': '#EE6677', // Red/pink
+    '--chart-3': '#228833', // Green
+    '--chart-4': '#CCBB44', // Olive yellow
+    '--chart-5': '#66CCEE', // Cyan
   };
-  return colorMap[cssVar] || '#3b82f6';
+  return colorMap[cssVar] || '#4477AA';
 };
 
 // Helper to extract time range from parsed data

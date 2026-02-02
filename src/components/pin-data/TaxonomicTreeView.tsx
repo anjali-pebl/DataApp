@@ -48,12 +48,12 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
 
   // Get confidence color
   const getConfidenceColor = (confidence?: 'high' | 'medium' | 'low') => {
-    if (!confidence) return '#9ca3af'; // gray-400
+    if (!confidence) return '#BBBBBB'; // grey (colorblind-friendly)
     switch (confidence) {
-      case 'high': return '#10b981'; // green-500
-      case 'medium': return '#f59e0b'; // amber-500
-      case 'low': return '#ef4444'; // red-500
-      default: return '#9ca3af';
+      case 'high': return '#228833'; // green (Paul Tol)
+      case 'medium': return '#CCBB44'; // olive yellow (Paul Tol)
+      case 'low': return '#EE6677'; // red/pink (Paul Tol)
+      default: return '#BBBBBB';
     }
   };
 

@@ -271,7 +271,7 @@ export function RarefactionChart({
               type="monotone"
               dataKey="fittedUpper"
               stroke="none"
-              fill="#10b981"
+              fill="#228833"
               fillOpacity={0.2}
               isAnimationActive={false}
               connectNulls={true}
@@ -283,7 +283,7 @@ export function RarefactionChart({
               type="monotone"
               dataKey="extrapolationUpper"
               stroke="none"
-              fill="#f59e0b"
+              fill="#CCBB44"
               fillOpacity={0.15}
               isAnimationActive={false}
               connectNulls={true}
@@ -295,7 +295,7 @@ export function RarefactionChart({
               name="Log Fit"
               type="monotone"
               dataKey="fitted"
-              stroke="#10b981"
+              stroke="#228833"
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
@@ -306,7 +306,7 @@ export function RarefactionChart({
               name="Extrapolation"
               type="monotone"
               dataKey="extrapolation"
-              stroke="#f59e0b"
+              stroke="#CCBB44"
               strokeWidth={2}
               strokeDasharray="5 5"
               dot={false}
@@ -318,7 +318,7 @@ export function RarefactionChart({
               name="Observed"
               dataKey="y"
               stroke="none"
-              dot={{ fill: '#0ea5e9', r: 4 }}
+              dot={{ fill: '#4477AA', r: 4 }}
               activeDot={{ r: 6 }}
               isAnimationActive={false}
             />
@@ -340,15 +340,15 @@ export function RarefactionChart({
           }}>
             <div style={{ fontWeight: 600, marginBottom: '6px', color: '#374151' }}>Legend</div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-              <div style={{ width: '16px', height: '3px', backgroundColor: '#0ea5e9', marginRight: '6px' }}></div>
+              <div style={{ width: '16px', height: '3px', backgroundColor: '#4477AA', marginRight: '6px' }}></div>
               <span style={{ color: '#374151' }}>Observed</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-              <div style={{ width: '16px', height: '3px', backgroundColor: '#10b981', marginRight: '6px' }}></div>
+              <div style={{ width: '16px', height: '3px', backgroundColor: '#228833', marginRight: '6px' }}></div>
               <span style={{ color: '#374151' }}>Log Fit</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              <div style={{ width: '16px', height: '3px', backgroundColor: '#f59e0b', marginRight: '6px', backgroundImage: 'linear-gradient(to right, #f59e0b 50%, transparent 50%)', backgroundSize: '8px 3px' }}></div>
+              <div style={{ width: '16px', height: '3px', backgroundColor: '#CCBB44', marginRight: '6px', backgroundImage: 'linear-gradient(to right, #CCBB44 50%, transparent 50%)', backgroundSize: '8px 3px' }}></div>
               <span style={{ color: '#374151' }}>Extrapolation</span>
             </div>
           </div>

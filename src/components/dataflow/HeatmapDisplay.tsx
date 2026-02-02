@@ -144,24 +144,24 @@ const HeatmapDisplayComponent = ({
     return rank ? (abbrevMap[rank] ?? '?') : '?';
   };
 
-// Get color for taxonomic rank (matching tree view colors)
+// Get color for taxonomic rank (colorblind-friendly Paul Tol palette)
   const getRankColor = (rank: string | null): string => {
     const rankColors: Record<string, string> = {
-      'kingdom': '#dc2626',    // Kingdom - red-600
-      'phylum': '#8B5CF6',     // Phylum - purple (full name)
-      'phyl': '#8B5CF6',       // Phylum - purple (abbreviated)
-      'infraclass': '#A78BFA', // Infraclass - lighter purple
-      'class': '#EF4444',      // Class - red
-      'order': '#F59E0B',      // Order - amber/orange (full name)
-      'ord': '#F59E0B',        // Order - amber/orange (abbreviated)
-      'family': '#84CC16',     // Family - lime green (full name)
-      'fam': '#84CC16',        // Family - lime green (abbreviated)
-      'genus': '#10B981',      // Genus - emerald green (full name)
-      'gen': '#10B981',        // Genus - emerald green (abbreviated)
-      'species': '#14B8A6',    // Species - teal (full name)
-      'sp': '#14B8A6'          // Species - teal (abbreviated)
+      'kingdom': '#882255',    // Kingdom - wine
+      'phylum': '#AA3377',     // Phylum - purple (full name)
+      'phyl': '#AA3377',       // Phylum - purple (abbreviated)
+      'infraclass': '#CC6677', // Infraclass - rose
+      'class': '#EE6677',      // Class - red/pink
+      'order': '#CCBB44',      // Order - olive yellow (full name)
+      'ord': '#CCBB44',        // Order - olive yellow (abbreviated)
+      'family': '#228833',     // Family - green (full name)
+      'fam': '#228833',        // Family - green (abbreviated)
+      'genus': '#66CCEE',      // Genus - cyan (full name)
+      'gen': '#66CCEE',        // Genus - cyan (abbreviated)
+      'species': '#4477AA',    // Species - blue (full name)
+      'sp': '#4477AA'          // Species - blue (abbreviated)
     };
-    return rank ? (rankColors[rank] ?? '#94A3B8') : '#94A3B8';
+    return rank ? (rankColors[rank] ?? '#BBBBBB') : '#BBBBBB';
   };
 
   // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua", "Animalia (kingdom)" → "Animalia")
@@ -427,43 +427,43 @@ const HeatmapDisplayComponent = ({
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-gray-700">Taxonomic Ranks:</span>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#dc2626' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
                 <span className="text-gray-600">Kingdom</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#8B5CF6' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
                 <span className="text-gray-600">Phylum</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#A78BFA' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CC6677' }}></div>
                 <span className="text-gray-600">Infraclass</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EF4444' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
                 <span className="text-gray-600">Class</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#F59E0B' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
                 <span className="text-gray-600">Order</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#84CC16' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
                 <span className="text-gray-600">Family</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10B981' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
                 <span className="text-gray-600">Genus</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#14B8A6' }}></div>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
                 <span className="text-gray-600">Species</span>
               </div>
               <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
-                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#3b82f6" opacity="0.9" />
+                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
-                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#3b82f6" opacity="0.9" />
+                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
                 <span className="text-gray-600">Parent-Child</span>
               </div>

@@ -82,17 +82,18 @@ interface MergedGroup {
   color: string;
 }
 
+// Colorblind-friendly palette (Paul Tol scheme)
 const COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#84cc16', // lime
-  '#f97316', // orange
-  '#6366f1', // indigo
+  '#4477AA', // Blue
+  '#EE6677', // Red/pink
+  '#228833', // Green
+  '#CCBB44', // Olive yellow
+  '#66CCEE', // Cyan
+  '#AA3377', // Purple
+  '#CC6644', // Burnt orange
+  '#BBBBBB', // Grey
+  '#336688', // Steel blue
+  '#885533', // Brown
 ];
 
 // Shimmer loading component

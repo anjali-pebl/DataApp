@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight, BookOpen } from "lucide-react";
+import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { MethodologyModal } from "@/components/methodology";
 
 // Common names for chemical parameters (used for tooltips)
@@ -135,18 +135,18 @@ interface PinChartDisplaySpotSampleProps {
   tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
-// Default color palette for sample IDs
+// Colorblind-friendly color palette for sample IDs (Paul Tol palette)
 const DEFAULT_COLOR_PALETTE = [
-  '#3b82f6', // Blue
-  '#ef4444', // Red
-  '#10b981', // Green
-  '#f59e0b', // Amber
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#f97316', // Orange
-  '#14b8a6', // Teal
-  '#f43f5e', // Rose
+  '#4477AA', // Blue
+  '#EE6677', // Red/pink
+  '#228833', // Green
+  '#CCBB44', // Olive yellow
+  '#66CCEE', // Cyan
+  '#AA3377', // Purple
+  '#BBBBBB', // Grey
+  '#CC6644', // Burnt orange
+  '#336688', // Steel blue
+  '#882255', // Wine
 ];
 
 /**
@@ -203,7 +203,7 @@ export function PinChartDisplaySpotSample({
   // Column chart color mode: 'unique' = different color per sample, 'single' = same color for all
   // Initialize with defaults, will be updated by useEffect when spotSampleStyles is available
   const [columnColorMode, setColumnColorMode] = useState<'unique' | 'single'>('unique');
-  const [singleColumnColor, setSingleColumnColor] = useState('#3b82f6');
+  const [singleColumnColor, setSingleColumnColor] = useState('#4477AA'); // Colorblind-friendly blue
 
   // Parameter visibility state - default to showing first 2 parameters
   const [visibleParameters, setVisibleParameters] = useState<Set<string>>(() => new Set());
@@ -1381,7 +1381,7 @@ export function PinChartDisplaySpotSample({
     <div className="flex gap-3">
       {/* Main chart area */}
       <div className="flex-1 space-y-3">
-        {/* File header - location, time period, categories, filename, and Methodology button */}
+        {/* File header - location, time period, categories, filename */}
         <div className="flex items-stretch gap-4 mb-2">
           {/* Left side: Header info and filename stacked */}
           <div className="flex flex-col gap-0.5 flex-1">
@@ -1915,16 +1915,6 @@ export function PinChartDisplaySpotSample({
       {/* Parameter Selector Panel - Collapsible */}
       <div className={`shrink-0 transition-all duration-300 ${isParametersSidebarCollapsed ? 'w-8' : 'w-48'}`}>
         <div className="sticky top-4 space-y-2">
-          {/* Methodology Button */}
-          {projectId && tileName && !isParametersSidebarCollapsed && (
-            <Button
-              className="w-full px-4 text-sm rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800"
-              onClick={() => setShowMethodologyModal(true)}
-            >
-              <BookOpen className="h-4 w-4 mr-2" />
-              METHODOLOGY
-            </Button>
-          )}
           {isParametersSidebarCollapsed ? (
             /* Collapsed State - Narrow strip with expand button */
             <div className="border rounded-lg bg-background h-[400px] flex flex-col items-center py-3">

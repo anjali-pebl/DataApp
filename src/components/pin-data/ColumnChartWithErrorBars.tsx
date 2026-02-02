@@ -60,7 +60,7 @@ export function ColumnChartWithErrorBars({
   showXAxisLabels = true,
   spotSampleStyles,
   columnColorMode = 'single',
-  singleColumnColor = '#3b82f6',
+  singleColumnColor = '#4477AA', // Colorblind-friendly blue
   yAxisRange,
   showDateSeparators = false
 }: ColumnChartWithErrorBarsProps) {
@@ -519,7 +519,7 @@ export function ColumnChartWithErrorBars({
             // Use single color mode if selected, otherwise use unique colors per sample
             const color = columnColorMode === 'single'
               ? singleColumnColor
-              : (sampleIdColors[entry.sampleId] || '#3b82f6');
+              : (sampleIdColors[entry.sampleId] || '#4477AA'); // Colorblind-friendly blue
             return (
               <Cell
                 key={`cell-${entry.xAxisLabel}-${index}`}

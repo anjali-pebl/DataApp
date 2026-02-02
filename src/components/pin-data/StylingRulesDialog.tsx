@@ -54,7 +54,7 @@ export interface StyleProperties {
     barCategoryGap?: number; // Gap between different categories (default: 10, as % of category size)
     columnBorderWidth?: number; // Border thickness for column bars (default: 0, range: 0-5)
     columnColorMode?: 'unique' | 'single'; // Color mode: 'unique' = different color per sample, 'single' = same color for all (default: 'single')
-    singleColumnColor?: string; // Hex color for single color mode (default: '#3b82f6')
+    singleColumnColor?: string; // Hex color for single color mode (default: '#4477AA')
     sampleColors?: Record<string, string>; // Custom colors for each sample ID when in 'unique' mode (e.g., { "Sample-A": "#ff0000", "Sample-B": "#00ff00" })
 
     // Whisker Plot specific
@@ -252,7 +252,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barCategoryGap: 10, // Gap between different categories (% of category size)
         columnBorderWidth: 0, // Border thickness for column bars
         columnColorMode: 'unique', // Default to unique color per sample
-        singleColumnColor: '#3b82f6', // Default blue color
+        singleColumnColor: '#4477AA', // Default blue color
 
         // Whisker Plot specific
         whiskerBoxWidth: 40, // Overall width of whisker box (in pixels)
@@ -328,7 +328,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barCategoryGap: 10, // Gap between different categories (% of category size)
         columnBorderWidth: 0, // Border thickness for column bars
         columnColorMode: 'unique', // Default to unique color per sample
-        singleColumnColor: '#3b82f6', // Default blue color
+        singleColumnColor: '#4477AA', // Default blue color
 
         // Whisker Plot specific
         whiskerBoxWidth: 40, // Overall width of whisker box (in pixels)
@@ -426,7 +426,7 @@ export const DEFAULT_STYLE_RULES: StyleRule[] = [
         barCategoryGap: 10,
         columnBorderWidth: 0,
         columnColorMode: 'unique', // Default to unique color per sample
-        singleColumnColor: '#3b82f6', // Default blue color
+        singleColumnColor: '#4477AA', // Default blue color
 
         // Chart margins
         chartMarginTop: 20,
@@ -980,7 +980,7 @@ export function StylingRulesDialog({
                                   type="text"
                                   value={singleColumnColor}
                                   onChange={(e) => onSingleColumnColorChange?.(e.target.value)}
-                                  placeholder="#3b82f6"
+                                  placeholder="#4477AA"
                                   className="h-8 text-xs font-mono"
                                 />
                               </div>
@@ -1008,9 +1008,9 @@ export function StylingRulesDialog({
                                     >
                                       <div
                                         className="w-4 h-4 rounded border"
-                                        style={{ backgroundColor: sampleIdColors[sampleId] || '#3b82f6' }}
+                                        style={{ backgroundColor: sampleIdColors[sampleId] || '#4477AA' }}
                                       />
-                                      <span className="text-xs">{sampleIdColors[sampleId] || '#3b82f6'}</span>
+                                      <span className="text-xs">{sampleIdColors[sampleId] || '#4477AA'}</span>
                                     </Button>
                                   </PopoverTrigger>
                                   <PopoverContent className="w-64 p-3">
@@ -1018,15 +1018,15 @@ export function StylingRulesDialog({
                                       <Label className="text-xs font-semibold">Color for {sampleId}</Label>
                                       <input
                                         type="color"
-                                        value={sampleIdColors[sampleId] || '#3b82f6'}
+                                        value={sampleIdColors[sampleId] || '#4477AA'}
                                         onChange={(e) => onSampleColorChange?.(sampleId, e.target.value)}
                                         className="w-full h-10 rounded cursor-pointer"
                                       />
                                       <Input
                                         type="text"
-                                        value={sampleIdColors[sampleId] || '#3b82f6'}
+                                        value={sampleIdColors[sampleId] || '#4477AA'}
                                         onChange={(e) => onSampleColorChange?.(sampleId, e.target.value)}
-                                        placeholder="#3b82f6"
+                                        placeholder="#4477AA"
                                         className="h-8 text-xs font-mono"
                                       />
                                     </div>
