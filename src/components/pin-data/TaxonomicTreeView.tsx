@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronDown, Edit, Info } from 'lucide-react';
+import { ChevronRight, ChevronDown, Edit, Info, Globe } from 'lucide-react';
 import type { TreeNode } from '@/lib/taxonomic-tree-builder';
 import { getRankColor, getRankIndentation } from '@/lib/taxonomic-tree-builder';
 import { cn } from '@/lib/utils';
@@ -18,7 +18,7 @@ interface TaxonomicTreeViewProps {
 interface TreeNodeComponentProps {
   node: TreeNode;
   level: number;
-  onSpeciesClick?: (speciesName: string) => void;
+  onSpeciesClick?: (speciesName: string, taxonId?: string, source?: 'worms' | 'gbif' | 'unknown') => void;
   highlightedTaxon?: string | null;
 }
 
@@ -117,7 +117,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
           onClick={(e) => {
             if (isCSVEntry && onSpeciesClick) {
               e.stopPropagation(); // Prevent tree expand/collapse
-              onSpeciesClick(node.originalName || node.name);
+              onSpeciesClick(node.originalName || node.name, node.taxonId, node.source);
             }
           }}
           title={isCSVEntry ? `Click to edit "${node.originalName || node.name}" in raw CSV viewer` : undefined}
@@ -129,13 +129,6 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
         {hasChildren && !isCSVEntry && (
           <span className="text-[8px] bg-blue-100 text-blue-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
             {node.speciesCount} {node.speciesCount === 1 ? 'sp.' : 'spp.'}
-          </span>
-        )}
-
-        {/* Haplotype Count for CSV Entries - show for all CSV entries with data */}
-        {isCSVEntry && node.siteOccurrences && (
-          <span className="text-[8px] bg-purple-100 text-purple-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
-            {totalHaplotypes} hapl.
           </span>
         )}
 
@@ -178,6 +171,8 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
+  const [selectedTaxonId, setSelectedTaxonId] = useState<string | null>(null);
+  const [selectedSource, setSelectedSource] = useState<'worms' | 'gbif' | 'unknown' | null>(null);
 
   // Scroll to highlighted taxon when it changes
   useEffect(() => {
@@ -192,10 +187,21 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
   }, [highlightedTaxon]);
 
   // Handle species click - show action options
-  const handleSpeciesClick = (speciesName: string) => {
-    console.log('[TAXONOMIC TREE] Species clicked:', speciesName);
+  const handleSpeciesClick = (speciesName: string, taxonId?: string, source?: 'worms' | 'gbif' | 'unknown') => {
+    console.log('[TAXONOMIC TREE] Species clicked:', speciesName, 'taxonId:', taxonId, 'source:', source);
     setSelectedSpecies(speciesName);
+    setSelectedTaxonId(taxonId || null);
+    setSelectedSource(source || null);
     setShowActionDialog(true);
+  };
+
+  // Clean species name by removing parenthetical taxonomic indicators
+  // e.g., "Sparus aurata (sp.)" -> "Sparus aurata"
+  const cleanSpeciesName = (name: string): string => {
+    return name
+      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|infraclass)\.\)\s*$/i, '')
+      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|infraclass)\)\s*$/i, '')
+      .trim();
   };
 
   // Handle Edit in CSV action
@@ -207,15 +213,40 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
     }
     setShowActionDialog(false);
     setSelectedSpecies(null);
+    setSelectedTaxonId(null);
+    setSelectedSource(null);
   };
 
-  // Handle Fetch Info action - open Google search in new tab
+  // Handle Google Search action - open Google search in new tab
   const handleFetchInfo = () => {
     if (!selectedSpecies) return;
-    const query = encodeURIComponent(selectedSpecies);
+    const cleanedName = cleanSpeciesName(selectedSpecies);
+    const query = encodeURIComponent(cleanedName);
     window.open(`https://www.google.com/search?q=${query}`, '_blank');
     setShowActionDialog(false);
     setSelectedSpecies(null);
+    setSelectedTaxonId(null);
+    setSelectedSource(null);
+  };
+
+  // Handle GBIF Search action - open GBIF species page directly if taxonId exists, otherwise search
+  const handleGBIFSearch = () => {
+    if (!selectedSpecies) return;
+
+    // If we have a GBIF taxonId, link directly to the species page
+    if (selectedTaxonId && selectedSource === 'gbif') {
+      window.open(`https://www.gbif.org/species/${selectedTaxonId}`, '_blank');
+    } else {
+      // Fall back to search if no taxonId or source is WoRMS/unknown
+      const cleanedName = cleanSpeciesName(selectedSpecies);
+      const query = encodeURIComponent(cleanedName);
+      window.open(`https://www.gbif.org/species/search?q=${query}`, '_blank');
+    }
+
+    setShowActionDialog(false);
+    setSelectedSpecies(null);
+    setSelectedTaxonId(null);
+    setSelectedSource(null);
   };
 
   return (
@@ -264,13 +295,26 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               </div>
             </Button>
             <Button
+              onClick={handleGBIFSearch}
+              className="w-full justify-start gap-2"
+              variant="outline"
+            >
+              <Globe className="w-4 h-4" />
+              <div className="flex flex-col items-start">
+                <span className="font-semibold">
+                  {selectedTaxonId && selectedSource === 'gbif' ? 'View on GBIF' : 'Search GBIF'}
+                </span>
+                <span className="text-xs text-gray-500">View georeferenced sightings records for this taxon</span>
+              </div>
+            </Button>
+            <Button
               onClick={handleFetchInfo}
               className="w-full justify-start gap-2"
               variant="outline"
             >
               <Info className="w-4 h-4" />
               <div className="flex flex-col items-start">
-                <span className="font-semibold">Search Online</span>
+                <span className="font-semibold">Search Google</span>
                 <span className="text-xs text-gray-500">Open a Google search for this taxon</span>
               </div>
             </Button>
@@ -281,6 +325,8 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               onClick={() => {
                 setShowActionDialog(false);
                 setSelectedSpecies(null);
+                setSelectedTaxonId(null);
+                setSelectedSource(null);
               }}
             >
               Cancel

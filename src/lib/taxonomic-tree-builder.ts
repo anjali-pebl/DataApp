@@ -17,6 +17,7 @@ export interface TreeNode {
   csvEntry: boolean; // True if this entry exists directly in the CSV file
   confidence?: 'high' | 'medium' | 'low'; // Taxonomy confidence for species nodes
   source?: 'worms' | 'gbif' | 'unknown'; // Taxonomy source for species nodes
+  taxonId?: string; // AphiaID (WoRMS) or usageKey (GBIF) for direct linking
 }
 
 interface TaxonomicHierarchy {
@@ -51,6 +52,7 @@ export function buildTaxonomicTree(
     sites: Map<string, number>;
     confidence?: 'high' | 'medium' | 'low';
     source?: 'worms' | 'gbif' | 'unknown';
+    taxonId?: string;
   }>();
 
   data.forEach(cell => {
@@ -59,7 +61,8 @@ export function buildTaxonomicTree(
         hierarchy: cell.metadata?.fullHierarchy || {},
         sites: new Map(),
         confidence: cell.metadata?.taxonomyConfidence,
-        source: cell.metadata?.taxonomySource as 'worms' | 'gbif' | 'unknown' | undefined
+        source: cell.metadata?.taxonomySource as 'worms' | 'gbif' | 'unknown' | undefined,
+        taxonId: cell.metadata?.taxonId
       });
     }
 
@@ -69,7 +72,7 @@ export function buildTaxonomicTree(
 
   // Build tree for each species
   speciesMap.forEach((speciesData, speciesName) => {
-    const { hierarchy, sites, confidence, source } = speciesData;
+    const { hierarchy, sites, confidence, source, taxonId } = speciesData;
 
     // Define taxonomic path from root to species
     const path: Array<{ name: string; rank: TreeNode['rank']; originalName?: string }> = [];
@@ -214,7 +217,7 @@ export function buildTaxonomicTree(
           isLeaf: isLeafNode,
           csvEntry: isLeafNode, // Mark as CSV entry if it's the leaf
           ...(originalName && { originalName }),
-          ...(isLeafNode && { siteOccurrences: sites, confidence, source })
+          ...(isLeafNode && { siteOccurrences: sites, confidence, source, taxonId })
         };
         currentNode.children.push(childNode);
       } else {
@@ -226,6 +229,7 @@ export function buildTaxonomicTree(
           childNode.siteOccurrences = sites;
           childNode.confidence = confidence;
           childNode.source = source;
+          childNode.taxonId = taxonId;
           if (originalName) {
             childNode.originalName = originalName;
           }
