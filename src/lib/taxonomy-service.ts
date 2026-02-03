@@ -117,7 +117,7 @@ async function getTaxonomyFromDB(speciesName: string): Promise<TaxonomyResult | 
       return null;
     }
 
-    console.log(`🗄️ Database hit for: ${speciesName}`);
+    console.log(`🗄️ Database hit for: ${speciesName} (cached source: ${data.taxonomy_source?.toUpperCase()})`);
 
     return {
       source: data.taxonomy_source as 'worms' | 'gbif' | 'unknown',
@@ -229,6 +229,23 @@ function normalizeSpeciesName(name: string): string {
   return name.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+/**
+ * Clean species name for API lookups by removing rank indicators
+ * e.g., "Gadus morhua (sp.)" -> "Gadus morhua"
+ * e.g., "Actinopterygii (class)" -> "Actinopterygii"
+ * e.g., "Gadus sp." -> "Gadus" (genus-level eDNA identification)
+ * e.g., "Scombridae spp." -> "Scombridae"
+ * e.g., "Species name (sp.)." -> "Species name" (handles double period from SubCam)
+ */
+function cleanSpeciesNameForLookup(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')                    // Normalize whitespace
+    .replace(/\s*\(.*?\)\.?\s*$/g, '')       // Remove trailing parenthetical content like (sp.), (sp.)., (class)
+    .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '')  // Remove trailing rank abbreviations (with or without dot)
+    .trim();
+}
+
 function chunkArray<T>(array: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < array.length; i += size) {
@@ -257,14 +274,24 @@ async function fetchWithTimeout(url: string, timeoutMs: number = REQUEST_TIMEOUT
 
 async function fetchFromWoRMS(speciesName: string): Promise<TaxonomyResult | null> {
   try {
+    // Clean species name by removing parenthetical rank indicators (sp.), (gen.), etc.
+    const cleanedName = cleanSpeciesNameForLookup(speciesName);
+
     // Search for species by name
-    const searchUrl = `${WORMS_BASE_URL}/AphiaRecordsByName/${encodeURIComponent(speciesName)}?marine_only=false`;
+    const searchUrl = `${WORMS_BASE_URL}/AphiaRecordsByName/${encodeURIComponent(cleanedName)}?marine_only=false`;
+    console.log(`🔍 WoRMS lookup: "${speciesName}" → "${cleanedName}"`);
     const response = await fetchWithTimeout(searchUrl);
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.log(`⚠️ WoRMS returned ${response.status} for: ${speciesName}`);
+      return null;
+    }
 
     const records: WoRMSRecord[] = await response.json();
-    if (!records || records.length === 0) return null;
+    if (!records || records.length === 0) {
+      console.log(`❌ WoRMS: No records found for: ${speciesName}`);
+      return null;
+    }
 
     // Find accepted name (prefer accepted over unaccepted)
     const acceptedRecord = records.find(r => r.status === 'accepted') || records[0];
@@ -301,7 +328,10 @@ async function fetchFromWoRMS(speciesName: string): Promise<TaxonomyResult | nul
     return result;
 
   } catch (error) {
-    // WoRMS failure is expected for some species - GBIF will be tried next
+    // WoRMS failure - log the error type for debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isTimeout = errorMessage.includes('abort') || errorMessage.includes('timeout');
+    console.log(`⚠️ WoRMS ${isTimeout ? 'TIMEOUT' : 'ERROR'} for ${speciesName}: ${errorMessage}`);
     return null;
   }
 }
@@ -413,14 +443,44 @@ async function getWoRMSClassification(aphiaId: number): Promise<TaxonomicHierarc
 
 async function fetchFromGBIF(speciesName: string): Promise<TaxonomyResult | null> {
   try {
+    // Clean species name by removing parenthetical rank indicators (sp.), (gen.), etc.
+    const cleanedName = cleanSpeciesNameForLookup(speciesName);
+
     // Use GBIF species match endpoint
-    const searchUrl = `${GBIF_BASE_URL}/species/match?name=${encodeURIComponent(speciesName)}&verbose=true`;
+    const searchUrl = `${GBIF_BASE_URL}/species/match?name=${encodeURIComponent(cleanedName)}&verbose=true`;
     const response = await fetchWithTimeout(searchUrl);
 
     if (!response.ok) return null;
 
     const match: GBIFMatch = await response.json();
     if (!match.usageKey) return null;
+
+    // Reject HIGHERRANK matches - these return the wrong taxonId (e.g., kingdom instead of genus)
+    // This happens when GBIF can't find an exact match and returns a higher taxonomic level
+    if (match.matchType === 'HIGHERRANK') {
+      console.log(`⚠️ ${cleanedName} - GBIF returned HIGHERRANK match (${match.rank}), skipping taxonId`);
+      // Still return the result for hierarchy info, but without a valid taxonId
+      const hierarchy: TaxonomicHierarchy = {
+        kingdom: match.kingdom,
+        phylum: match.phylum,
+        class: match.class,
+        order: match.order,
+        family: match.family,
+        genus: match.genus,
+        species: match.species
+      };
+
+      return {
+        source: 'gbif',
+        scientificName: cleanedName, // Use the original name, not the higher rank match
+        rank: 'unknown', // Don't trust the rank from a HIGHERRANK match
+        taxonId: '', // Empty taxonId - will trigger search instead of direct link
+        commonNames: [],
+        hierarchy,
+        confidence: 'low',
+        matchType: 'fuzzy'
+      };
+    }
 
     // Build hierarchy from match response
     const hierarchy: TaxonomicHierarchy = {
@@ -473,9 +533,17 @@ async function fetchFromGBIF(speciesName: string): Promise<TaxonomyResult | null
 
 /**
  * Look up taxonomic information for a single species
- * Priority: Database → localStorage → WoRMS API → GBIF API
+ * Priority: Database → localStorage → GBIF API → WoRMS API (optional fallback)
+ *
+ * @param speciesName - The species name to look up
+ * @param useWormsFallback - Whether to try WoRMS if GBIF fails (default: true)
+ *                           Set to false for eDNA lookups since WoRMS doesn't provide
+ *                           georeferenced sightings data
  */
-export async function lookupSpeciesTaxonomy(speciesName: string): Promise<TaxonomyResult | null> {
+export async function lookupSpeciesTaxonomy(
+  speciesName: string,
+  useWormsFallback: boolean = true
+): Promise<TaxonomyResult | null> {
   if (!speciesName || speciesName.trim() === '') {
     return null;
   }
@@ -494,12 +562,13 @@ export async function lookupSpeciesTaxonomy(speciesName: string): Promise<Taxono
     return cached;
   }
 
-  // 3. Try WoRMS API first (authoritative for marine species)
-  let result = await fetchFromWoRMS(speciesName);
+  // 3. Try GBIF API first (comprehensive database that includes WoRMS data)
+  let result = await fetchFromGBIF(speciesName);
 
-  // 4. Fallback to GBIF API if WoRMS fails
-  if (!result) {
-    result = await fetchFromGBIF(speciesName);
+  // 4. Fallback to WoRMS API if GBIF fails and fallback is enabled
+  // Note: WoRMS fallback is disabled for eDNA since it doesn't provide georeferenced sightings
+  if (!result && useWormsFallback) {
+    result = await fetchFromWoRMS(speciesName);
   }
 
   // Save result to both database and localStorage
@@ -514,11 +583,18 @@ export async function lookupSpeciesTaxonomy(speciesName: string): Promise<Taxono
 /**
  * Look up taxonomy for multiple species with concurrency control
  * Returns a Map of species name -> TaxonomyResult
+ *
+ * @param speciesNames - Array of species names to look up
+ * @param maxConcurrent - Maximum concurrent API requests (default: 5)
+ * @param onProgress - Optional progress callback
+ * @param useWormsFallback - Whether to try WoRMS if GBIF fails (default: true)
+ *                           Set to false for eDNA lookups
  */
 export async function lookupSpeciesBatch(
   speciesNames: string[],
   maxConcurrent: number = MAX_CONCURRENT_REQUESTS,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  useWormsFallback: boolean = true
 ): Promise<Map<string, TaxonomyResult>> {
   const results = new Map<string, TaxonomyResult>();
 
@@ -551,7 +627,7 @@ export async function lookupSpeciesBatch(
 
     const promises = chunk.map(async (species) => {
       try {
-        const result = await lookupSpeciesTaxonomy(species);
+        const result = await lookupSpeciesTaxonomy(species, useWormsFallback);
         if (result) {
           results.set(species, result);
         }

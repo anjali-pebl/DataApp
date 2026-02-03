@@ -67,6 +67,20 @@ function getRankAbbreviation(rank: string): string {
   return abbrevMap[rank.toLowerCase()] || '?';
 }
 
+/**
+ * Clean species name by removing trailing rank annotations
+ * Matches the same logic used in taxonomic-tree-builder.ts
+ * e.g., "Gadus sp." → "Gadus", "Actinopterygii (class)" → "Actinopterygii"
+ * Also handles double periods like "(sp.)." from SubCam data
+ */
+function cleanSpeciesName(name: string): string {
+  return name
+    .replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?\s*$/i, '')  // (sp.). or (sp.)
+    .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\.?\s*$/i, '')  // (species). or (species)
+    .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '')  // trailing sp. or sp
+    .trim();
+}
+
 export function HaplotypeHeatmap({
   haplotypeData,
   containerHeight,
@@ -154,14 +168,15 @@ export function HaplotypeHeatmap({
         return;
       }
 
-      console.log('🔬 No taxonomy data found, fetching from GBIF/WoRMS APIs...');
+      console.log('🔬 No taxonomy data found, fetching from GBIF API...');
       setIsFetchingTaxonomy(true);
 
       try {
         const taxonomyMap = await lookupSpeciesBatch(
           enrichedData.species,
           15, // maxConcurrent - increased from 5 for faster parallel processing
-          (current, total) => setTaxonomyFetchProgress({ current, total })
+          (current, total) => setTaxonomyFetchProgress({ current, total }),
+          false // useWormsFallback - disabled for eDNA (GBIF provides georeferenced sightings)
         );
 
         // Create enriched data with taxonomy information
@@ -275,8 +290,8 @@ export function HaplotypeHeatmap({
       credibilityFilter(cell.metadata.credibility)
     );
 
-    // Get unique filtered species
-    const filteredSpeciesSet = new Set(filtered.map(c => c.species));
+    // Get unique filtered species (using cleaned names for matching with tree nodes)
+    const filteredSpeciesSet = new Set(filtered.map(c => cleanSpeciesName(c.species)));
 
     // Filter out empty rows if hideEmptyRows is enabled
     let finalFilteredSet = filteredSpeciesSet;
@@ -284,7 +299,8 @@ export function HaplotypeHeatmap({
       finalFilteredSet = new Set(
         Array.from(filteredSpeciesSet).filter(speciesName => {
           // Check if this species has at least one non-zero value across all sites
-          const speciesCells = filtered.filter(c => c.species === speciesName);
+          // Match using cleaned names
+          const speciesCells = filtered.filter(c => cleanSpeciesName(c.species) === speciesName);
           return speciesCells.some(c => c.count > 0);
         })
       );
@@ -342,6 +358,86 @@ export function HaplotypeHeatmap({
     return 200; // Default for alphabetical mode
   }, [sortMode, filteredTaxa]);
 
+  // Calculate parent-child relationships between visible taxa
+  // Only shows relationships when BOTH parent and child have data (are visible)
+  // Each parent gets one color, all its children adopt that same color
+  // Taxa that are both children AND parents get two triangles (one for each role)
+  const parentChildRelationships = useMemo(() => {
+    if (sortMode !== 'hierarchical' || filteredTaxa.length === 0) {
+      return new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
+    }
+
+    const relationships = new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
+    const visibleNames = new Set(filteredTaxa.map(t => t.name));
+
+    // Color palette for parents (Paul Tol colorblind-friendly)
+    const colors = [
+      '#4477AA', // Blue
+      '#EE6677', // Red/pink
+      '#228833', // Green
+      '#CCBB44', // Olive yellow
+      '#66CCEE', // Cyan
+      '#AA3377', // Purple
+      '#CC6644', // Burnt orange
+      '#BBBBBB', // Grey
+    ];
+    let colorIndex = 0;
+
+    // First pass: identify all parents and their children
+    const parentChildMap = new Map<string, string[]>(); // parent name -> child names
+
+    filteredTaxa.forEach((taxon, index) => {
+      const children: string[] = [];
+
+      for (let i = index + 1; i < filteredTaxa.length; i++) {
+        const potentialChild = filteredTaxa[i];
+
+        if (potentialChild.indentLevel <= taxon.indentLevel) {
+          break;
+        }
+
+        const isDirectChild = (
+          potentialChild.indentLevel === taxon.indentLevel + 1 &&
+          potentialChild.path.includes(taxon.name) &&
+          visibleNames.has(potentialChild.name)
+        );
+
+        if (isDirectChild) {
+          children.push(potentialChild.name);
+        }
+      }
+
+      if (children.length > 0) {
+        parentChildMap.set(taxon.name, children);
+      }
+    });
+
+    // Second pass: assign colors and check if children are also parents (dual)
+    filteredTaxa.forEach((taxon) => {
+      const children = parentChildMap.get(taxon.name);
+
+      if (children && children.length > 0) {
+        const parentColor = colors[colorIndex % colors.length];
+        colorIndex++;
+
+        // Check if any child is also a parent (will have dual arrows)
+        const childIsDual = children.some(childName => parentChildMap.has(childName));
+
+        // Mark as parent - preserve any existing child role
+        const existing = relationships.get(taxon.name) || {};
+        relationships.set(taxon.name, { ...existing, asParent: { color: parentColor, childIsDual } });
+
+        // Mark all children with parent's color
+        children.forEach(childName => {
+          const existingChild = relationships.get(childName) || {};
+          relationships.set(childName, { ...existingChild, asChild: { color: parentColor } });
+        });
+      }
+    });
+
+    return relationships;
+  }, [sortMode, filteredTaxa]);
+
   const leftMargin = useMemo(() => {
     let margin = SPECIES_NAME_WIDTH + 20;
     if (showRedListColumn) margin += RED_LIST_COLUMN_WIDTH;
@@ -363,7 +459,8 @@ export function HaplotypeHeatmap({
   const cellMap = useMemo(() => {
     const map = new Map<string, ProcessedCell>();
     filteredCells.forEach(cell => {
-      const key = `${cell.species}__${cell.site}`;
+      // Use cleaned species name as key to match tree node names
+      const key = `${cleanSpeciesName(cell.species)}__${cell.site}`;
       map.set(key, {
         ...cell,
         displayValue: cell.count > 0 ? cell.count.toString() : '0'
@@ -407,10 +504,6 @@ export function HaplotypeHeatmap({
               <Checkbox id="showRedList-empty" checked={showRedListColumn} onCheckedChange={setShowRedListColumn} />
               <Label htmlFor="showRedList-empty" className="text-sm cursor-pointer">Show RedList Status</Label>
             </div>
-            <div className="flex items-center gap-2 pl-6 border-l">
-              <Checkbox id="showGBIF-empty" checked={showGBIFColumn} onCheckedChange={setShowGBIFColumn} />
-              <Label htmlFor="showGBIF-empty" className="text-sm cursor-pointer">Show Taxonomy</Label>
-            </div>
           </div>
         </div>
 
@@ -452,8 +545,9 @@ export function HaplotypeHeatmap({
     .paddingOuter(0.05);
 
   // Get Red List Status for a species from the first available cell
+  // Match using cleaned names since species param comes from tree (cleaned)
   const getRedListStatus = (species: string): string => {
-    const cell = filteredCells.find(c => c.species === species);
+    const cell = filteredCells.find(c => cleanSpeciesName(c.species) === species);
     return cell?.metadata?.redListStatus || 'Not Evaluated';
   };
 
@@ -472,8 +566,9 @@ export function HaplotypeHeatmap({
   };
 
   // Get GBIF/WoRMS data for a species
+  // Match using cleaned names since species param comes from tree (cleaned)
   const getGBIFData = (species: string): HaplotypeMetadata | null => {
-    const cell = filteredCells.find(c => c.species === species);
+    const cell = filteredCells.find(c => cleanSpeciesName(c.species) === species);
     return cell?.metadata || null;
   };
 
@@ -605,10 +700,6 @@ export function HaplotypeHeatmap({
             <Checkbox id="showRedList" checked={showRedListColumn} onCheckedChange={setShowRedListColumn} />
             <Label htmlFor="showRedList" className="text-sm cursor-pointer">Show RedList Status</Label>
           </div>
-          <div className="flex items-center gap-2 pl-6 border-l">
-            <Checkbox id="showGBIF" checked={showGBIFColumn} onCheckedChange={setShowGBIFColumn} />
-            <Label htmlFor="showGBIF" className="text-sm cursor-pointer">Show Taxonomy</Label>
-          </div>
           <div className="ml-auto flex items-center gap-4">
             {isFetchingTaxonomy && (
               <div className="text-xs text-blue-600 font-medium flex items-center gap-2">
@@ -651,6 +742,7 @@ export function HaplotypeHeatmap({
           tree={taxonomicTree}
           containerHeight={treeViewHeight}
           highlightedTaxon={highlightedTaxon}
+          showHaplotypeBadges={true}
           onSpeciesClick={(speciesName) => {
             console.log('[HAPLOTYPE HEATMAP] Species clicked:', speciesName);
             console.log('[HAPLOTYPE HEATMAP] Callback available:', {
@@ -673,6 +765,48 @@ export function HaplotypeHeatmap({
           style={{ height: `${heatmapHeight}px` }}
           className="flex-1 w-full border rounded-md p-2 bg-white overflow-auto"
         >
+          {/* Taxonomic Rank Legend (only in hierarchical mode) */}
+          {sortMode === 'hierarchical' && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs mb-2 pb-2 pr-4 border-b border-gray-200">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
+                <span className="text-gray-600">Kingdom</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
+                <span className="text-gray-600">Phylum</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
+                <span className="text-gray-600">Class</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
+                <span className="text-gray-600">Order</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
+                <span className="text-gray-600">Family</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
+                <span className="text-gray-600">Genus</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
+                <span className="text-gray-600">Species</span>
+              </div>
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
+                <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
+                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
+                </svg>
+                <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
+                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
+                </svg>
+                <span className="text-gray-600">Parent-Child</span>
+              </div>
+            </div>
+          )}
         <TooltipProvider>
           <svg width="100%" height={Math.max(plotHeight + margin.top + margin.bottom, 400)}>
             {plotWidth > 0 && plotHeight > 0 && (
@@ -738,30 +872,60 @@ export function HaplotypeHeatmap({
                   )}
 
                   {/* Sample names (site headers) - 90 degree rotated (vertical) */}
-                  {sites.map(site => (
-                    <g key={site} transform={`translate(${(xScale(site) ?? 0) + xScale.bandwidth() / 2}, -15)`}>
-                      <text
-                        transform="rotate(-90)"
-                        x={0}
-                        y={5}
-                        textAnchor="start"
-                        dominantBaseline="middle"
-                        className="font-bold"
-                        style={{
-                          fontSize: `${styles.yAxisLabelFontSize}px`,
-                          fill: '#4b5563'
-                        }}
-                      >
-                        {site}
-                      </text>
-                    </g>
-                  ))}
+                  {sites.map(site => {
+                    // Wrap long site names onto two lines
+                    const maxCharsPerLine = 10;
+                    let lines: string[] = [site];
 
-                  {/* X-axis title */}
+                    if (site.length > maxCharsPerLine) {
+                      // Try to split at a space near the middle
+                      const midPoint = Math.floor(site.length / 2);
+                      const spaceIndex = site.lastIndexOf(' ', midPoint + 3);
+                      const altSpaceIndex = site.indexOf(' ', midPoint - 3);
+
+                      if (spaceIndex > 2 && spaceIndex < site.length - 2) {
+                        lines = [site.slice(0, spaceIndex), site.slice(spaceIndex + 1)];
+                      } else if (altSpaceIndex > 2 && altSpaceIndex < site.length - 2) {
+                        lines = [site.slice(0, altSpaceIndex), site.slice(altSpaceIndex + 1)];
+                      } else if (site.length > maxCharsPerLine) {
+                        // No good space found, split at maxCharsPerLine
+                        lines = [site.slice(0, maxCharsPerLine), site.slice(maxCharsPerLine)];
+                      }
+                    }
+
+                    return (
+                      <g key={site} transform={`translate(${(xScale(site) ?? 0) + xScale.bandwidth() / 2}, -15)`}>
+                        <text
+                          transform="rotate(-90)"
+                          x={0}
+                          y={0}
+                          textAnchor="start"
+                          dominantBaseline="middle"
+                          className="font-bold"
+                          style={{
+                            fontSize: `${styles.yAxisLabelFontSize}px`,
+                            fill: '#4b5563'
+                          }}
+                        >
+                          {lines.map((line, i) => (
+                            <tspan
+                              key={i}
+                              x={0}
+                              dy={i === 0 ? 0 : 14}
+                            >
+                              {line}
+                            </tspan>
+                          ))}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* X-axis title - positioned to the left of site labels */}
                   <text
-                    x={plotWidth / 2}
-                    y={-95}
-                    textAnchor="middle"
+                    x={-25}
+                    y={-50}
+                    textAnchor="end"
                     dominantBaseline="middle"
                     className="font-semibold"
                     style={{
@@ -844,8 +1008,31 @@ export function HaplotypeHeatmap({
 
                     const y = (yScale(speciesName) ?? 0) + yScale.bandwidth() / 2;
 
+                    // Check if this taxon has a parent-child relationship with another visible taxon
+                    const relationship = parentChildRelationships.get(speciesName);
+
                     return (
                       <g key={speciesName}>
+                        {/* Parent-child relationship indicator triangles (right side, next to heatmap) */}
+                        {/* Child triangle (upward) - shows this taxon has a parent above */}
+                        {sortMode === 'hierarchical' && relationship?.asChild && (
+                          <path
+                            d="M -2.4,0 L 0,-2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent ? -12 : -5}, ${y})`}
+                            fill={relationship.asChild.color}
+                            opacity={0.9}
+                          />
+                        )}
+                        {/* Parent triangle (downward) - shows this taxon has children below */}
+                        {/* Position aligns with child's upward arrow: -12 if child has dual arrows, -5 if child is single */}
+                        {sortMode === 'hierarchical' && relationship?.asParent && (
+                          <path
+                            d="M -2.4,0 L 0,2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent.childIsDual ? -12 : -5}, ${y})`}
+                            fill={relationship.asParent.color}
+                            opacity={0.9}
+                          />
+                        )}
                         {/* Rank badge (colored box with letter) */}
                         {sortMode === 'hierarchical' && taxonInfo && (
                           <>

@@ -1070,9 +1070,14 @@ async function parseNmaxCsv(file: File): Promise<HaplotypeParseResult> {
     // Sort species alphabetically
     result.species.sort((a, b) => a.localeCompare(b));
 
-    // Fetch taxonomy data from WoRMS/GBIF
+    // Fetch taxonomy data from GBIF (no WoRMS fallback for eDNA - GBIF provides georeferenced sightings)
     try {
-      const taxonomyMap = await lookupSpeciesBatch(result.species);
+      const taxonomyMap = await lookupSpeciesBatch(
+        result.species,
+        5, // maxConcurrent
+        undefined, // onProgress
+        false // useWormsFallback - disabled for eDNA
+      );
 
       // Update metadata for each cell with taxonomy data
       result.data.forEach(cell => {
@@ -1242,9 +1247,14 @@ async function parseHaplotypeCsvOriginal(file: File): Promise<HaplotypeParseResu
     // Sort species alphabetically (as specified: 2A)
     result.species.sort((a, b) => a.localeCompare(b));
 
-    // Fetch taxonomy data from WoRMS/GBIF
+    // Fetch taxonomy data from GBIF (no WoRMS fallback for eDNA - GBIF provides georeferenced sightings)
     try {
-      const taxonomyMap = await lookupSpeciesBatch(result.species);
+      const taxonomyMap = await lookupSpeciesBatch(
+        result.species,
+        5, // maxConcurrent
+        undefined, // onProgress
+        false // useWormsFallback - disabled for eDNA
+      );
 
       // Update metadata for each cell with taxonomy data
       result.data.forEach(cell => {

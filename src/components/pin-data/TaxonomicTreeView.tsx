@@ -13,6 +13,7 @@ interface TaxonomicTreeViewProps {
   containerHeight: number;
   onSpeciesClick?: (speciesName: string) => void;
   highlightedTaxon?: string | null;
+  showHaplotypeBadges?: boolean; // Show haplotype count badges (for eDNA data)
 }
 
 interface TreeNodeComponentProps {
@@ -20,9 +21,10 @@ interface TreeNodeComponentProps {
   level: number;
   onSpeciesClick?: (speciesName: string, taxonId?: string, source?: 'worms' | 'gbif' | 'unknown') => void;
   highlightedTaxon?: string | null;
+  showHaplotypeBadges?: boolean;
 }
 
-function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: TreeNodeComponentProps) {
+function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, showHaplotypeBadges }: TreeNodeComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true); // Auto-expand entire tree to show all species
 
   const hasChildren = node.children.length > 0;
@@ -33,9 +35,9 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
   // Check if this entry exists in CSV (either as leaf or marked with csvEntry flag)
   const isCSVEntry = node.csvEntry;
 
-  // Detect unrecognized species (not found in WoRMS/GBIF database)
-  // Only apply to actual species (rank === 'species'), not to higher-level taxa that happen to be leaf nodes
-  const isUnrecognizedSpecies = node.rank === 'species' && node.isLeaf && (
+  // Detect unrecognized taxa (not found in WoRMS/GBIF database)
+  // Apply to any CSV entry (leaf node) that has no taxonomy source
+  const isUnrecognizedTaxon = node.csvEntry && node.isLeaf && (
     !node.source ||
     node.source === 'unknown'
   );
@@ -57,14 +59,15 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
     }
   };
 
-  const nodeName = node.originalName || node.name;
-  const isHighlighted = highlightedTaxon === nodeName;
+  // Use cleaned name for display, but check both for highlighting (heatmap may pass either)
+  const displayName = node.name;
+  const isHighlighted = highlightedTaxon === node.name || highlightedTaxon === node.originalName;
 
   return (
     <div className="font-mono text-[10px] leading-tight">
       {/* Current Node */}
       <div
-        data-taxon-name={nodeName}
+        data-taxon-name={displayName}
         className={cn(
           "flex items-center gap-1 py-0 px-1 hover:bg-gray-100 rounded cursor-pointer transition-colors",
           // CSV entry nodes: emerald background, full opacity
@@ -111,8 +114,8 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
             !isCSVEntry && "text-gray-700",
             // ALL CSV entry nodes are clickable
             isCSVEntry && "cursor-pointer hover:bg-gray-200/50 px-1 rounded transition-colors",
-            // Unrecognized species: special underline styling
-            isUnrecognizedSpecies && "underline decoration-orange-500 decoration-2"
+            // Unrecognized taxon: special underline styling (no GBIF/WoRMS data)
+            isUnrecognizedTaxon && "underline decoration-orange-500 decoration-2"
           )}
           onClick={(e) => {
             if (isCSVEntry && onSpeciesClick) {
@@ -120,15 +123,22 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
               onSpeciesClick(node.originalName || node.name, node.taxonId, node.source);
             }
           }}
-          title={isCSVEntry ? `Click to edit "${node.originalName || node.name}" in raw CSV viewer` : undefined}
+          title={isCSVEntry ? `Click to edit "${displayName}" in raw CSV viewer` : undefined}
         >
-          {node.originalName || node.name}
+          {displayName}
         </span>
 
         {/* Species Count Badge - show only for structural parent nodes (not CSV entries) */}
         {hasChildren && !isCSVEntry && (
           <span className="text-[8px] bg-blue-100 text-blue-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
             {node.speciesCount} {node.speciesCount === 1 ? 'sp.' : 'spp.'}
+          </span>
+        )}
+
+        {/* Haplotype Count Badge - show only for eDNA data (when showHaplotypeBadges is true) */}
+        {showHaplotypeBadges && isCSVEntry && node.siteOccurrences && totalHaplotypes > 0 && (
+          <span className="text-[8px] bg-purple-100 text-purple-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
+            {totalHaplotypes} hapl.
           </span>
         )}
 
@@ -155,6 +165,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
           {node.children.map((child, index) => (
             <TreeNodeComponent
               key={`${child.name}-${child.rank}-${index}`}
+              showHaplotypeBadges={showHaplotypeBadges}
               node={child}
               level={level + 1}
               onSpeciesClick={onSpeciesClick}
@@ -167,7 +178,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon }: Tr
   );
 }
 
-export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highlightedTaxon }: TaxonomicTreeViewProps) {
+export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highlightedTaxon, showHaplotypeBadges = false }: TaxonomicTreeViewProps) {
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
@@ -195,12 +206,15 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
     setShowActionDialog(true);
   };
 
-  // Clean species name by removing parenthetical taxonomic indicators
+  // Clean species name by removing taxonomic rank indicators
   // e.g., "Sparus aurata (sp.)" -> "Sparus aurata"
+  // e.g., "Gadus sp." -> "Gadus"
+  // e.g., "Species (sp.)." -> "Species" (handles double period)
   const cleanSpeciesName = (name: string): string => {
     return name
-      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|infraclass)\.\)\s*$/i, '')
-      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|infraclass)\)\s*$/i, '')
+      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|gigaclass|infraclass)\.\)\.?\s*$/i, '')  // (sp.). or (sp.)
+      .replace(/\s*\((sp|gen|fam|ord|class|phyl|kingdom|phylum|order|family|genus|species|gigaclass|infraclass)\)\.?\s*$/i, '')  // (species). or (species)
+      .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '')  // trailing sp. or sp
       .trim();
   };
 
@@ -233,11 +247,15 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
   const handleGBIFSearch = () => {
     if (!selectedSpecies) return;
 
-    // If we have a GBIF taxonId, link directly to the species page
-    if (selectedTaxonId && selectedSource === 'gbif') {
+    // Check if taxonId is valid - reject "1" (Animalia) as it indicates a HIGHERRANK mismatch
+    // This happens when GBIF couldn't find the exact taxon and returned kingdom level instead
+    const isValidTaxonId = selectedTaxonId && selectedTaxonId !== '1' && selectedTaxonId !== '';
+
+    // If we have a valid GBIF taxonId, link directly to the species page
+    if (isValidTaxonId && selectedSource === 'gbif') {
       window.open(`https://www.gbif.org/species/${selectedTaxonId}`, '_blank');
     } else {
-      // Fall back to search if no taxonId or source is WoRMS/unknown
+      // Fall back to search if no taxonId, invalid taxonId (Animalia), or source is WoRMS/unknown
       const cleanedName = cleanSpeciesName(selectedSpecies);
       const query = encodeURIComponent(cleanedName);
       window.open(`https://www.gbif.org/species/search?q=${query}`, '_blank');
@@ -264,6 +282,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               level={0}
               onSpeciesClick={handleSpeciesClick}
               highlightedTaxon={highlightedTaxon}
+              showHaplotypeBadges={showHaplotypeBadges}
             />
           ))
         ) : (
@@ -302,7 +321,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               <Globe className="w-4 h-4" />
               <div className="flex flex-col items-start">
                 <span className="font-semibold">
-                  {selectedTaxonId && selectedSource === 'gbif' ? 'View on GBIF' : 'Search GBIF'}
+                  {selectedTaxonId && selectedTaxonId !== '1' && selectedSource === 'gbif' ? 'View on GBIF' : 'Search GBIF'}
                 </span>
                 <span className="text-xs text-gray-500">View georeferenced sightings records for this taxon</span>
               </div>

@@ -53,6 +53,7 @@ export function buildTaxonomicTree(
     confidence?: 'high' | 'medium' | 'low';
     source?: 'worms' | 'gbif' | 'unknown';
     taxonId?: string;
+    taxonomyRank?: string; // From API: sp./gen./fam./ord./class./phyl.
   }>();
 
   data.forEach(cell => {
@@ -62,7 +63,8 @@ export function buildTaxonomicTree(
         sites: new Map(),
         confidence: cell.metadata?.taxonomyConfidence,
         source: cell.metadata?.taxonomySource as 'worms' | 'gbif' | 'unknown' | undefined,
-        taxonId: cell.metadata?.taxonId
+        taxonId: cell.metadata?.taxonId,
+        taxonomyRank: cell.metadata?.taxonomyRank // e.g., 'sp.', 'gen.', 'fam.'
       });
     }
 
@@ -70,9 +72,29 @@ export function buildTaxonomicTree(
     speciesData.sites.set(cell.site, (speciesData.sites.get(cell.site) || 0) + cell.count);
   });
 
-  // Build tree for each species
-  speciesMap.forEach((speciesData, speciesName) => {
-    const { hierarchy, sites, confidence, source, taxonId } = speciesData;
+  // Sort entries so complete hierarchies are processed FIRST
+  // This ensures that when we process "Pholoe sp." (incomplete hierarchy),
+  // "Pholoe baltica" (complete hierarchy) has already created the proper node
+  const sortedEntries = Array.from(speciesMap.entries()).sort(([, a], [, b]) => {
+    // Count how many hierarchy levels are filled
+    const countHierarchy = (h: typeof a.hierarchy) => {
+      let count = 0;
+      if (h.kingdom) count++;
+      if (h.phylum) count++;
+      if (h.class) count++;
+      if (h.order) count++;
+      if (h.family) count++;
+      if (h.genus) count++;
+      if (h.species) count++;
+      return count;
+    };
+    // More complete hierarchies first
+    return countHierarchy(b.hierarchy) - countHierarchy(a.hierarchy);
+  });
+
+  // Build tree for each species (sorted by hierarchy completeness)
+  sortedEntries.forEach(([speciesName, speciesData]) => {
+    const { hierarchy, sites, confidence, source, taxonId, taxonomyRank } = speciesData;
 
     // Define taxonomic path from root to species
     const path: Array<{ name: string; rank: TreeNode['rank']; originalName?: string }> = [];
@@ -81,16 +103,20 @@ export function buildTaxonomicTree(
     // This allows proper matching with WoRMS/GBIF taxonomy data
     // Handles both abbreviated forms with dots: (sp.), (gen.), (fam.)
     // And full rank names without dots: (kingdom), (phylum), (order), (family), (genus), (species)
+    // Also handles trailing "sp.", "spp." without parentheses (common in eDNA genus-level IDs)
+    // Also handles double periods like "(sp.)." from SubCam data
     const cleanedSpeciesName = speciesName
-      .replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/i, '')
-      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/i, '')
+      .replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?\s*$/i, '')  // (sp.). or (sp.)
+      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\.?\s*$/i, '')  // (species). or (species)
+      .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '')  // Remove trailing rank abbrevs (eDNA style)
       .trim();
 
     // Extract rank annotation from CSV name as fallback
-    // Handles both abbreviated: (phyl.), (sp.) and full: (kingdom), (phylum)
-    const rankAnnotationMatch = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)$/i)
-      || speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)$/i);
-    const csvRankHint = rankAnnotationMatch ? rankAnnotationMatch[1].toLowerCase() : null;
+    // Parenthetical forms like "(sp.)" or "(sp.)." indicate species-level ID (SubCam style)
+    // Trailing forms like "sp." indicate genus-level ID (eDNA style - unknown species within genus)
+    const parentheticalMatch = speciesName.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?$/i)  // handles (sp.) and (sp.).
+      || speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)\.?$/i);  // handles (species) and (species).
+    const trailingRankMatch = speciesName.match(/\s+(sp|spp|gen|fam|ord|class)\.?$/i);
 
     // Determine the actual rank of this entry
     // Check if the cleaned species name matches any of the higher taxonomic levels
@@ -101,18 +127,17 @@ export function buildTaxonomicTree(
     else if (hierarchy.class === cleanedSpeciesName) actualRank = 'class';
     else if (hierarchy.phylum === cleanedSpeciesName) actualRank = 'phylum';
     else if (hierarchy.kingdom === cleanedSpeciesName) actualRank = 'kingdom';
-    // Fallback: If hierarchy matching failed, use CSV rank annotation
-    else if (csvRankHint) {
-      const rankMap: Record<string, TreeNode['rank']> = {
-        // Abbreviated forms
+    // Fallback 1a: Parenthetical annotation like "(sp.)" - species-level ID (SubCam style)
+    else if (parentheticalMatch) {
+      const parentheticalRankMap: Record<string, TreeNode['rank']> = {
         'phyl': 'phylum',
+        'gigaclass': 'class',
         'infraclass': 'class',
         'class': 'class',
         'ord': 'order',
         'fam': 'family',
         'gen': 'genus',
-        'sp': 'species',
-        // Full rank names
+        'sp': 'species',  // "(sp.)" = species-level identification
         'kingdom': 'kingdom',
         'phylum': 'phylum',
         'order': 'order',
@@ -120,13 +145,60 @@ export function buildTaxonomicTree(
         'genus': 'genus',
         'species': 'species'
       };
-      actualRank = rankMap[csvRankHint] || 'species';
+      actualRank = parentheticalRankMap[parentheticalMatch[1].toLowerCase()] || 'species';
+    }
+    // Fallback 1b: Trailing annotation like "sp." - genus-level ID (eDNA style)
+    // "Gadus sp." means "unidentified species within genus Gadus" = genus-level ID
+    else if (trailingRankMatch) {
+      const trailingRankMap: Record<string, TreeNode['rank']> = {
+        'sp': 'genus',   // "Gadus sp." = genus-level (unknown species within Gadus)
+        'spp': 'genus',  // "Gadus spp." = genus-level (multiple species within Gadus)
+      };
+      actualRank = trailingRankMap[trailingRankMatch[1].toLowerCase()] || 'genus';
+    }
+    // Fallback 2: Use taxonomyRank from API metadata (for eDNA data without CSV annotations)
+    else if (taxonomyRank) {
+      const apiRankMap: Record<string, TreeNode['rank']> = {
+        'sp.': 'species',
+        'gen.': 'genus',
+        'fam.': 'family',
+        'ord.': 'order',
+        'class.': 'class',
+        'phyl.': 'phylum',
+        'king.': 'kingdom'
+      };
+      actualRank = apiRankMap[taxonomyRank] || 'species';
+    }
+
+    // Debug: log rank determination for genus-level entries
+    if (actualRank !== 'species') {
+      console.log(`[TREE] "${speciesName}" → "${cleanedSpeciesName}" = ${actualRank.toUpperCase()}`);
     }
 
     // Special handling: If this is a higher-order entry (not species) with incomplete hierarchy,
     // search the tree for an existing node with same name+rank and adopt its parent path
     const isHigherOrderEntry = actualRank !== 'species';
-    const hasIncompleteHierarchy = !hierarchy.kingdom && !hierarchy.phylum && !hierarchy.class;
+
+    // Check for incomplete hierarchy - more comprehensive check:
+    // For genus entries, we need at least family to place it correctly
+    // If we only have kingdom but missing intermediate levels, that's incomplete
+    // This commonly happens with HIGHERRANK matches (e.g., homonyms like "Pholoe" in both insects and worms)
+    const hasIncompleteHierarchy = (() => {
+      if (actualRank === 'genus') {
+        // Genus needs at least family to be placed correctly
+        return !hierarchy.family;
+      } else if (actualRank === 'family') {
+        return !hierarchy.order;
+      } else if (actualRank === 'order') {
+        return !hierarchy.class;
+      } else if (actualRank === 'class') {
+        return !hierarchy.phylum;
+      } else if (actualRank === 'phylum') {
+        return !hierarchy.kingdom;
+      }
+      // For other ranks, use original check
+      return !hierarchy.kingdom && !hierarchy.phylum && !hierarchy.class;
+    })();
 
     if (isHigherOrderEntry && hasIncompleteHierarchy) {
       // Search entire tree for existing matching node
@@ -189,7 +261,8 @@ export function buildTaxonomicTree(
     }
 
     // Add the entry itself at its actual rank
-    // Use cleaned name for matching, preserve original name if it had annotation
+    // Store originalName for internal matching (parameterStates keys use original names)
+    // Display components should use node.name (cleaned) for rendering
     path.push({
       name: cleanedSpeciesName,
       rank: actualRank,
@@ -262,9 +335,72 @@ export function buildTaxonomicTree(
 
   calculateSpeciesCounts(root);
 
-  // Sort children alphabetically at each level
+  // Sort children: prioritize complete chains (taxa with data AND children with data),
+  // then by rank (higher ranks first), then alphabetically
+  const rankOrder: Record<string, number> = {
+    'kingdom': 0, 'phylum': 1, 'class': 2, 'order': 3,
+    'family': 4, 'genus': 5, 'species': 6, 'unknown': 7
+  };
+
+  // Helper: check if a node or any descendant has csvEntry (actual data in heatmap)
+  function hasDescendantWithData(node: TreeNode): boolean {
+    if (node.csvEntry) return true;
+    return node.children.some(child => hasDescendantWithData(child));
+  }
+
   function sortTreeNodes(node: TreeNode) {
-    node.children.sort((a, b) => a.name.localeCompare(b.name));
+    // Debug: log before/after for nodes with multiple children
+    const beforeSort = node.children.map(c => {
+      const hasData = c.csvEntry;
+      const hasDataKids = c.children.some(child => hasDescendantWithData(child));
+      return `${c.name}(${c.rank},data=${hasData},dataKids=${hasDataKids})`;
+    });
+
+    node.children.sort((a, b) => {
+      // Check data status - based on csvEntry (actual heatmap data), not just tree structure
+      const aHasData = a.csvEntry;
+      const bHasData = b.csvEntry;
+      const aHasDataChildren = a.children.some(c => hasDescendantWithData(c));
+      const bHasDataChildren = b.children.some(c => hasDescendantWithData(c));
+
+      // Primary: complete chains (this node has data AND has children with data) come first
+      const aIsCompleteChain = aHasData && aHasDataChildren;
+      const bIsCompleteChain = bHasData && bHasDataChildren;
+      if (aIsCompleteChain !== bIsCompleteChain) {
+        return aIsCompleteChain ? -1 : 1;
+      }
+
+      // Secondary: taxa with children that have data (even if this node doesn't have data)
+      if (aHasDataChildren !== bHasDataChildren) {
+        return aHasDataChildren ? -1 : 1;
+      }
+
+      // Tertiary: taxa that have data themselves (leaf nodes with data)
+      if (aHasData !== bHasData) {
+        return aHasData ? -1 : 1;
+      }
+
+      // Quaternary: sort by rank (higher ranks first)
+      const rankA = rankOrder[a.rank] ?? 7;
+      const rankB = rankOrder[b.rank] ?? 7;
+      if (rankA !== rankB) {
+        return rankA - rankB;
+      }
+
+      // Quinary: alphabetical within same rank
+      return a.name.localeCompare(b.name);
+    });
+
+    const afterSort = node.children.map(c => {
+      const hasData = c.csvEntry;
+      const hasDataKids = c.children.some(child => hasDescendantWithData(child));
+      return `${c.name}(${c.rank},data=${hasData},dataKids=${hasDataKids})`;
+    });
+    if (node.children.length > 1) {
+      const changed = beforeSort.join(',') !== afterSort.join(',');
+      console.log(`[TREE SORT] "${node.name}" (${node.rank}) children${changed ? ' REORDERED' : ''}:`, afterSort);
+    }
+
     node.children.forEach(sortTreeNodes);
   }
 

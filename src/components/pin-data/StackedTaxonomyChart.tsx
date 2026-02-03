@@ -329,7 +329,7 @@ export function StackedTaxonomyChart({
             tick={{ fontSize: styles.yAxisLabelFontSize }}
           />
 
-          <RechartsTooltip content={<CustomTooltip />} />
+          <RechartsTooltip content={<CustomTooltip />} cursor={false} />
 
           <Legend
             verticalAlign="top"

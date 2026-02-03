@@ -21,7 +21,7 @@ interface HeatmapDisplayProps {
   speciesIndentMap?: Map<string, number>; // Taxonomic indentation levels from tree view
   speciesRankMap?: Map<string, string>; // Taxonomic ranks from tree view
   filteredFlattenedTree?: FlattenedTaxon[]; // Flattened tree with parent-child relationships
-  parentChildRelationships?: Map<string, { color: string; role: 'parent' | 'child' }>; // Parent-child relationship indicators
+  parentChildRelationships?: Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>; // Parent-child relationship indicators
   containerHeight: number;
   brushStartIndex?: number;
   brushEndIndex?: number;
@@ -116,11 +116,11 @@ const HeatmapDisplayComponent = ({
       return speciesRankMap.get(speciesName)!;
     }
     // Fallback to extracting from species name string
-    // Match abbreviated ranks with dot: (phyl.), (ord.), etc.
-    const matchAbbrev = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+    // Match abbreviated ranks with dot: (phyl.), (ord.), etc. - also handles trailing period (sp.).
+    const matchAbbrev = speciesName.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?/);
     if (matchAbbrev) return matchAbbrev[1];
-    // Match full rank names without dot: (kingdom), (phylum), etc.
-    const matchFull = speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)/);
+    // Match full rank names without dot: (kingdom), (phylum), etc. - also handles trailing period
+    const matchFull = speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)\.?/);
     return matchFull ? matchFull[1] : null;
   };
 
@@ -130,6 +130,7 @@ const HeatmapDisplayComponent = ({
       'kingdom': 'K',    // Kingdom
       'phylum': 'P',     // Phylum (full name)
       'phyl': 'P',       // Phylum (abbreviated)
+      'gigaclass': 'C',  // Gigaclass (treated as class)
       'infraclass': 'I', // Infraclass
       'class': 'C',      // Class
       'order': 'O',      // Order (full name)
@@ -150,6 +151,7 @@ const HeatmapDisplayComponent = ({
       'kingdom': '#882255',    // Kingdom - wine
       'phylum': '#AA3377',     // Phylum - purple (full name)
       'phyl': '#AA3377',       // Phylum - purple (abbreviated)
+      'gigaclass': '#EE6677',  // Gigaclass - red/pink (same as class)
       'infraclass': '#CC6677', // Infraclass - rose
       'class': '#EE6677',      // Class - red/pink
       'order': '#CCBB44',      // Order - olive yellow (full name)
@@ -165,10 +167,12 @@ const HeatmapDisplayComponent = ({
   };
 
   // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua", "Animalia (kingdom)" → "Animalia")
+  // Also handles double period "(sp.)." and trailing "sp." style
   const stripRankSuffix = (name: string): string => {
     return name
-      .replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '')
-      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
+      .replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?\s*$/, '')  // (sp.). or (sp.)
+      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\.?\s*$/, '')  // (species). or (species)
+      .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '');  // trailing sp. or sp
   };
 
   // Map rank to indent level (hierarchical ordering)
@@ -176,6 +180,7 @@ const HeatmapDisplayComponent = ({
   const getRankIndentLevel = (rank: string | null): number => {
     const rankLevels: Record<string, number> = {
       'phyl': 0,       // Phylum - no indentation (highest level)
+      'gigaclass': 1,  // Gigaclass - 1 level indent (same as infraclass)
       'infraclass': 1, // Infraclass - 1 level indent
       'class': 2,      // Class - 2 level indent
       'ord': 3,        // Order - 3 level indent
@@ -217,7 +222,7 @@ const HeatmapDisplayComponent = ({
     // Calculate the effective width needed for each visible taxon (name + its indentation)
     let maxEffectiveWidth = 0;
     series.forEach(name => {
-      const cleanName = name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
+      const cleanName = name.replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
       const indentLevel = getIndentLevel(name);
       // Width = text width + indent offset from right edge (maxIndent - thisIndent) * px
       const effectiveWidth = (cleanName.length * CHAR_WIDTH) +
@@ -353,6 +358,35 @@ const HeatmapDisplayComponent = ({
     return days.filter((_, i) => i % tickInterval === 0);
   }, [processedData.uniqueDays]);
 
+  // FIX: These hooks must be BEFORE the early return to maintain hook order
+  // Pre-compute taxon info map for performance (avoid repeated finds in render loop)
+  const taxonInfoMap = useMemo(() => {
+    if (!filteredFlattenedTree) return new Map();
+    const map = new Map<string, typeof filteredFlattenedTree[0]>();
+    filteredFlattenedTree.forEach(taxon => {
+      const name = taxon.node.originalName || taxon.name;
+      map.set(name, taxon);
+    });
+    return map;
+  }, [filteredFlattenedTree]);
+
+  // Get unique ranks present in the data
+  const ranksPresent = useMemo(() => {
+    const ranks = new Set(series.map(s => getTaxonomicRank(s)).filter(r => r !== null));
+    return Array.from(ranks).sort((a, b) => {
+      const order: Record<string, number> = { 'kingdom': 0, 'phylum': 1, 'phyl': 1, 'gigaclass': 2, 'class': 2, 'infraclass': 2, 'order': 3, 'ord': 3, 'family': 4, 'fam': 4, 'genus': 5, 'gen': 5, 'species': 6, 'sp': 6 };
+      return (order[a] ?? 999) - (order[b] ?? 999);
+    });
+  }, [series]);
+
+  // Debug: log why early return might trigger
+  console.log('[HEATMAP] Data check:', {
+    hasData: !!data,
+    dataLength: data?.length,
+    seriesLength: series?.length,
+    uniqueDaysLength: processedData.uniqueDays.length
+  });
+
   if (!data || data.length === 0 || series.length === 0 || processedData.uniqueDays.length === 0) {
     return (
       <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
@@ -385,30 +419,10 @@ const HeatmapDisplayComponent = ({
     }
   };
 
-  // Pre-compute taxon info map for performance (avoid repeated finds in render loop)
-  const taxonInfoMap = useMemo(() => {
-    if (!filteredFlattenedTree) return new Map();
-    const map = new Map<string, typeof filteredFlattenedTree[0]>();
-    filteredFlattenedTree.forEach(taxon => {
-      const name = taxon.node.originalName || taxon.name;
-      map.set(name, taxon);
-    });
-    return map;
-  }, [filteredFlattenedTree]);
-
-  // Get unique ranks present in the data
-  const ranksPresent = useMemo(() => {
-    const ranks = new Set(series.map(s => getTaxonomicRank(s)).filter(r => r !== null));
-    return Array.from(ranks).sort((a, b) => {
-      const order: Record<string, number> = { 'kingdom': 0, 'phylum': 1, 'phyl': 1, 'class': 2, 'infraclass': 2, 'order': 3, 'ord': 3, 'family': 4, 'fam': 4, 'genus': 5, 'gen': 5, 'species': 6, 'sp': 6 };
-      return (order[a] ?? 999) - (order[b] ?? 999);
-    });
-  }, [series]);
-
   const rankLabels: Record<string, string> = {
     'kingdom': 'Kingdom',
     'phylum': 'Phylum', 'phyl': 'Phylum',
-    'class': 'Class', 'infraclass': 'Infraclass',
+    'class': 'Class', 'gigaclass': 'Gigaclass', 'infraclass': 'Infraclass',
     'order': 'Order', 'ord': 'Order',
     'family': 'Family', 'fam': 'Family',
     'genus': 'Genus', 'gen': 'Genus',
@@ -433,10 +447,6 @@ const HeatmapDisplayComponent = ({
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
                 <span className="text-gray-600">Phylum</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CC6677' }}></div>
-                <span className="text-gray-600">Infraclass</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
@@ -504,15 +514,23 @@ const HeatmapDisplayComponent = ({
 
                     return (
                       <g key={seriesName}>
-                        {/* Parent-child relationship indicator triangle */}
-                        {relationship && (
+                        {/* Parent-child relationship indicator triangles */}
+                        {/* Child triangle (upward) - shows this taxon has a parent above */}
+                        {relationship?.asChild && (
                           <path
-                            d={relationship.role === 'parent'
-                              ? 'M -2.4,0 L 0,2.4 L 2.4,0 Z'  // Downward triangle
-                              : 'M -2.4,0 L 0,-2.4 L 2.4,0 Z' // Upward triangle
-                            }
-                            transform={`translate(-3, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
-                            fill={relationship.color}
+                            d="M -2.4,0 L 0,-2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent ? -10 : -3}, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
+                            fill={relationship.asChild.color}
+                            opacity={0.9}
+                          />
+                        )}
+                        {/* Parent triangle (downward) - shows this taxon has children below */}
+                        {/* Position aligns with child's upward arrow: -10 if child has dual arrows, -3 if child is single */}
+                        {relationship?.asParent && (
+                          <path
+                            d="M -2.4,0 L 0,2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent.childIsDual ? -10 : -3}, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
+                            fill={relationship.asParent.color}
                             opacity={0.9}
                           />
                         )}
@@ -753,7 +771,7 @@ const HeatmapDisplayComponent = ({
                   const rankColor = getRankColor(rank);
                   const rankAbbrev = getRankAbbreviation(rank);
                   const rankLabel = rank ? ({
-                    'phyl': 'Phylum', 'infraclass': 'Infraclass', 'class': 'Class',
+                    'phyl': 'Phylum', 'gigaclass': 'Gigaclass', 'infraclass': 'Infraclass', 'class': 'Class',
                     'ord': 'Order', 'fam': 'Family', 'gen': 'Genus', 'sp': 'Species'
                   }[rank] ?? rank) : 'Unknown';
                   return (

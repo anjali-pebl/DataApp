@@ -1659,7 +1659,7 @@ export function PinChartDisplay({
     if (!nmaxTaxonomicTree) {
       // Fallback: Extract rank directly from CSV species names
       speciesColumns.forEach(speciesName => {
-        const suffixMatch = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+        const suffixMatch = speciesName.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)/);
         if (suffixMatch) {
           rankMap.set(speciesName, suffixMatch[1]);
         }
@@ -1724,14 +1724,16 @@ export function PinChartDisplay({
   }, [nmaxTaxonomicTree]);
 
   // Create parent-child relationship map for visual indicators
+  // Each parent gets one color, all its direct children adopt that same color
+  // Taxa that are both children AND parents get two triangles (one for each role)
   const parentChildRelationships = useMemo(() => {
-    const relationships = new Map<string, { color: string; role: 'parent' | 'child' }>();
+    const relationships = new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
 
     if (!filteredFlattenedTree || filteredFlattenedTree.length === 0) {
       return relationships;
     }
 
-    // Define colors for parent-child pairs (Paul Tol colorblind-friendly palette)
+    // Define colors for parents (Paul Tol colorblind-friendly palette)
     const colors = [
       '#4477AA', // Blue
       '#EE6677', // Red/pink
@@ -1748,25 +1750,26 @@ export function PinChartDisplay({
     // Find all parent-child relationships where both are CSV entries
     const visibleSpecies = taxonomicallyOrderedSpecies.filter(species => parameterStates[species]?.visible);
 
+    // First pass: identify all parents and their children
+    const parentChildMap = new Map<string, string[]>();
+
     filteredFlattenedTree.forEach((taxon, index) => {
       const taxonName = taxon.node.originalName || taxon.name;
 
-      // Skip if this taxon is not visible or not a CSV entry
       if (!visibleSpecies.includes(taxonName) || !taxon.node.csvEntry) {
         return;
       }
 
-      // Look for children that are also CSV entries and visible
+      const children: string[] = [];
+
       for (let i = index + 1; i < filteredFlattenedTree.length; i++) {
         const potentialChild = filteredFlattenedTree[i];
         const childName = potentialChild.node.originalName || potentialChild.name;
 
-        // Stop when we've moved past potential children
         if (potentialChild.indentLevel <= taxon.indentLevel) {
           break;
         }
 
-        // Check if this is a direct child and is a CSV entry and is visible
         const isDirectChild = (
           potentialChild.indentLevel === taxon.indentLevel + 1 &&
           potentialChild.path.includes(taxon.name) &&
@@ -1775,16 +1778,36 @@ export function PinChartDisplay({
         );
 
         if (isDirectChild) {
-          // Assign the same color to both parent and child
-          const color = colors[colorIndex % colors.length];
-
-          if (!relationships.has(taxonName)) {
-            relationships.set(taxonName, { color, role: 'parent' });
-          }
-          relationships.set(childName, { color, role: 'child' });
-
-          colorIndex++;
+          children.push(childName);
         }
+      }
+
+      if (children.length > 0) {
+        parentChildMap.set(taxonName, children);
+      }
+    });
+
+    // Second pass: assign colors and check if children are also parents (dual)
+    filteredFlattenedTree.forEach((taxon) => {
+      const taxonName = taxon.node.originalName || taxon.name;
+      const children = parentChildMap.get(taxonName);
+
+      if (children && children.length > 0) {
+        const parentColor = colors[colorIndex % colors.length];
+        colorIndex++;
+
+        // Check if any child is also a parent (will have dual arrows)
+        const childIsDual = children.some(childName => parentChildMap.has(childName));
+
+        // Mark as parent - preserve any existing child role
+        const existing = relationships.get(taxonName) || {};
+        relationships.set(taxonName, { ...existing, asParent: { color: parentColor, childIsDual } });
+
+        // Mark all children with parent's color
+        children.forEach(childName => {
+          const existingChild = relationships.get(childName) || {};
+          relationships.set(childName, { ...existingChild, asChild: { color: parentColor } });
+        });
       }
     });
 
@@ -2392,7 +2415,7 @@ export function PinChartDisplay({
 
       // Check for taxonomic rank detection
       visibleSpecies.forEach(series => {
-        const match = series.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+        const match = series.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)/);
         if (match) {
           validationResults.ranksDetected.add(match[1]);
         }
