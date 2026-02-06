@@ -67,9 +67,13 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
     setError(null);
 
     try {
+      console.log(`[useProjectData] Loading data for projectId: "${projectId}"`);
+
       // First try to get project directly by ID (works for UUID projectIds)
       let projectData = await projectService.getProject(projectId);
-      let resolvedProjectId = projectData?.id || projectId;
+      // Keep the original projectId for file queries - files are stored with slug as project_id
+      let resolvedProjectId = projectId;
+      console.log(`[useProjectData] After getProject: projectData=${!!projectData}, resolvedProjectId="${resolvedProjectId}"`);
 
       // Load project data (pins, areas) - this works with both UUID and slug
       // because pinAreaService queries by project_id which may be the slug
@@ -79,13 +83,13 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
 
       setPins(loadedPins);
       setAreas(loadedAreas);
+      console.log(`[useProjectData] Loaded ${loadedPins.length} pins, ${loadedAreas.length} areas`);
 
       // If we didn't get project info yet, try to find it by slug
       if (!projectData) {
         projectData = await projectService.getProjectBySlug(projectId);
-        if (projectData) {
-          resolvedProjectId = projectData.id;
-        }
+        // Note: Do NOT change resolvedProjectId to projectData.id here!
+        // Files are stored with project_id = slug (e.g., "milfordhaven"), not UUID.
       }
 
       if (projectData) {
@@ -120,8 +124,13 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
         });
       }
 
-      // Load ALL files for the project using resolved ID
+      // Load ALL files for the project using resolved ID (which is the slug)
+      console.log(`[useProjectData] Fetching files with resolvedProjectId: "${resolvedProjectId}"`);
       const allProjectFiles = await fileStorageService.getProjectFiles(resolvedProjectId);
+      console.log(`[useProjectData] Got ${allProjectFiles.length} files total`);
+      if (allProjectFiles.length > 0) {
+        console.log(`[useProjectData] File pinIds:`, allProjectFiles.map(f => f.pinId).filter(Boolean));
+      }
 
       // Group files by pinId or areaId
       const pinMetadata: Record<string, PinFile[]> = {};
@@ -140,6 +149,14 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
           areaMetadata[file.areaId].push(file);
         }
       }
+
+      // Debug: log area files
+      const areaFileCount = Object.values(areaMetadata).flat().length;
+      if (areaFileCount > 0) {
+        console.log(`[useProjectData] Found ${areaFileCount} area files:`,
+          Object.values(areaMetadata).flat().map(f => f.fileName));
+      }
+      console.log(`[useProjectData] Loaded areas: ${loadedAreas.length}`, loadedAreas.map(a => a.id));
 
       setPinFileMetadata(pinMetadata);
       setAreaFileMetadata(areaMetadata);
@@ -169,8 +186,13 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
   // Get all project files with pin labels
   const getProjectFiles = useCallback((): Array<PinFile & { pinLabel: string }> => {
     const allFiles: Array<PinFile & { pinLabel: string }> = [];
+    const addedFileIds = new Set<string>();
 
-    // Add pin files
+    // Create lookup maps for pins and areas
+    const pinMap = new Map(pins.map(p => [p.id, p]));
+    const areaMap = new Map(areas.map(a => [a.id, a]));
+
+    // Add pin files that match loaded pins
     pins.forEach(pin => {
       const pinFiles = pinFileMetadata[pin.id] || [];
       pinFiles.forEach(file => {
@@ -190,10 +212,11 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
         }
 
         allFiles.push({ ...file, pinLabel });
+        addedFileIds.add(file.id);
       });
     });
 
-    // Add area files
+    // Add area files that match loaded areas
     areas.forEach(area => {
       const areaFiles = areaFileMetadata[area.id] || [];
       areaFiles.forEach(file => {
@@ -213,8 +236,55 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
         }
 
         allFiles.push({ ...file, pinLabel: areaLabel });
+        addedFileIds.add(file.id);
       });
     });
+
+    // Add files whose pins/areas aren't in the current project (orphaned files)
+    // These are files that belong to this project but reference pins from other projects
+    Object.entries(pinFileMetadata).forEach(([pinId, files]) => {
+      if (!pinMap.has(pinId)) {
+        files.forEach(file => {
+          if (!addedFileIds.has(file.id)) {
+            const fileNameLower = file.fileName.toLowerCase();
+            const containsAll = fileNameLower.includes('_all') ||
+                                fileNameLower.includes('all_') ||
+                                fileNameLower.startsWith('all') ||
+                                /\ball\b/.test(fileNameLower);
+
+            const pinLabel = containsAll ? 'All Locations' : 'Unknown Location';
+            allFiles.push({ ...file, pinLabel });
+            addedFileIds.add(file.id);
+          }
+        });
+      }
+    });
+
+    Object.entries(areaFileMetadata).forEach(([areaId, files]) => {
+      if (!areaMap.has(areaId)) {
+        files.forEach(file => {
+          if (!addedFileIds.has(file.id)) {
+            const fileNameLower = file.fileName.toLowerCase();
+            const containsAll = fileNameLower.includes('_all') ||
+                                fileNameLower.includes('all_') ||
+                                fileNameLower.startsWith('all') ||
+                                /\ball\b/.test(fileNameLower);
+
+            const areaLabel = containsAll ? 'All Locations' : 'Unknown Location';
+            allFiles.push({ ...file, pinLabel: areaLabel });
+            addedFileIds.add(file.id);
+          }
+        });
+      }
+    });
+
+    // Debug: log what files are being returned
+    const areaFilesInResult = allFiles.filter(f => f.areaId);
+    if (areaFilesInResult.length > 0 || Object.keys(areaFileMetadata).length > 0) {
+      console.log(`[useProjectData.getProjectFiles] Total files: ${allFiles.length}, Area files in result: ${areaFilesInResult.length}`);
+      console.log(`[useProjectData.getProjectFiles] areaFileMetadata keys:`, Object.keys(areaFileMetadata));
+      console.log(`[useProjectData.getProjectFiles] areas count:`, areas.length);
+    }
 
     return allFiles;
   }, [pins, areas, pinFileMetadata, areaFileMetadata]);

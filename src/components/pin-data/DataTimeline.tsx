@@ -472,9 +472,16 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
         try {
           // Get date range from CSV
+          console.log(`[DataTimeline] Fetching dates for: ${file.fileName}, filePath: ${file.filePath}`);
           const result = await getFileDateRange(file);
+          console.log(`[DataTimeline] Result for ${file.fileName}:`, result);
 
           if (result.error || !result.startDate || !result.endDate) {
+            console.error(`[DataTimeline] Failed to get dates for ${file.fileName}:`, {
+              error: result.error,
+              startDate: result.startDate,
+              endDate: result.endDate
+            });
             errorCount++;
             continue;
           }
@@ -2386,6 +2393,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
           fileName={selectedFileForRaw.name}
           isOpen={showRawViewer}
           onClose={() => setShowRawViewer(false)}
+          onFileUpdated={onDatesUpdated}
         />
       )}
     </div>

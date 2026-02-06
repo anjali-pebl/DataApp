@@ -288,16 +288,46 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     return grouped;
   }, []);
 
-  // Get file date range
-  const getFileDateRange = useCallback(async (file: PinFile): Promise<{ start: Date; end: Date } | null> => {
-    // Check if file has stored date range
+  // Get file date range - returns the comprehensive format expected by DataTimeline
+  const getFileDateRange = useCallback(async (file: PinFile): Promise<{
+    totalDays: number | null;
+    startDate: string | null;
+    endDate: string | null;
+    uniqueDates?: string[];
+    isCrop?: boolean;
+    error?: string;
+  }> => {
+    // Format date helper (Date to DD/MM/YYYY string)
+    const formatDateToString = (date: Date): string => {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = String(date.getFullYear());
+      return `${day}/${month}/${year}`;
+    };
+
+    // Check if file has stored date range - use those first
     if (file.startDate && file.endDate) {
+      const start = new Date(file.startDate);
+      const end = new Date(file.endDate);
+      const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+      // Detect if this is a discrete sampling file
+      const fileName = file.fileName.toLowerCase();
+      const isDiscrete = fileName.includes('crop') || fileName.includes('chem') ||
+                         fileName.includes('wq') || fileName.includes('edna');
+
       return {
-        start: new Date(file.startDate),
-        end: new Date(file.endDate)
+        totalDays,
+        startDate: formatDateToString(start),
+        endDate: formatDateToString(end),
+        uniqueDates: file.uniqueDates || undefined,
+        isCrop: isDiscrete || file.isDiscrete
       };
     }
-    return null;
+
+    // If no stored dates, analyze the CSV file
+    const { analyzeCSVDateRange } = await import('@/lib/csv-date-analyzer');
+    return analyzeCSVDateRange(file);
   }, []);
 
   // Handle file upload initiation
@@ -323,12 +353,14 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     setIsUploadingFiles(true);
     try {
       for (const file of pendingUploadFiles) {
-        await fileStorageService.uploadFile({
+        const result = await fileStorageService.uploadFile(
+          { type: targetType, id: targetId },
           file,
-          pinId: targetType === 'pin' ? targetId : undefined,
-          areaId: targetType === 'area' ? targetId : undefined,
           projectId
-        });
+        );
+        if (!result) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
       }
 
       toast({
@@ -353,6 +385,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
 
   // Handle file click (open in modal)
   const handleFileClick = useCallback(async (file: PinFile & { pinLabel: string }) => {
+    console.log('[handleFileClick] Called with file:', file.fileName, 'filePath:', file.filePath);
     try {
       // Determine file type from filename
       let fileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA' = 'GP';
@@ -401,12 +434,15 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
         .filter((c): c is string => c !== undefined);
 
       // Download file content
+      console.log('[handleFileClick] Downloading file from:', file.filePath);
       const fileContent = await fileStorageService.downloadFile(file.filePath);
+      console.log('[handleFileClick] Download result:', fileContent ? `Got blob (${fileContent.size} bytes)` : 'null');
       if (fileContent) {
         const actualFile = new File([fileContent], file.fileName, {
           type: file.fileType || 'text/csv'
         });
 
+        console.log('[handleFileClick] Setting modal state, fileType:', fileType);
         setSelectedFileType(fileType);
         setSelectedFiles([actualFile]);
         setSelectedFileMetadata({
@@ -418,6 +454,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
         });
         setShowMarineDeviceModal(true);
       } else {
+        console.error('[handleFileClick] Download returned null');
         toast({
           variant: 'destructive',
           title: 'Download Failed',

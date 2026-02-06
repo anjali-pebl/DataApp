@@ -16,7 +16,14 @@ export interface SourceTileProps {
   source: string;
   label: string;
   files: any[];
-  getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
+  getFileDateRange: (file: PinFile) => Promise<{
+    totalDays: number | null;
+    startDate: string | null;
+    endDate: string | null;
+    uniqueDates?: string[];
+    isCrop?: boolean;
+    error?: string;
+  }>;
   onFileClick: (file: PinFile & { pinLabel: string }) => void;
   onRenameFile: (file: any, newName: string) => Promise<boolean>;
   onDeleteFile: (file: any) => Promise<void>;
@@ -220,6 +227,7 @@ export function SourceTile({
         }}
       >
         <DataTimeline
+          key={`${projectId}-${label}`}
           files={filteredFiles}
           getFileDateRange={getFileDateRange}
           onFileClick={onFileClick}

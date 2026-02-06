@@ -11,7 +11,14 @@ export interface ProjectDataContentProps {
   isLoading: boolean;
   filteredFiles: any[];
   allFiles: any[];
-  getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
+  getFileDateRange: (file: PinFile) => Promise<{
+    totalDays: number | null;
+    startDate: string | null;
+    endDate: string | null;
+    uniqueDates?: string[];
+    isCrop?: boolean;
+    error?: string;
+  }>;
   onFileClick: (file: PinFile & { pinLabel: string }) => void;
   onRenameFile: (file: any, newName: string) => Promise<boolean>;
   onDeleteFile: (file: any) => Promise<void>;

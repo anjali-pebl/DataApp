@@ -1277,16 +1277,23 @@ export async function updateCsvFileAction(fileId: string, csvContent: string): P
       };
     }
 
-    // Update the updated_at timestamp in the database to invalidate caches
-    console.log('[Data Explorer Actions] Updating file timestamp for cache invalidation...');
+    // Update the updated_at timestamp and clear stored date fields to force re-analysis
+    console.log('[Data Explorer Actions] Updating file timestamp and clearing stored dates for re-analysis...');
     const { error: timestampError } = await supabase
       .from('pin_files')
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        updated_at: new Date().toISOString(),
+        // Clear stored dates so they get re-analyzed from the edited CSV content
+        start_date: null,
+        end_date: null,
+        is_discrete: null,
+        unique_dates: null
+      })
       .eq('id', fileId);
 
     if (timestampError) {
-      console.warn('[Data Explorer Actions] Failed to update timestamp (non-critical):', timestampError);
-      // Don't fail the whole operation if timestamp update fails
+      console.warn('[Data Explorer Actions] Failed to update timestamp/clear dates (non-critical):', timestampError);
+      // Don't fail the whole operation if update fails
     }
 
     console.log('[Data Explorer Actions] CSV file updated successfully');
