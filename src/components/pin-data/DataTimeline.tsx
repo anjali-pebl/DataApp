@@ -17,7 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { getMergedFilesByProjectAction } from '@/app/api/merged-files/actions';
 import type { MergedFile } from '@/lib/supabase/merged-files-service';
 import { categorizeFile } from '@/lib/file-categorization-config';
-import { createPairedTimelineEntries, type PairedTimelineEntry } from '@/lib/fpod-file-pairing';
+import { createPairedTimelineEntries, type PairedTimelineEntry, getFpodBaseName, getFpodSuffix } from '@/lib/fpod-file-pairing';
 
 // Lazy load MergeFilesDialog - only loads when user clicks merge button
 const MergeFilesDialog = dynamic(
@@ -631,6 +631,38 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       }
     });
   }, [allFilesWithDates, sortOrder]);
+
+  // Build lookup: for _24hr files, find date range from the paired _std file
+  const avgDateLabelMap = useMemo(() => {
+    const map = new Map<string, string>(); // fileId → "24hr average over dd-MM-yy to dd-MM-yy"
+
+    // Index _std files by base name
+    const stdDatesByBase = new Map<string, { startDate: string | null; endDate: string | null }>();
+    for (const fwd of allFilesWithDates) {
+      if (getFpodSuffix(fwd.file.fileName) === 'std') {
+        const base = getFpodBaseName(fwd.file.fileName);
+        if (base && (fwd.dateRange.startDate || fwd.dateRange.endDate)) {
+          stdDatesByBase.set(base, { startDate: fwd.dateRange.startDate, endDate: fwd.dateRange.endDate });
+        }
+      }
+    }
+
+    // For each _24hr file, look up the paired _std dates
+    for (const fwd of allFilesWithDates) {
+      if (getFpodSuffix(fwd.file.fileName) === '24hr') {
+        const base = getFpodBaseName(fwd.file.fileName);
+        if (base) {
+          const stdDates = stdDatesByBase.get(base);
+          if (stdDates?.startDate && stdDates?.endDate) {
+            const startStr = formatCompactDate(stdDates.startDate);
+            const endStr = formatCompactDate(stdDates.endDate);
+            map.set(fwd.file.id, `24hr average over ${startStr} to ${endStr}`);
+          }
+        }
+      }
+    }
+    return map;
+  }, [allFilesWithDates]);
 
   // Helper function to extract prefix from pin label
   const getPinPrefix = (pinLabel: string): string => {
@@ -1749,6 +1781,17 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                           )}
                         </td>
 
+                        {/* Date columns: for _24hr avg files, show label in duration column */}
+                        {avgDateLabelMap.has(file.id) ? (
+                        <>
+                          <td className="px-2 text-center bg-muted/5 align-middle"><span className="text-muted-foreground">-</span></td>
+                          <td className="px-2 text-center bg-muted/5 align-middle"><span className="text-muted-foreground">-</span></td>
+                          <td className="px-2 text-center bg-muted/5 align-middle">
+                            <span className="text-[11px] text-muted-foreground italic">{avgDateLabelMap.get(file.id)}</span>
+                          </td>
+                        </>
+                        ) : (
+                        <>
                         {/* Start Date */}
                         <td className="px-2 text-center bg-muted/5 align-middle">
                           {dateRange.loading ? (
@@ -1792,6 +1835,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                             );
                           })()}
                         </td>
+                        </>
+                        )}
                       </tr>
                     );
                   })

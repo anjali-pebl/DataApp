@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Brush, Tooltip as RechartsTooltip, ReferenceLine, ReferenceArea } from 'recharts';
 import SunCalc from 'suncalc';
 import { format, parseISO, isValid } from 'date-fns';
+import { formatDateUTC } from '@/lib/timezone-utils';
 import { HexColorPicker } from 'react-colorful';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -3582,17 +3583,17 @@ export function PinChartDisplay({
                 </span>
               ))}
 
-              {/* Date range for 24hr avg plots - shown after category with "within" */}
+              {/* Date range for 24hr avg plots - "within" between badge and dates */}
               {showDateTimeAxis && (startDate || endDate) && (
                 <>
-                  <span className="font-normal italic">within</span>
+                  <span className="font-normal italic text-muted-foreground">within</span>
                   <span className="font-normal">
                     {startDate && endDate
-                      ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                      ? `${formatDateUTC(startDate, 'MMM d, yyyy')} - ${formatDateUTC(endDate, 'MMM d, yyyy')}`
                       : startDate
-                      ? format(startDate, 'MMM d, yyyy')
+                      ? formatDateUTC(startDate, 'MMM d, yyyy')
                       : endDate
-                      ? format(endDate, 'MMM d, yyyy')
+                      ? formatDateUTC(endDate, 'MMM d, yyyy')
                       : ''}
                   </span>
                 </>

@@ -2673,12 +2673,6 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
                       <span className="text-xs text-muted-foreground">Common</span>
                       <AlignHorizontalJustifyCenter className="h-4 w-4 text-muted-foreground" />
                     </div>
-                  ) : plots.some(p => p.hideBrush || p.fileType === 'FPOD') ? (
-                    <div className="bg-muted/50 border rounded px-3 py-1.5 flex items-center gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        Mouse-over chart area for actual values
-                      </p>
-                    </div>
                   ) : (
                     <div className="flex-1" />
                   )}

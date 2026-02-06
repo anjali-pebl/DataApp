@@ -422,9 +422,13 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
       let startDate: Date | undefined;
       let endDate: Date | undefined;
 
-      if (dateRange) {
-        startDate = dateRange.start;
-        endDate = dateRange.end;
+      if (dateRange?.startDate) {
+        const [d, m, y] = dateRange.startDate.split('/').map(Number);
+        startDate = new Date(Date.UTC(y, m - 1, d));
+      }
+      if (dateRange?.endDate) {
+        const [d, m, y] = dateRange.endDate.split('/').map(Number);
+        endDate = new Date(Date.UTC(y, m - 1, d));
       }
 
       // Extract categories
@@ -731,10 +735,22 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
 
       setSelectedFileType('FPOD');
       setSelectedFiles([stdActualFile, avgActualFile]);
+      // Parse DD/MM/YYYY strings from dateRange into Date objects
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+      if (dateRange?.startDate) {
+        const [d, m, y] = dateRange.startDate.split('/').map(Number);
+        startDate = new Date(Date.UTC(y, m - 1, d));
+      }
+      if (dateRange?.endDate) {
+        const [d, m, y] = dateRange.endDate.split('/').map(Number);
+        endDate = new Date(Date.UTC(y, m - 1, d));
+      }
+
       setSelectedFileMetadata({
         pinLabel,
-        startDate: dateRange?.start,
-        endDate: dateRange?.end,
+        startDate,
+        endDate,
         fileCategories: categorizeFile(stdFile.fileName)
           .map(c => c.category)
           .filter((c): c is string => c !== undefined),
@@ -772,7 +788,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
         onUpload={handleInitiateFileUpload}
       />
 
-      <div className="px-6 py-3">
+      <div className="flex-shrink-0 px-6 py-3">
         <ProjectDataFilters
           projectStats={projectStats}
           hasActiveFilters={hasActiveFilters}
