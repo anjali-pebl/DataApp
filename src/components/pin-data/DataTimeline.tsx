@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, differenceInDays, parseISO, isValid, getYear } from 'date-fns';
+import { isValid } from 'date-fns';
+import { formatDateUTC, parseDateToUTC, startOfMonthUTC, endOfMonthUTC, eachMonthOfIntervalUTC, differenceInDaysUTC } from '@/lib/timezone-utils';
 import { Info, Calendar, BarChart3, Trash2, Check, X, PlayCircle, ArrowUpDown, ArrowUp, ArrowDown, MoreVertical, FileText, Pencil, Clock, Loader2, Layers, Combine, Upload, AlertCircle, Plus, CheckCircle2, Table } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -138,44 +139,25 @@ const SkeletonTableRow = ({ index }: { index: number }) => (
 );
 
 // Helper function to safely format dates with validation
+// Uses UTC methods to avoid local timezone shifting dates by ±1 day
 const safeFormatDate = (dateValue: string | Date | null | undefined, formatString: string): string => {
   if (!dateValue) return 'Unknown';
 
   try {
-    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
-    if (!isValid(date)) return 'Unknown';
-    return format(date, formatString);
+    const date = typeof dateValue === 'string' ? parseDateToUTC(dateValue) || new Date(dateValue) : dateValue;
+    if (!date || !isValid(date)) return 'Unknown';
+    return formatDateUTC(date, formatString);
   } catch (error) {
     console.error('[DataTimeline] Invalid date format:', dateValue, error);
     return 'Unknown';
   }
 };
 
-// Helper function to parse various date formats to proper Date
+// Helper function to parse various date formats to a UTC Date object.
+// Uses Date.UTC() to create timezone-independent dates at UTC midnight.
+// This ensures dates display correctly regardless of the viewer's timezone.
 const parseCustomDate = (dateString: string): Date | null => {
-  if (!dateString) return null;
-
-  // Handle DD/MM/YYYY format (from CSV files)
-  const slashParts = dateString.split('/');
-  if (slashParts.length === 3) {
-    const [day, month, year] = slashParts;
-    const standardFormat = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    const parsed = parseISO(standardFormat);
-    return isValid(parsed) ? parsed : null;
-  }
-
-  // Handle ISO format yyyy-mm-dd (standard ISO date format)
-  const dashParts = dateString.split('-');
-  if (dashParts.length === 3) {
-    const [year, month, day] = dashParts;
-    const standardFormat = `${year}-${month}-${day}`;
-    const parsed = parseISO(standardFormat);
-    return isValid(parsed) ? parsed : null;
-  }
-
-  // Try standard parsing as fallback
-  const standardParsed = parseISO(dateString);
-  return isValid(standardParsed) ? standardParsed : null;
+  return parseDateToUTC(dateString);
 };
 
 // Helper function to calculate correct duration from corrected dates
@@ -187,18 +169,18 @@ const getCorrectDuration = (startDateString: string | null, endDateString: strin
 
   if (!startDate || !endDate) return null;
 
-  return differenceInDays(endDate, startDate) + 1;
+  return differenceInDaysUTC(endDate, startDate) + 1;
 };
 
-// Helper function to format date as YY-MM-DD
+// Helper function to format date as DD-MM-YY
+// Uses UTC methods to avoid local timezone shifting dates
 const formatCompactDate = (dateString: string | null): string => {
   if (!dateString) return '-';
 
   const date = parseCustomDate(dateString);
   if (!date) return dateString; // Return original if can't parse
 
-  // Format as YY-MM-DD
-  return format(date, 'yy-MM-dd');
+  return formatDateUTC(date, 'dd-MM-yy');
 };
 
 // Helper function to check if file is a merged file
@@ -849,16 +831,24 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       let totalDays: number | null = null;
 
       // Get dates from file if available (from database)
+      // Use UTC methods to avoid local timezone shifting dates by ±1 day
       if (file.startDate && file.endDate) {
-        const start = new Date(file.startDate);
-        const end = new Date(file.endDate);
+        const startStr = file.startDate instanceof Date
+          ? formatDateUTC(file.startDate, 'yyyy-MM-dd')
+          : String(file.startDate).split('T')[0]; // Strip time if ISO string
+        const endStr = file.endDate instanceof Date
+          ? formatDateUTC(file.endDate, 'yyyy-MM-dd')
+          : String(file.endDate).split('T')[0];
 
-        // Format dates as YYYY-MM-DD
-        startDate = format(start, 'yyyy-MM-dd');
-        endDate = format(end, 'yyyy-MM-dd');
+        startDate = startStr;
+        endDate = endStr;
 
-        // Calculate duration
-        totalDays = differenceInDays(end, start) + 1;
+        // Calculate duration using UTC dates
+        const start = parseDateToUTC(startStr);
+        const end = parseDateToUTC(endStr);
+        if (start && end) {
+          totalDays = differenceInDaysUTC(end, start) + 1;
+        }
       }
 
       return {
@@ -929,25 +919,23 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
     const dataMaxDate = new Date(Math.max(...allEndDates.map(d => d.getTime())));
 
     // Always expand timeline to show full months so month cells are never cut off
-    const minDate = startOfMonth(dataMinDate);
-    const maxDate = endOfMonth(dataMaxDate);
+    // Use UTC versions to avoid local timezone shifting months
+    const minDate = startOfMonthUTC(dataMinDate);
+    const maxDate = endOfMonthUTC(dataMaxDate);
 
     // Generate ALL months between minDate and maxDate for proper alignment
     // This ensures month headers align with the timeline bars
-    const months = eachMonthOfInterval({
-      start: minDate,
-      end: maxDate
-    });
+    const months = eachMonthOfIntervalUTC(minDate, maxDate);
 
     // Generate year headers based on actual data months
     const years: Array<{year: number, startMonth: number, monthCount: number}> = [];
     if (months.length > 0) {
-      let currentYear = getYear(months[0]);
+      let currentYear = months[0].getUTCFullYear();
       let startMonth = 0;
       let monthCount = 0;
 
       months.forEach((month, index) => {
-        const monthYear = getYear(month);
+        const monthYear = month.getUTCFullYear();
         if (monthYear === currentYear) {
           monthCount++;
         } else {
@@ -963,7 +951,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       }
     }
 
-    const totalDays = differenceInDays(maxDate, minDate) + 1;
+    const totalDays = differenceInDaysUTC(maxDate, minDate) + 1;
 
     return { months, years, minDate, maxDate, totalDays };
   }, [sortedFilesWithDates, mergedGroups, showMergedView]);
@@ -986,8 +974,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       return { left: 0, width: 0 };
     }
 
-    const daysFromStart = differenceInDays(startDate, timelineData.minDate);
-    const barDuration = differenceInDays(endDate, startDate) + 1;
+    const daysFromStart = differenceInDaysUTC(startDate, timelineData.minDate);
+    const barDuration = differenceInDaysUTC(endDate, startDate) + 1;
 
     const left = Math.max(0, (daysFromStart / timelineData.totalDays) * 100);
     const width = Math.max(0.1, (barDuration / timelineData.totalDays) * 100);
@@ -1005,7 +993,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       const samplingDate = parseCustomDate(dateStr);
       if (!samplingDate) return null;
 
-      const daysFromStart = differenceInDays(samplingDate, timelineData.minDate);
+      const daysFromStart = differenceInDaysUTC(samplingDate, timelineData.minDate);
       const barDuration = 1; // Each bar is 1 day
 
       const left = Math.max(0, (daysFromStart / timelineData.totalDays) * 100);
@@ -1029,8 +1017,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
       return { left: 0, width: 0 };
     }
 
-    const daysFromStart = differenceInDays(startDate, timelineData.minDate);
-    const barDuration = differenceInDays(endDate, startDate) + 1;
+    const daysFromStart = differenceInDaysUTC(startDate, timelineData.minDate);
+    const barDuration = differenceInDaysUTC(endDate, startDate) + 1;
 
     const left = Math.max(0, (daysFromStart / timelineData.totalDays) * 100);
     const width = Math.max(0.1, (barDuration / timelineData.totalDays) * 100);
@@ -1047,10 +1035,11 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
     if (!start || !end) return '';
 
-    const startMonth = format(start, 'MMM');
-    const endMonth = format(end, 'MMM');
-    const startYear = format(start, 'yyyy');
-    const endYear = format(end, 'yyyy');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const startMonth = monthNames[start.getUTCMonth()];
+    const endMonth = monthNames[end.getUTCMonth()];
+    const startYear = String(start.getUTCFullYear());
+    const endYear = String(end.getUTCFullYear());
 
     // Same month and year
     if (startMonth === endMonth && startYear === endYear) {
@@ -1841,7 +1830,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                   <div className="relative mb-3">
                     <div className="h-7 flex items-center justify-center mb-2" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
-                        Timeline ({format(timelineData.minDate!, 'MMM yyyy')} - {format(timelineData.maxDate!, 'MMM yyyy')})
+                        Timeline ({formatDateUTC(timelineData.minDate!, 'MMM yyyy')} - {formatDateUTC(timelineData.maxDate!, 'MMM yyyy')})
                       </h4>
                     </div>
 
@@ -1854,7 +1843,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                             // Calculate width based on number of months this year spans
                             const yearMonths = timelineData.months.slice(yearData.startMonth, yearData.startMonth + yearData.monthCount);
                             const yearDays = yearMonths.reduce((total, month) => {
-                              return total + differenceInDays(endOfMonth(month), startOfMonth(month)) + 1;
+                              return total + differenceInDaysUTC(endOfMonthUTC(month), startOfMonthUTC(month)) + 1;
                             }, 0);
                             const widthPercent = (yearDays / timelineData.totalDays) * 100;
                             const isLast = index === timelineData.years.length - 1;
@@ -1880,9 +1869,9 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                       <div className="relative h-5 bg-muted/10 overflow-hidden">
                         <div className="flex h-full w-full">
                           {timelineData.months.map((month, index) => {
-                            const monthStart = startOfMonth(month);
-                            const monthEnd = endOfMonth(month);
-                            const monthDuration = differenceInDays(monthEnd, monthStart) + 1;
+                            const monthStart = startOfMonthUTC(month);
+                            const monthEnd = endOfMonthUTC(month);
+                            const monthDuration = differenceInDaysUTC(monthEnd, monthStart) + 1;
                             const widthPercent = (monthDuration / timelineData.totalDays) * 100;
 
                             const isLast = index === timelineData.months.length - 1;
@@ -1895,10 +1884,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                   minWidth: timelineData.months.length <= 6 ? '20px' : '12px',
                                   borderRight: timelineData.months.length > 1 && !isLast ? '1.5px solid rgba(0,0,0,0.12)' : 'none'
                                 }}
-                                title={format(month, 'MMMM yyyy')}
+                                title={formatDateUTC(month, 'MMMM yyyy')}
                               >
                                 <span className="text-muted-foreground font-medium text-[10px] truncate">
-                                  {format(month, 'MM')}
+                                  {formatDateUTC(month, 'MM')}
                                 </span>
                               </div>
                             );
@@ -2003,10 +1992,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                       {/* Month gridlines */}
                       <div className="absolute inset-0 pointer-events-none">
                         {timelineData.months.map((month, monthIdx) => {
-                          const monthStart = startOfMonth(month);
-                          const monthEnd = endOfMonth(month);
-                          const monthDuration = differenceInDays(monthEnd, monthStart) + 1;
-                          const daysFromTimelineStart = differenceInDays(monthStart, timelineData.minDate!);
+                          const monthStart = startOfMonthUTC(month);
+                          const monthEnd = endOfMonthUTC(month);
+                          const monthDuration = differenceInDaysUTC(monthEnd, monthStart) + 1;
+                          const daysFromTimelineStart = differenceInDaysUTC(monthStart, timelineData.minDate!);
                           const left = (daysFromTimelineStart / timelineData.totalDays) * 100;
 
                           return (
@@ -2296,10 +2285,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                       {/* Month gridlines */}
                       <div className="absolute inset-0 pointer-events-none">
                         {timelineData.months.map((month, monthIdx) => {
-                          const monthStart = startOfMonth(month);
-                          const monthEnd = endOfMonth(month);
-                          const monthDuration = differenceInDays(monthEnd, monthStart) + 1;
-                          const daysFromTimelineStart = differenceInDays(monthStart, timelineData.minDate!);
+                          const monthStart = startOfMonthUTC(month);
+                          const monthEnd = endOfMonthUTC(month);
+                          const monthDuration = differenceInDaysUTC(monthEnd, monthStart) + 1;
+                          const daysFromTimelineStart = differenceInDaysUTC(monthStart, timelineData.minDate!);
                           const left = (daysFromTimelineStart / timelineData.totalDays) * 100;
 
                           return (

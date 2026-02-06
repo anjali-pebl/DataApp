@@ -552,17 +552,24 @@ function parseDataRow(
 
   // Special handling for eDNA Meta files without time columns
   // These files have concentration data but no timestamps - use filename date instead
+  // ONLY inject filename date when the file has NO real date column detected
+  // (timeColumnIndex === 0 means fallback/default, not a real match)
+  // If a real date column exists but this row's cell is empty, skip the row instead
+  // of injecting a synthetic date that creates phantom timeline entries
   const isEdnaMetaFile = fileName &&
     fileName.toLowerCase().includes('edna') &&
     (fileName.toLowerCase().includes('_meta') || fileName.toLowerCase().includes('_metadata'));
 
-  if (!hasValidTime && isEdnaMetaFile && fileName) {
+  const hasRealDateColumn = timeColumnIndex > 0 ||
+    headers[timeColumnIndex]?.toLowerCase().includes('date') ||
+    headers[timeColumnIndex]?.toLowerCase().includes('time');
+
+  if (!hasValidTime && isEdnaMetaFile && fileName && !hasRealDateColumn) {
     // Extract date from filename (e.g., "NORF_EDNAS_ALL_2507" → "2025-07-01")
     const extractedDate = extractEdnaDate(fileName);
     if (extractedDate) {
       dataPoint.time = extractedDate.toISOString();
       hasValidTime = true;
-      // console.log('[CSV PARSER] eDNA Meta file: Injected synthetic date from filename:', dataPoint.time);
     }
   }
 

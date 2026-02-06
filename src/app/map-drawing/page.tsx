@@ -2770,6 +2770,7 @@ function MapDrawingPageContent() {
         })
         .filter((d): d is Date => d !== null && !isNaN(d.getTime()));
 
+
       // SANITY CHECK: Extract expected date range from filename
       // E.g., "ALGA_CROP_F_L_2503-2506" means March 2025 (2503) to June 2025 (2506)
       // Support both hyphen and underscore separators (e.g., 2503-2506 or 2504_2506)
@@ -2818,10 +2819,11 @@ function MapDrawingPageContent() {
       const endDate = dates[dates.length - 1];
 
       // Format dates in DD/MM/YYYY format for CSV files
+      // Use UTC methods since parsed dates are UTC midnight - local getDate() shifts back 1 day
       const formatDateForCSV = (date: Date): string => {
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = String(date.getFullYear()); // Full 4-digit year
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const year = String(date.getUTCFullYear());
         return `${day}/${month}/${year}`;
       };
 
@@ -2836,7 +2838,7 @@ function MapDrawingPageContent() {
         // Get unique dates (date-only, ignoring time)
         const uniqueDateSet = new Set<string>();
         dates.forEach(date => {
-          const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          const dateOnly = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
           uniqueDateSet.add(formatDateForCSV(dateOnly));
         });
         uniqueDates = Array.from(uniqueDateSet).sort((a, b) => {

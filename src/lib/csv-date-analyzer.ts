@@ -221,10 +221,11 @@ export async function analyzeCSVDateRange(file: PinFile): Promise<DateRangeResul
     const endDate = dates[dates.length - 1];
 
     // Format dates in DD/MM/YYYY format for CSV files
+    // Use UTC methods since parsed dates are UTC midnight - local getDate() shifts back 1 day
     const formatDateForCSV = (date: Date): string => {
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = String(date.getFullYear()); // Full 4-digit year
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = String(date.getUTCFullYear());
       return `${day}/${month}/${year}`;
     };
 
@@ -239,7 +240,7 @@ export async function analyzeCSVDateRange(file: PinFile): Promise<DateRangeResul
       // Get unique dates (date-only, ignoring time)
       const uniqueDateSet = new Set<string>();
       dates.forEach(date => {
-        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const dateOnly = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
         uniqueDateSet.add(formatDateForCSV(dateOnly));
       });
       uniqueDates = Array.from(uniqueDateSet).sort((a, b) => {
