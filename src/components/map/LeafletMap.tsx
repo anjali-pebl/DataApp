@@ -191,9 +191,9 @@ const shouldShowLabel = (
                 return true;
             }
 
-            // Area is nested - check if parent area covers 25%+ of viewport
+            // Area is nested - check if parent area covers 10%+ of viewport
             const coverage = calculateAreaViewportCoverage(containingArea, mapRef);
-            const visible = coverage >= 25;
+            const visible = coverage >= 10;
             if (debugLabel) {
                 console.log(`[Visibility] Nested area "${debugLabel}": parent="${containingArea.label}" coverage=${coverage.toFixed(1)}% visible=${visible}`);
             }
@@ -226,9 +226,9 @@ const shouldShowLabel = (
             return true;
         }
 
-        // Object is inside an area - check if area covers 25%+ of viewport
+        // Object is inside an area - check if area covers 10%+ of viewport
         const coverage = calculateAreaViewportCoverage(containingArea, mapRef);
-        const visible = coverage >= 25;
+        const visible = coverage >= 10;
         if (debugLabel) {
             console.log(`[Visibility] ${objectType} "${debugLabel}": inside="${containingArea.label}" coverage=${coverage.toFixed(1)}% visible=${visible}`);
         }

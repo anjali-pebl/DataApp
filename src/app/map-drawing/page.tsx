@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { format, parseISO, isValid, startOfDay, formatISO, subDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { categorizeFile } from '@/lib/file-categorization-config';
 
 import { Separator } from '@/components/ui/separator';
 import {
@@ -3811,27 +3812,20 @@ function MapDrawingPageContent() {
   }, [pinMeteoData]);
 
   // Helper function to categorize files by type
-  const categorizeFiles = (files: File[]) => {
-    const categories = {
-      GP: [] as File[],
-      FPOD: [] as File[],
-      Subcam: [] as File[]
-    };
+  const categorizeFiles = (files: File[]): Record<string, File[]> => {
+    const categories: Record<string, File[]> = {};
 
     files.forEach(file => {
-      const fileName = file.name.toLowerCase();
-      const parts = fileName.split('_');
-      const position0 = parts[0]?.toLowerCase() || '';
-      const position1 = parts[1]?.toLowerCase() || '';
-
-      console.log(`[CATEGORIZE FILES] ${file.name} → detected in positions (pos0: ${position0}, pos1: ${position1})`);
-
-      if (position0.includes('gp') || position1.includes('gp')) {
-        categories.GP.push(file);
-      } else if (position0.includes('fpod') || position1.includes('fpod')) {
-        categories.FPOD.push(file);
-      } else if (position0.includes('subcam') || position1.includes('subcam')) {
-        categories.Subcam.push(file);
+      const matches = categorizeFile(file.name);
+      if (matches.length > 0) {
+        const tiles = new Set(matches.map(m => m.tile));
+        tiles.forEach(tile => {
+          if (!categories[tile]) categories[tile] = [];
+          categories[tile].push(file);
+        });
+      } else {
+        if (!categories['Other']) categories['Other'] = [];
+        categories['Other'].push(file);
       }
     });
 
@@ -5486,8 +5480,8 @@ function MapDrawingPageContent() {
                         </Popover>
                       )}
                       
-                      {/* Data Dropdown Button - Only for Pins */}
-                      {'lat' in itemToEdit && (
+                      {/* Data Dropdown Button - For Pins and Areas */}
+                      {('lat' in itemToEdit || ('path' in itemToEdit && 'fillVisible' in itemToEdit)) && (
                         <div className="relative" data-data-dropdown>
                           <Button
                             variant="outline"
@@ -5531,7 +5525,13 @@ function MapDrawingPageContent() {
                           </Button>
                           
                           {/* Data Dropdown Menu */}
-                          {showDataDropdown && (
+                          {showDataDropdown && (() => {
+                            // Resolve correct file metadata source for pins vs areas
+                            const isArea = 'fillVisible' in itemToEdit && 'path' in itemToEdit;
+                            const itemFileMetadata = isArea ? areaFileMetadata : pinFileMetadata;
+                            const itemFileCount = (itemFileMetadata[itemToEdit.id]?.length || 0) + (isArea ? 0 : (pinFiles[itemToEdit.id]?.length || 0));
+                            const itemLabel = isArea ? 'area' : 'pin';
+                            return (
                             <div className={`absolute top-full mt-1 bg-background border rounded-lg shadow-lg z-[1200] p-1 ${showMeteoDataSection ? 'w-[800px] right-0' : 'w-72 left-0'}`}>
                               {/* Explore Data Dropdown */}
                               <div className="relative" data-explore-dropdown>
@@ -5539,11 +5539,10 @@ function MapDrawingPageContent() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => {
-                                    const fileCount = (pinFileMetadata[itemToEdit.id]?.length || 0) + (pinFiles[itemToEdit.id]?.length || 0);
-                                    if (fileCount === 0) {
+                                    if (itemFileCount === 0) {
                                       toast({
                                         title: "No Data Available",
-                                        description: "No files uploaded for this pin yet."
+                                        description: `No files uploaded for this ${itemLabel} yet.`
                                       });
                                       return;
                                     }
@@ -5555,9 +5554,9 @@ function MapDrawingPageContent() {
                                   <div className="flex items-center gap-2">
                                     <BarChart3 className="h-3 w-3" />
                                     <span>
-                                      Explore data 
-                                      <span className={`ml-1 font-semibold ${((pinFileMetadata[itemToEdit.id]?.length || 0) + (pinFiles[itemToEdit.id]?.length || 0)) > 0 ? 'text-green-600' : ''}`}>
-                                        ({(pinFileMetadata[itemToEdit.id]?.length || 0) + (pinFiles[itemToEdit.id]?.length || 0)} {((pinFileMetadata[itemToEdit.id]?.length || 0) + (pinFiles[itemToEdit.id]?.length || 0)) === 1 ? 'file' : 'files'})
+                                      Explore data
+                                      <span className={`ml-1 font-semibold ${itemFileCount > 0 ? 'text-green-600' : ''}`}>
+                                        ({itemFileCount} {itemFileCount === 1 ? 'file' : 'files'})
                                       </span>
                                     </span>
                                   </div>
@@ -5568,8 +5567,8 @@ function MapDrawingPageContent() {
                                 {showExploreDropdown && selectedPinForExplore === itemToEdit.id && (
                                   <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] max-h-[400px] overflow-y-auto bg-background border rounded-lg shadow-lg z-[1300] p-1">
                                     {(() => {
-                                      // Use files from database only (no more local files duplication)
-                                      const dbFiles = pinFileMetadata[selectedPinForExplore] || [];
+                                      // Use files from database only - resolve correct source for pins vs areas
+                                      const dbFiles = (isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore] || [];
                                       
                                       // Convert database files to File-like objects for categorization
                                       const dbFilesAsFileObjects = dbFiles.map(f => ({
@@ -5624,7 +5623,7 @@ function MapDrawingPageContent() {
                                             <div className="ml-4 space-y-0.5">
                                               {files.map((file, idx) => {
                                                 // Check if this file has metadata (is from database)
-                                                const dbMetadata = pinFileMetadata[selectedPinForExplore]?.find(
+                                                const dbMetadata = ((isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore])?.find(
                                                   meta => meta.fileName === file.name
                                                 );
                                                 
@@ -5707,8 +5706,9 @@ function MapDrawingPageContent() {
                                                                 
                                                                 if (success) {
                                                                   console.log('Delete successful, updating UI...');
-                                                                  // Update the state immediately to remove the file from UI
-                                                                  setPinFileMetadata(prev => ({
+                                                                  // Update the correct metadata state for pins vs areas
+                                                                  const setMetadata = isArea ? setAreaFileMetadata : setPinFileMetadata;
+                                                                  setMetadata(prev => ({
                                                                     ...prev,
                                                                     [selectedPinForExplore]: prev[selectedPinForExplore]?.filter(f => f.id !== dbMetadata.id) || []
                                                                   }));
@@ -5946,7 +5946,7 @@ function MapDrawingPageContent() {
                                 </div>
                               )}
                             </div>
-                          )}
+                          ); })()}
                         </div>
                       )}
                     </div>
@@ -6641,7 +6641,7 @@ function MapDrawingPageContent() {
           <>
             {/* Sidebar - always present but translated off-screen when closed */}
             <div
-              className={`fixed left-0 bg-background border-r shadow-xl z-[1600] transform transition-transform duration-300 ease-in-out overflow-y-auto ${
+              className={`fixed left-0 bg-background border-r shadow-xl z-[1600] transform transition-transform duration-300 ease-in-out overflow-visible ${
                 showMainMenu ? 'translate-x-0' : '-translate-x-full'
               }`}
               style={{
@@ -6681,7 +6681,7 @@ function MapDrawingPageContent() {
                 </>
               )}
               
-              <div className="p-4">
+              <div className="p-4 overflow-y-auto h-full">
                   {/* Header */}
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-semibold">Menu</h2>
@@ -6925,7 +6925,6 @@ function MapDrawingPageContent() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setCurrentProjectContext(activeProjectId);
-                                    setProjectNameEdit(dynamicProjects[activeProjectId]?.name || '');
                                     setShowProjectSettingsDialog(true);
                                   }}
                                 >
@@ -7420,7 +7419,6 @@ function MapDrawingPageContent() {
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               setCurrentProjectContext(key);
-                                              setProjectNameEdit(dynamicProjects[key]?.name || '');
                                               setShowProjectSettingsDialog(true);
                                             }}
                                           >
