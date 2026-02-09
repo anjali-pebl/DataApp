@@ -7268,10 +7268,6 @@ function MapDrawingPageContent() {
                     {/* Projects Dropdown */}
                     {showProjectsDropdown && (
                       <div className="ml-4 space-y-1 border-l-2 border-muted pl-4">
-                        <div className="text-xs text-muted-foreground mb-2">
-                          <strong>Active:</strong> {dynamicProjects[activeProjectId]?.name || 'None'}
-                        </div>
-                        
                         {/* Sort projects with active project first */}
                         {Object.entries(dynamicProjects)
                           .sort(([keyA], [keyB]) => {
@@ -7293,19 +7289,9 @@ function MapDrawingPageContent() {
                                     ? 'bg-accent/20 border border-accent/40' 
                                     : 'bg-muted/30'
                                 }`}>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <div className="font-medium text-sm truncate">{location.name}</div>
-                                        {activeProjectId === key && (
-                                          <Crosshair className="h-3 w-3 text-accent flex-shrink-0" />
-                                        )}
-                                        {totalObjects > 0 && (
-                                          <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded flex-shrink-0">
-                                            {totalObjects}
-                                          </span>
-                                        )}
-                                      </div>
+                                  <div className="min-w-0 shrink">
+                                    <div className="space-y-0.5">
+                                      <div className="font-medium text-sm leading-tight">{location.name}</div>
                                       {activeProjectId === key && (
                                         <div className="text-xs font-medium text-accent">
                                           Active Project
@@ -7313,56 +7299,18 @@ function MapDrawingPageContent() {
                                       )}
                                     </div>
                                   </div>
-                                  
+
                                   {/* Actions */}
-                                  <div className="flex items-center gap-1 ml-2">
-                                    {/* Expand/Collapse Arrow */}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowProjectMenuInfo(showProjectMenuInfo === key ? null : key);
-                                      }}
-                                      className="h-6 w-6 p-0"
-                                    >
-                                      {showProjectMenuInfo === key ? (
-                                        <ChevronDown className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                                      ) : (
-                                        <ChevronRight className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                                      )}
-                                    </Button>
-                                    
-                                    {/* Visibility Toggle */}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleProjectVisibility(key);
-                                      }}
-                                      className="h-6 w-6 p-0"
-                                    >
-                                      {projectVisibility[key] ? (
-                                        <Eye className="h-3 w-3 text-primary" />
-                                      ) : (
-                                        <EyeOff className="h-3 w-3 text-muted-foreground" />
-                                      )}
-                                    </Button>
-                                    
-                                    {/* Activate/Visit Button */}
-                                    {activeProjectId === key ? (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          goToProjectLocation(key);
-                                        }}
-                                        className="h-6 px-2 text-xs"
-                                      >
-                                        Visit
-                                      </Button>
-                                    ) : (
+                                  <div className="flex items-center gap-1 ml-auto shrink-0">
+                                    {/* Object Count Badge */}
+                                    {totalObjects > 0 && (
+                                      <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                                        {totalObjects}
+                                      </span>
+                                    )}
+
+                                    {/* Activate Button (non-active projects only) */}
+                                    {activeProjectId !== key && (
                                       <Button
                                         variant="outline"
                                         size="sm"
@@ -7372,6 +7320,37 @@ function MapDrawingPageContent() {
                                         Activate
                                       </Button>
                                     )}
+
+                                    {/* Chevron + Zoom grouped tight */}
+                                    <div className="flex items-center -gap-px">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowProjectMenuInfo(showProjectMenuInfo === key ? null : key);
+                                        }}
+                                        className="h-6 w-5 p-0"
+                                      >
+                                        {showProjectMenuInfo === key ? (
+                                          <ChevronDown className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                                        ) : (
+                                          <ChevronRight className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                                        )}
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          goToProjectLocation(key);
+                                        }}
+                                        className="h-6 w-5 p-0"
+                                        title="Zoom to project"
+                                      >
+                                        <Crosshair className="h-3 w-3 text-accent" />
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                                 

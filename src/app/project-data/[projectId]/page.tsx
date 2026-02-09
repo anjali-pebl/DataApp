@@ -147,8 +147,49 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
       ...file,
       fileSource: 'upload' as const
     }));
-    return [...uploadedFiles, ...mergedFiles];
-  }, [getProjectFiles, mergedFiles]);
+
+    // Transform merged files to PinFile-compatible shape so they display and sort correctly
+    const mergedWithSource = mergedFiles.map(file => {
+      // Find all source files to check if they span multiple locations
+      const sourceFiles = uploadedFiles.filter(uf => file.sourceFileIds?.includes(uf.id));
+      const uniqueLabels = new Set(sourceFiles.map(sf => sf.pinLabel));
+
+      let pinLabel: string;
+      if (uniqueLabels.size > 1) {
+        pinLabel = 'All Locations';
+      } else if (uniqueLabels.size === 1) {
+        pinLabel = [...uniqueLabels][0];
+      } else {
+        // Fallback: resolve from the merged file's own pinId
+        const pin = pins.find(p => p.id === file.pinId);
+        const area = areas.find(a => a.id === file.pinId);
+        pinLabel = pin?.label || area?.label || 'Merged Files';
+      }
+
+      // Find a source file to inherit metadata from (fileType, etc.)
+      const sourceFile = sourceFiles[0];
+
+      return {
+        id: file.id,
+        pinId: file.pinId,
+        areaId: undefined,
+        fileName: file.fileName,
+        filePath: file.filePath,
+        fileSize: file.fileSize,
+        fileType: sourceFile?.fileType || file.fileType || 'text/csv',
+        uploadedAt: new Date(file.createdAt),
+        projectId: file.projectId,
+        startDate: file.startDate ? new Date(file.startDate) : undefined,
+        endDate: file.endDate ? new Date(file.endDate) : undefined,
+        isDiscrete: sourceFile?.isDiscrete || false,
+        uniqueDates: sourceFile?.uniqueDates,
+        pinLabel,
+        fileSource: 'merged' as const,
+      };
+    });
+
+    return [...uploadedFiles, ...mergedWithSource];
+  }, [getProjectFiles, mergedFiles, pins, areas]);
 
   // Compute global pin color map
   const globalPinColorMap = useMemo(() => {

@@ -45,8 +45,8 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
     setIsLoadingMergedFiles(true);
     try {
       const result = await getMergedFilesByProjectAction(idToUse);
-      if (result.success && result.files) {
-        setMergedFiles(result.files);
+      if (result.success && result.data) {
+        setMergedFiles(result.data);
       } else {
         console.error('Failed to fetch merged files:', result.error);
         setMergedFiles([]);

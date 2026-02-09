@@ -661,6 +661,14 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         }
       }
     }
+
+    // For merged 24hr files, show no dates
+    for (const fwd of allFilesWithDates) {
+      if (isMergedFile(fwd.file) && fwd.file.fileName.toLowerCase().includes('24hr')) {
+        map.set(fwd.file.id, '');
+      }
+    }
+
     return map;
   }, [allFilesWithDates]);
 
@@ -2099,8 +2107,8 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                 );
               })}
 
-              {/* INDIVIDUAL VIEW: Show individual files */}
-              {!showMergedView && sortedFilesWithDates.map((fileWithDate, index) => {
+              {/* INDIVIDUAL VIEW: Show individual files (exclude all merged files from timeline) */}
+              {!showMergedView && sortedFilesWithDates.filter(f => !isMergedFile(f.file)).map((fileWithDate, index) => {
                 const { file, dateRange } = fileWithDate;
                 const color = pinColorMap.get(file.pinLabel) || COLORS[0];
 

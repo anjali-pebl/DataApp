@@ -374,21 +374,29 @@ export default function DataExplorerPage() {
 
   // Transform userFiles to DataTimeline format
   const filesForTimeline = useMemo<(PinFile & { pinLabel: string })[]>(() => {
-    return userFiles.map((file) => ({
-      id: file.id,
-      pinId: file.pinId,
-      fileName: file.fileName,
-      filePath: '', // Not needed for display
-      fileSize: 0, // Not available from UserFileDetails
-      fileType: file.deviceType,
-      uploadedAt: file.uploadedAt,
-      projectId: file.projectId || 'default', // Provide default if null
-      startDate: file.startDate || undefined,
-      endDate: file.endDate || undefined,
-      pinLabel: file.objectLabel || 'Unknown Pin',
-      isDiscrete: false,
-      fileSource: file.fileSource, // Preserve fileSource to identify merged files
-    } as any));
+    return userFiles.map((file) => {
+      // Detect discrete sampling files from filename (same logic as project-data page)
+      const fileNameLower = file.fileName.toLowerCase();
+      const isDiscreteFromName = fileNameLower.includes('crop') || fileNameLower.includes('chem') ||
+                                  fileNameLower.includes('wq') || fileNameLower.includes('edna');
+
+      return {
+        id: file.id,
+        pinId: file.pinId,
+        fileName: file.fileName,
+        filePath: '', // Not needed for display
+        fileSize: 0, // Not available from UserFileDetails
+        fileType: file.deviceType,
+        uploadedAt: file.uploadedAt,
+        projectId: file.projectId || 'default', // Provide default if null
+        startDate: file.startDate || undefined,
+        endDate: file.endDate || undefined,
+        pinLabel: file.objectLabel || 'Unknown Pin',
+        isDiscrete: isDiscreteFromName || file.isDiscrete || false,
+        uniqueDates: file.uniqueDates,
+        fileSource: file.fileSource, // Preserve fileSource to identify merged files
+      } as any;
+    });
   }, [userFiles]);
 
   // File operation callbacks for DataTimeline

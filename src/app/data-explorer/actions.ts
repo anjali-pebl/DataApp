@@ -14,6 +14,8 @@ export interface UserFileDetails {
   projectId: string | null
   startDate: Date | null
   endDate: Date | null
+  isDiscrete?: boolean
+  uniqueDates?: string[]
   fileSource?: 'regular' | 'merged' // Add fileSource to identify merged files
 }
 
@@ -89,7 +91,7 @@ export async function getAllUserFilesAction(): Promise<{
       console.log(`[Data Explorer Actions] 🔍 Fetching files for ${pinIds.length} pins...`);
       const { data: pinFilesData, error: filesError } = await supabase
         .from('pin_files')
-        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date')
+        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date, is_discrete, unique_dates')
         .in('pin_id', pinIds)
         .order('file_name', { ascending: true });
 
@@ -111,7 +113,7 @@ export async function getAllUserFilesAction(): Promise<{
       console.log(`[Data Explorer Actions] 🔍 Fetching files for ${areaIds.length} areas...`);
       const { data: areaFilesData, error: areaFilesError } = await supabase
         .from('pin_files')
-        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date')
+        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date, is_discrete, unique_dates')
         .in('area_id', areaIds)
         .order('file_name', { ascending: true });
 
@@ -185,6 +187,8 @@ export async function getAllUserFilesAction(): Promise<{
         projectId: item.project_id,
         startDate: item.start_date ? new Date(item.start_date) : null,
         endDate: item.end_date ? new Date(item.end_date) : null,
+        isDiscrete: item.is_discrete || false,
+        uniqueDates: item.unique_dates || undefined,
         fileSource: 'regular' as const
       };
     });
