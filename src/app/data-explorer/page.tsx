@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import React, { useState, useEffect, useCallback, useRef, useMemo, useId } from "react";
 
 
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import type { DateRange } from "react-day-picker";
 import { format, formatISO, subDays, addDays, subMonths } from 'date-fns';
@@ -16,7 +17,7 @@ import {
   Loader2, Info, CheckCircle2, XCircle, Copy, CloudSun, Anchor,
   Thermometer, Wind as WindIcon, Compass as CompassIcon, Sailboat, Timer as TimerIcon, ListChecks, FilePenLine,
   ChevronsLeft, ChevronsRight, Home, LayoutGrid, FileText, ChevronDown, ChevronRight, Database, Eye, FolderOpen, Bookmark,
-  Trash2, MoreVertical, Clock, AlertTriangle, FolderOpenDot
+  Trash2, MoreVertical, Clock, AlertTriangle, FolderOpenDot, ArrowLeft, ExternalLink, Filter, X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -74,6 +75,7 @@ import { DataTimeline } from '@/components/pin-data/DataTimeline';
 import PinMarineDeviceData from '@/components/pin-data/PinMarineDeviceData';
 import type { PinFile } from '@/lib/supabase/file-storage-service';
 import { getAllUserFilesAction, renameFileAction, deleteFileAction, fetchFileDataAction, downloadFileAction, type UserFileDetails } from './actions';
+import { categorizeFile, TILE_NAMES } from '@/lib/file-categorization-config';
 
 interface PlotConfig {
   id: string;
@@ -148,6 +150,9 @@ export default function DataExplorerPage() {
 
   // Section visibility states
   const [showDataOverview, setShowDataOverview] = useState(false);
+  // Data Overview filters
+  const [filterLocation, setFilterLocation] = useState<string>('all');
+  const [filterDataType, setFilterDataType] = useState<string>('all');
   const [showMarineMeteoData, setShowMarineMeteoData] = useState(false);
   const [showMarineDeviceData, setShowMarineDeviceData] = useState(false);
   const [showSavedPlots, setShowSavedPlots] = useState(true);
@@ -156,6 +161,22 @@ export default function DataExplorerPage() {
   // Project context for saved plots
   const { activeProject: persistentActiveProject, setActiveProject: setPersistentActiveProject, isLoading: isLoadingActiveProject } = useActiveProject();
   const activeProjectId = persistentActiveProject || 'default';
+
+  // Derive display name for active project
+  const activeProjectName = useMemo(() => {
+    if (!persistentActiveProject || persistentActiveProject === 'default') return '';
+    const loc = knownOmLocations[persistentActiveProject.toLowerCase()];
+    if (loc) return loc.name;
+    // Fallback: format slug nicely
+    return persistentActiveProject
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/_/g, ' ')
+      .replace(/-/g, ' ')
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+      .trim();
+  }, [persistentActiveProject]);
 
   // Saved Plots Dialog state
   const [showLoadPlotViewDialog, setShowLoadPlotViewDialog] = useState(false);
@@ -398,6 +419,60 @@ export default function DataExplorerPage() {
       } as any;
     });
   }, [userFiles]);
+
+  // Derive available locations and data types from files for filtering
+  const availableLocations = useMemo(() => {
+    const locMap = new Map<string, string>();
+    userFiles.forEach(f => {
+      if (f.projectId) {
+        const loc = knownOmLocations[f.projectId.toLowerCase()];
+        const displayName = loc?.name || f.projectId
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/_/g, ' ').replace(/-/g, ' ')
+          .split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ').trim();
+        locMap.set(f.projectId, displayName);
+      }
+    });
+    return Array.from(locMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [userFiles]);
+
+  const availableDataTypes = useMemo(() => {
+    const typeSet = new Set<string>();
+    userFiles.forEach(f => {
+      const matches = categorizeFile(f.fileName);
+      if (matches.length > 0) {
+        matches.forEach(m => typeSet.add(m.tile));
+      } else {
+        typeSet.add('Other');
+      }
+    });
+    // Sort by TILE_NAMES order, then append 'Other' at end
+    const ordered: string[] = [...TILE_NAMES].filter(t => typeSet.has(t));
+    if (typeSet.has('Other')) ordered.push('Other');
+    return ordered;
+  }, [userFiles]);
+
+  // Filtered files for DataTimeline
+  const filteredFilesForTimeline = useMemo(() => {
+    return filesForTimeline.filter(file => {
+      // Location filter
+      if (filterLocation !== 'all') {
+        const originalFile = userFiles.find(uf => uf.id === file.id);
+        if (originalFile?.projectId !== filterLocation) return false;
+      }
+      // Data type filter
+      if (filterDataType !== 'all') {
+        const matches = categorizeFile(file.fileName);
+        const tiles = matches.map(m => m.tile);
+        if (filterDataType === 'Other') {
+          if (matches.length > 0) return false;
+        } else {
+          if (!tiles.includes(filterDataType)) return false;
+        }
+      }
+      return true;
+    });
+  }, [filesForTimeline, userFiles, filterLocation, filterDataType]);
 
   // File operation callbacks for DataTimeline
   const handleFileClick = useCallback(async (file: PinFile & { pinLabel: string }) => {
@@ -1052,8 +1127,42 @@ export default function DataExplorerPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
+      {/* Page Header */}
+      <header className="flex-shrink-0 border-b border-border bg-background">
+        <div className="container mx-auto px-2 sm:px-3 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link href="/map-drawing">
+              <Button variant="ghost" size="sm" className="h-8 px-2">
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                <span className="text-sm">Back to Map</span>
+              </Button>
+            </Link>
+            <div className="h-6 w-px bg-border" />
+            <div className="flex items-center gap-1.5">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <h1 className="font-semibold text-base">Data Explorer</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {activeProjectName && (
+              <span className="text-muted-foreground text-sm">
+                Active Project: <span className="font-medium text-foreground">{activeProjectName}</span>
+              </span>
+            )}
+            {persistentActiveProject && persistentActiveProject !== 'default' && (
+              <Link href={`/project-data/${persistentActiveProject}`}>
+                <Button variant="outline" size="sm" className="h-8 px-3 flex items-center gap-1.5">
+                  <Database className="h-3.5 w-3.5" />
+                  <span className="text-sm">Project Data Files</span>
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </header>
+
       <main className="flex-grow container mx-auto p-2 sm:p-3 space-y-3">
-        
+
         {/* Data Overview Section */}
         <Card className="shadow-sm">
           <CardHeader className="pb-2 pt-3">
@@ -1093,11 +1202,45 @@ export default function DataExplorerPage() {
                 </div>
               ) : (
                 <DataTimeline
-                  files={filesForTimeline}
+                  files={filteredFilesForTimeline}
                   getFileDateRange={getFileDateRange}
                   onFileClick={handleFileClick}
                   onDeleteFile={handleDeleteFile}
                   onRenameFile={handleRenameFile}
+                  viewMode="table"
+                  toolbarExtra={
+                    <>
+                      <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <Select value={filterLocation} onValueChange={setFilterLocation}>
+                        <SelectTrigger className="h-6 w-auto min-w-[100px] text-xs font-medium px-2 py-0 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-foreground [&>span]:text-foreground">
+                          <SelectValue placeholder="All Projects" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Projects</SelectItem>
+                          {availableLocations.map(([id, name]) => (
+                            <SelectItem key={id} value={id}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={filterDataType} onValueChange={setFilterDataType}>
+                        <SelectTrigger className="h-6 w-auto min-w-[100px] text-xs font-medium px-2 py-0 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-foreground [&>span]:text-foreground">
+                          <SelectValue placeholder="All Data Types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Data Types</SelectItem>
+                          {availableDataTypes.map(type => (
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {(filterLocation !== 'all' || filterDataType !== 'all') && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={() => { setFilterLocation('all'); setFilterDataType('all'); }}>
+                          <X className="h-3 w-3 mr-1" />
+                          Clear
+                        </Button>
+                      )}
+                    </>
+                  }
                 />
               )}
             </CardContent>

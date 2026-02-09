@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { isValid } from 'date-fns';
 import { formatDateUTC, parseDateToUTC, startOfMonthUTC, endOfMonthUTC, eachMonthOfIntervalUTC, differenceInDaysUTC } from '@/lib/timezone-utils';
-import { Info, Calendar, BarChart3, Trash2, Check, X, PlayCircle, ArrowUpDown, ArrowUp, ArrowDown, MoreVertical, FileText, Pencil, Clock, Loader2, Layers, Combine, Upload, AlertCircle, Plus, CheckCircle2, Table } from 'lucide-react';
+import { Info, Calendar, BarChart3, Trash2, Check, X, PlayCircle, ArrowUpDown, ArrowUp, ArrowDown, MoreVertical, FileText, Pencil, Clock, Loader2, Layers, Combine, Upload, AlertCircle, Plus, CheckCircle2, Table, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
@@ -56,6 +56,7 @@ interface DataTimelineProps {
   pinColorMap?: Map<string, string>; // Optional external color map for consistent colors across tiles
   tileName?: string; // Name of the tile (e.g., 'FPOD') - used for file pairing
   onPairedFileClick?: (stdFile: PinFile & { pinLabel: string }, avgFile: PinFile & { pinLabel: string }) => void;
+  toolbarExtra?: React.ReactNode;
 }
 
 interface FileWithDateRange {
@@ -205,7 +206,7 @@ const parseFileGrouping = (fileName: string): { project: string; dataType: strin
   return { project, dataType, station, groupKey };
 };
 
-export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap, tileName, onPairedFileClick }: DataTimelineProps) {
+export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap, tileName, onPairedFileClick, toolbarExtra }: DataTimelineProps) {
   const { toast } = useToast();
   const [filesWithDates, setFilesWithDates] = useState<FileWithDateRange[]>([]);
   const [internalViewMode, setInternalViewMode] = useState<'table' | 'timeline'>('timeline');
@@ -1289,15 +1290,30 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
   if (filesWithDates.length === 0) {
     return (
-      <div className="text-center py-6 text-muted-foreground">
-        No data files to display
+      <div className="space-y-0">
+        {toolbarExtra && (
+          <div className="flex items-center p-2.5">
+            <div className="flex items-center gap-2">
+              {toolbarExtra}
+            </div>
+          </div>
+        )}
+        <div className="text-center py-6 text-muted-foreground">
+          <Filter className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No files match the selected filters</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-0">
-      <div className="flex items-center justify-between p-2.5">
+      <div className={`flex items-center p-2.5 ${toolbarExtra ? 'justify-between' : 'justify-start'}`}>
+        {toolbarExtra && (
+          <div className="flex items-center gap-2">
+            {toolbarExtra}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {/* Select All / Deselect All Toggle Button - Show when in merge mode or stack plot mode */}
           {(multiFileMergeMode || stackPlotMode) && (() => {
@@ -1480,15 +1496,15 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         <div className="space-y-1">
           {sortedAllFilesWithDates.length > 0 && (
             <div className="bg-white rounded p-3 transition-all duration-300 border">
-              <table className="w-full table-fixed border-collapse">
+              <table className="w-full border-collapse" style={{ tableLayout: 'auto' }}>
                 <thead>
                   <tr className="border-b border-border/30 text-xs font-medium text-muted-foreground">
-                    {(multiFileMergeMode || stackPlotMode) && <th className="text-left pb-2 pr-2 w-8"></th>}
-                    <th className="text-left pb-2 pr-2">Pin</th>
-                    <th className="text-left pb-2 pr-2">File Name</th>
-                    <th className="text-center pb-2 px-2 bg-muted/10 rounded-tl-sm">Start Date</th>
-                    <th className="text-center pb-2 px-2 bg-muted/10">End Date</th>
-                    <th className="text-center pb-2 px-2 bg-muted/10 rounded-tr-sm">Duration</th>
+                    {(multiFileMergeMode || stackPlotMode) && <th className="text-center pb-2 px-3 w-8"></th>}
+                    <th className="text-left pb-2 px-4 whitespace-nowrap">Pin</th>
+                    <th className="text-left pb-2 px-4">File Name</th>
+                    <th className="text-center pb-2 px-4 bg-muted/10 rounded-tl-sm whitespace-nowrap">Start Date</th>
+                    <th className="text-center pb-2 px-4 bg-muted/10 whitespace-nowrap">End Date</th>
+                    <th className="text-center pb-2 px-4 bg-muted/10 rounded-tr-sm whitespace-nowrap">Duration</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1513,24 +1529,26 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                           </td>
                         )}
 
-                        {/* Pin indicator / Merge icon */}
-                        <td className="pr-2 align-middle">
-                          {isMergedFile(file) ? (
-                            <Combine
-                              className="w-3 h-3 text-green-600"
-                              title="Merged File"
-                            />
-                          ) : (
-                            <div
-                              className="w-3 h-3 rounded-sm transition-transform hover:scale-110"
-                              style={{ backgroundColor: color }}
-                              title={file.pinLabel}
-                            />
-                          )}
+                        {/* Pin indicator + label */}
+                        <td className="px-4 align-middle whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            {isMergedFile(file) ? (
+                              <Combine
+                                className="w-3 h-3 text-green-600 shrink-0"
+                                title="Merged File"
+                              />
+                            ) : (
+                              <div
+                                className="w-3 h-3 rounded-sm shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                            )}
+                            <span className="text-xs text-muted-foreground">{file.pinLabel}</span>
+                          </div>
                         </td>
 
                         {/* File name - Clickable with menu */}
-                        <td className="pr-2 align-middle">
+                        <td className="px-4 align-middle">
                           {renamingFileId === file.id ? (
                             // Show rename input field when renaming
                             <div className="flex items-center gap-1">
@@ -1792,16 +1810,16 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                         {/* Date columns: for _24hr avg files, show label in duration column */}
                         {avgDateLabelMap.has(file.id) ? (
                         <>
-                          <td className="px-2 text-center bg-muted/5 align-middle"><span className="text-muted-foreground">-</span></td>
-                          <td className="px-2 text-center bg-muted/5 align-middle"><span className="text-muted-foreground">-</span></td>
-                          <td className="px-2 text-center bg-muted/5 align-middle">
+                          <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap"><span className="text-muted-foreground">-</span></td>
+                          <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap"><span className="text-muted-foreground">-</span></td>
+                          <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap">
                             <span className="text-[11px] text-muted-foreground italic">{avgDateLabelMap.get(file.id)}</span>
                           </td>
                         </>
                         ) : (
                         <>
                         {/* Start Date */}
-                        <td className="px-2 text-center bg-muted/5 align-middle">
+                        <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap">
                           {dateRange.loading ? (
                             <div className="relative inline-block">
                               <Shimmer className="h-3 w-12" />
@@ -1814,7 +1832,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                         </td>
 
                         {/* End Date */}
-                        <td className="px-2 text-center bg-muted/5 align-middle">
+                        <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap">
                           {dateRange.loading ? (
                             <div className="relative inline-block">
                               <Shimmer className="h-3 w-12" />
@@ -1827,7 +1845,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                         </td>
 
                         {/* Duration */}
-                        <td className="px-2 text-center bg-muted/5 align-middle">
+                        <td className="px-4 text-center bg-muted/5 align-middle whitespace-nowrap">
                           {dateRange.loading ? (
                             <div className="relative inline-block">
                               <Shimmer className="h-4 w-12 rounded" />
