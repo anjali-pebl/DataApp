@@ -352,19 +352,19 @@ export default function VideoComparisonModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-      <div className="bg-white rounded-lg shadow-2xl w-[98vw] max-w-[2000px] max-h-[95vh] overflow-hidden flex flex-col">
+      <div className="bg-card rounded-lg shadow-2xl w-[98vw] max-w-[2000px] max-h-[95vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+        <div className="flex items-center justify-between p-4 border-b bg-muted">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Video Comparison</h2>
-            <p className="text-sm text-gray-600">
+            <h2 className="text-xl font-bold text-foreground">Video Comparison</h2>
+            <p className="text-sm text-muted-foreground">
               {originalFilename} • Score: {activityScore.toFixed(1)} • Organisms: {organisms}
               {yolov8Detections.length > 0 && ` • YOLOv8 Detections: ${yolov8Detections.reduce((sum, d) => sum + d.count, 0)}`}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+            className="p-2 hover:bg-muted rounded-full transition-colors"
             aria-label="Close modal"
           >
             <X size={24} />
@@ -455,10 +455,10 @@ export default function VideoComparisonModal({
           {/* Motion Activity Timeline */}
           {activityData.length > 0 && (
             <div className="px-4 pt-3 pb-2">
-              <h3 className="text-xs font-semibold text-gray-700 mb-1">
+              <h3 className="text-xs font-semibold text-muted-foreground mb-1">
                 Motion Density Timeline (click to jump)
               </h3>
-              <div className="bg-white p-2 rounded border" style={{ cursor: 'pointer' }}>
+              <div className="bg-card p-2 rounded border" style={{ cursor: 'pointer' }}>
                 <ResponsiveContainer width="100%" height={70}>
                   <AreaChart data={activityData} onClick={handleChartClick}>
                     <defs>
@@ -467,17 +467,17 @@ export default function VideoComparisonModal({
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis
                       dataKey="time"
                       type="number"
                       domain={[0, duration || 30]}
                       tickFormatter={(value) => `${Math.floor(value)}s`}
-                      stroke="#9ca3af"
+                      stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '10px' }}
                     />
                     <YAxis
-                      stroke="#9ca3af"
+                      stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '10px' }}
                       tickFormatter={(value) => `${value.toFixed(0)}%`}
                     />
@@ -508,10 +508,10 @@ export default function VideoComparisonModal({
           {/* YOLOv8 Detection Timeline */}
           {yolov8Data.length > 0 && (
             <div className="px-4 pb-3">
-              <h3 className="text-xs font-semibold text-gray-700 mb-1">
+              <h3 className="text-xs font-semibold text-muted-foreground mb-1">
                 YOLOv8 Detection Timeline (click to jump)
               </h3>
-              <div className="bg-white p-2 rounded border" style={{ cursor: 'pointer' }}>
+              <div className="bg-card p-2 rounded border" style={{ cursor: 'pointer' }}>
                 <ResponsiveContainer width="100%" height={70}>
                   <AreaChart data={yolov8Data} onClick={handleChartClick}>
                     <defs>
@@ -520,17 +520,17 @@ export default function VideoComparisonModal({
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis
                       dataKey="time"
                       type="number"
                       domain={[0, duration || 30]}
                       tickFormatter={(value) => `${Math.floor(value)}s`}
-                      stroke="#9ca3af"
+                      stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '10px' }}
                     />
                     <YAxis
-                      stroke="#9ca3af"
+                      stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '10px' }}
                       label={{ value: 'Count', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
                     />
@@ -614,20 +614,20 @@ export default function VideoComparisonModal({
 
           {/* Video Info */}
           <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
-            <div className="text-center p-2 bg-white rounded border">
-              <p className="text-gray-600">Resolution</p>
+            <div className="text-center p-2 bg-card rounded border">
+              <p className="text-muted-foreground">Resolution</p>
               <p className="font-semibold">{videoInfo.resolution.width}×{videoInfo.resolution.height}</p>
             </div>
-            <div className="text-center p-2 bg-white rounded border">
-              <p className="text-gray-600">FPS</p>
+            <div className="text-center p-2 bg-card rounded border">
+              <p className="text-muted-foreground">FPS</p>
               <p className="font-semibold">{videoInfo.fps.toFixed(1)}</p>
             </div>
-            <div className="text-center p-2 bg-white rounded border">
-              <p className="text-gray-600">Frames</p>
+            <div className="text-center p-2 bg-card rounded border">
+              <p className="text-muted-foreground">Frames</p>
               <p className="font-semibold">{videoInfo.total_frames}</p>
             </div>
-            <div className="text-center p-2 bg-white rounded border">
-              <p className="text-gray-600">Duration</p>
+            <div className="text-center p-2 bg-card rounded border">
+              <p className="text-muted-foreground">Duration</p>
               <p className="font-semibold">{videoInfo.duration_seconds.toFixed(1)}s</p>
             </div>
           </div>

@@ -3615,7 +3615,7 @@ export function PinChartDisplay({
           {fileType === 'FPOD' && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground font-medium">Unit:</span>
-              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
                 <Button
                   variant={fpodUnitMode === 'DPM' ? 'default' : 'ghost'}
                   size="sm"
@@ -3640,7 +3640,7 @@ export function PinChartDisplay({
           {!isHaplotypeFile && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground font-medium">View:</span>
-              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
                 <Button
                   variant={viewMode === 'chart' ? 'default' : 'ghost'}
                   size="sm"
@@ -4206,7 +4206,7 @@ export function PinChartDisplay({
           <div className="flex-1 space-y-3">
       {/* Color Key - for nmax and FPOD chart view */}
       {(isSubcamNmaxFile || fileType === 'FPOD') && viewMode === 'chart' && visibleParameters.length > 0 && (
-        <div className="flex items-center gap-4 px-3 py-2 bg-white border rounded-md flex-wrap">
+        <div className="flex items-center gap-4 px-3 py-2 bg-card border rounded-md flex-wrap">
           {visibleParameters.map(param => {
             const state = parameterStates[param];
             if (!state) return null;
@@ -4219,7 +4219,7 @@ export function PinChartDisplay({
             return (
               <div key={param} className="flex items-center gap-1.5">
                 <div className="w-4 h-1 rounded-full" style={{ backgroundColor: colorValue }} />
-                <span className="text-xs text-gray-700">{displayName}</span>
+                <span className="text-xs text-muted-foreground">{displayName}</span>
               </div>
             );
           })}
@@ -4229,8 +4229,7 @@ export function PinChartDisplay({
         <div
           className={cn(
             "w-full p-2",
-            // Use white background for FPOD with nighttime shading, otherwise use card background
-            showDateTimeAxis ? "bg-white" : "bg-card",
+            "bg-card",
             !compactView && "border rounded-md"
           )}
           style={{
@@ -4254,7 +4253,6 @@ export function PinChartDisplay({
 <div style={{
               width: '100%',
               height: (visibleParameters.length > 1 && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD') ? 'calc(100% - 40px)' : '100%',
-              backgroundColor: showDateTimeAxis ? '#ffffff' : undefined
             }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
@@ -4265,12 +4263,12 @@ export function PinChartDisplay({
                   left: 0,
                   bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
                 }}
-                style={{ backgroundColor: showDateTimeAxis ? '#ffffff' : undefined }}
               >
                 <CartesianGrid
                   strokeDasharray="2 2"
                   stroke="hsl(var(--border))"
                   vertical={false}
+                  fill={showDateTimeAxis ? '#ffffff' : undefined}
                 />
 
                 {/* Nighttime shading for 24hr FPOD files */}

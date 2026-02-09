@@ -208,18 +208,18 @@ export function RarefactionChart({
     if (active && payload && payload.length > 0) {
       const data = payload[0].payload;
       return (
-        <div className="bg-white border border-gray-300 rounded-md p-3 shadow-lg">
+        <div className="bg-card border border-border rounded-md p-3 shadow-lg">
           <p className="font-semibold text-sm">{data.sampleName}</p>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-muted-foreground">
             Sample: <span className="font-medium">{data.x}</span>
           </p>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-muted-foreground">
             Cumulative species: <span className="font-medium">{data.y}</span>
           </p>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-muted-foreground">
             New species: <span className="font-medium">{data.newSpecies}</span>
           </p>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-muted-foreground">
             Discovery: <span className="font-medium">{data.percentage}%</span>
           </p>
         </div>
@@ -236,7 +236,7 @@ export function RarefactionChart({
             data={chartData}
             margin={{ top: 10, right: 20, left: 15, bottom: 40 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" opacity={0} />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0} />
             <XAxis
               dataKey="x"
               type="number"
@@ -247,10 +247,10 @@ export function RarefactionChart({
                 value: 'Samples',
                 position: 'insideBottom',
                 offset: -10,
-                style: { fontSize: 11, fontWeight: 500, fill: '#374151' }
+                style: { fontSize: 11, fontWeight: 500, fill: 'hsl(var(--foreground))' }
               }}
-              tick={{ fontSize: 11, fill: '#6b7280' }}
-              stroke="#9ca3af"
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+              stroke="hsl(var(--muted-foreground))"
             />
             <YAxis
               domain={[0, actualMaxY]}
@@ -260,10 +260,10 @@ export function RarefactionChart({
                 angle: -90,
                 position: 'insideLeft',
                 offset: yAxisTitleOffset,
-                style: { fontSize: 11, fontWeight: 500, fill: '#374151', textAnchor: 'middle' }
+                style: { fontSize: 11, fontWeight: 500, fill: 'hsl(var(--foreground))', textAnchor: 'middle' }
               }}
-              tick={{ fontSize: 11, fill: '#6b7280' }}
-              stroke="#9ca3af"
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+              stroke="hsl(var(--muted-foreground))"
             />
             <Tooltip content={<CustomTooltip />} />
 
@@ -330,26 +330,26 @@ export function RarefactionChart({
             position: 'absolute',
             top: `${legendYOffset}px`,
             right: `${legendXOffset}px`,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            border: '1px solid #d1d5db',
+            backgroundColor: 'hsl(var(--card))',
+            border: '1px solid hsl(var(--border))',
             borderRadius: '6px',
             padding: '8px 10px',
             fontSize: '11px',
             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
             zIndex: 10
           }}>
-            <div style={{ fontWeight: 600, marginBottom: '6px', color: '#374151' }}>Legend</div>
+            <div style={{ fontWeight: 600, marginBottom: '6px', color: 'hsl(var(--foreground))' }}>Legend</div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <div style={{ width: '16px', height: '3px', backgroundColor: '#4477AA', marginRight: '6px' }}></div>
-              <span style={{ color: '#374151' }}>Observed</span>
+              <span style={{ color: 'hsl(var(--foreground))' }}>Observed</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <div style={{ width: '16px', height: '3px', backgroundColor: '#228833', marginRight: '6px' }}></div>
-              <span style={{ color: '#374151' }}>Log Fit</span>
+              <span style={{ color: 'hsl(var(--foreground))' }}>Log Fit</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <div style={{ width: '16px', height: '3px', backgroundColor: '#CCBB44', marginRight: '6px', backgroundImage: 'linear-gradient(to right, #CCBB44 50%, transparent 50%)', backgroundSize: '8px 3px' }}></div>
-              <span style={{ color: '#374151' }}>Extrapolation</span>
+              <span style={{ color: 'hsl(var(--foreground))' }}>Extrapolation</span>
             </div>
           </div>
         )}
@@ -361,7 +361,7 @@ export function RarefactionChart({
         </summary>
         <div className="mt-2 max-h-48 overflow-y-auto">
           <table className="w-full text-xs">
-            <thead className="bg-gray-100 sticky top-0">
+            <thead className="bg-muted sticky top-0">
               <tr>
                 <th className="text-left p-1 text-xs">#</th>
                 <th className="text-left p-1 text-xs">Sample Name</th>
@@ -372,18 +372,18 @@ export function RarefactionChart({
             </thead>
             <tbody>
               {rarefactionCurve.dataPoints.map((point, idx) => (
-                <tr key={idx} className="border-t hover:bg-gray-50">
+                <tr key={idx} className="border-t hover:bg-muted/50">
                   <td className="p-1 text-xs">{idx + 1}</td>
                   <td className="p-1 font-mono text-xs">{point.sampleName}</td>
                   <td className="text-right p-1 text-xs">
                     {point.newSpecies > 0 ? (
                       <span className="text-green-700 font-medium">+{point.newSpecies}</span>
                     ) : (
-                      <span className="text-gray-400">0</span>
+                      <span className="text-muted-foreground">0</span>
                     )}
                   </td>
                   <td className="text-right p-1 font-medium text-xs">{point.cumulativeSpecies}</td>
-                  <td className="text-right p-1 text-gray-600 text-xs">
+                  <td className="text-right p-1 text-muted-foreground text-xs">
                     {((point.cumulativeSpecies / stats.totalSpecies) * 100).toFixed(1)}%
                   </td>
                 </tr>

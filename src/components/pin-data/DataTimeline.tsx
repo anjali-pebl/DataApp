@@ -1495,7 +1495,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
         {viewMode === 'table' && (
         <div className="space-y-1">
           {sortedAllFilesWithDates.length > 0 && (
-            <div className="bg-white rounded p-3 transition-all duration-300 border">
+            <div className="bg-card rounded p-3 transition-all duration-300 border">
               <table className="w-full border-collapse" style={{ tableLayout: 'auto' }}>
                 <thead>
                   <tr className="border-b border-border/30 text-xs font-medium text-muted-foreground">
@@ -1876,13 +1876,13 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
         {/* TIMELINE VIEW: Table-Based Layout */}
         {viewMode === 'timeline' && timelineData.months.length > 0 && (
-        <div className="relative bg-white rounded p-3 border">
+        <div className="relative bg-card rounded p-3 border">
           <table className="w-full table-fixed border-collapse">
             <thead>
               <tr>
                 {/* LEFT HEADER (35%): Data Files with Sort */}
                 <th className="w-[35%] align-top">
-                  <div className="h-7 flex items-center mb-2" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
+                  <div className="h-7 flex items-center mb-2" style={{ borderBottom: '1.5px solid hsl(var(--border))' }}>
                     <button
                       onClick={toggleSortOrder}
                       className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors cursor-pointer group"
@@ -1899,7 +1899,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                 {/* RIGHT HEADER (65%): Timeline */}
                 <th className="w-[65%] align-top">
                   <div className="relative mb-3">
-                    <div className="h-7 flex items-center justify-center mb-2" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
+                    <div className="h-7 flex items-center justify-center mb-2" style={{ borderBottom: '1.5px solid hsl(var(--border))' }}>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
                         Timeline ({formatDateUTC(timelineData.minDate!, 'MMM yyyy')} - {formatDateUTC(timelineData.maxDate!, 'MMM yyyy')})
                       </h4>
@@ -1908,7 +1908,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                     {/* Two-row header: Years and Months */}
                     <div className="relative overflow-hidden">
                       {/* Year row - uses flex layout for responsiveness */}
-                      <div className="relative h-5" style={{ borderBottom: '1.5px solid rgba(0,0,0,0.12)' }}>
+                      <div className="relative h-5" style={{ borderBottom: '1.5px solid hsl(var(--border))' }}>
                         <div className="flex h-full w-full">
                           {timelineData.years.map((yearData, index) => {
                             // Calculate width based on number of months this year spans
@@ -1926,7 +1926,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                 style={{
                                   width: `${widthPercent}%`,
                                   minWidth: '30px',
-                                  borderRight: timelineData.years.length > 1 && !isLast ? '1.5px solid rgba(0,0,0,0.15)' : 'none'
+                                  borderRight: timelineData.years.length > 1 && !isLast ? '1.5px solid hsl(var(--border))' : 'none'
                                 }}
                               >
                                 <span className="truncate">{yearData.year}</span>
@@ -1953,7 +1953,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                 style={{
                                   width: `${widthPercent}%`,
                                   minWidth: timelineData.months.length <= 6 ? '20px' : '12px',
-                                  borderRight: timelineData.months.length > 1 && !isLast ? '1.5px solid rgba(0,0,0,0.12)' : 'none'
+                                  borderRight: timelineData.months.length > 1 && !isLast ? '1.5px solid hsl(var(--border))' : 'none'
                                 }}
                                 title={formatDateUTC(month, 'MMMM yyyy')}
                               >

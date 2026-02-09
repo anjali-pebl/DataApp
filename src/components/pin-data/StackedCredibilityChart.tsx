@@ -63,17 +63,17 @@ export function StackedCredibilityChart({
       const total = verified + unverified;
 
       return (
-        <div className="bg-white border border-gray-300 rounded shadow-lg p-3">
+        <div className="bg-card border border-border rounded shadow-lg p-3">
           <p className="font-semibold text-sm mb-1">{label} Credibility</p>
-          <p className="text-sm text-blue-700">
+          <p className="text-sm text-blue-700 dark:text-blue-400">
             <span className="inline-block w-3 h-3 mr-1 rounded" style={{ backgroundColor: gbifTrueColor }}></span>
             GBIF Verified: {verified}
           </p>
-          <p className="text-sm text-orange-600">
+          <p className="text-sm text-orange-600 dark:text-orange-400">
             <span className="inline-block w-3 h-3 mr-1 rounded" style={{ backgroundColor: gbifFalseColor }}></span>
             GBIF Unverified: {unverified}
           </p>
-          <p className="text-sm font-semibold mt-1 pt-1 border-t border-gray-200">
+          <p className="text-sm font-semibold mt-1 pt-1 border-t border-border">
             Total: {total}
           </p>
         </div>
@@ -86,7 +86,7 @@ export function StackedCredibilityChart({
     <div className="relative w-full flex flex-col items-center" style={{ height }}>
       {/* Chart Title - centered over the chart */}
       <div className="text-center pt-4 mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">{customTitle}</h3>
+        <h3 className="text-lg font-semibold text-foreground">{customTitle}</h3>
       </div>
 
       {/* Chart and Legend Container */}
@@ -99,7 +99,7 @@ export function StackedCredibilityChart({
               margin={{ top: 20, right: 30, left: 50, bottom: 40 }}
               barCategoryGap="20%"
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="category"
                 tick={{ fontSize: 12 }}
@@ -150,18 +150,18 @@ export function StackedCredibilityChart({
         </div>
 
         {/* Legend - positioned to the right of chart */}
-        <div className="bg-white/80 border border-gray-300 rounded shadow-sm px-4 py-3 mt-8">
-          <p className="text-sm font-medium text-gray-700 mb-3">
+        <div className="bg-card/80 border border-border rounded shadow-sm px-4 py-3 mt-8">
+          <p className="text-sm font-medium text-foreground mb-3">
             Total Unique Species: {data.totalUniqueSpecies}
           </p>
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <span className="inline-block w-4 h-4 rounded" style={{ backgroundColor: gbifTrueColor }}></span>
-              <span className="text-sm text-gray-700">GBIF Verified</span>
+              <span className="text-sm text-muted-foreground">GBIF Verified</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="inline-block w-4 h-4 rounded" style={{ backgroundColor: gbifFalseColor }}></span>
-              <span className="text-sm text-gray-700">GBIF Unverified</span>
+              <span className="text-sm text-muted-foreground">GBIF Unverified</span>
             </div>
           </div>
         </div>

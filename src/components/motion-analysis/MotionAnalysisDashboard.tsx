@@ -357,11 +357,11 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Motion Analysis Dashboard</h1>
-          <p className="text-sm text-gray-600 mt-0.5">{data.length} videos analyzed</p>
+          <h1 className="text-2xl font-bold text-foreground">Motion Analysis Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{data.length} videos analyzed</p>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white border rounded-lg hover:bg-gray-50">
+          <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-card border rounded-lg hover:bg-muted">
             <Filter size={14} />
             Filters
           </button>
@@ -412,7 +412,7 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
       </div>
 
       {/* Comparison Table */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-card rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900">Video Rankings</h2>
           <div className="flex gap-2">
@@ -534,7 +534,7 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
       </div>
 
       {/* Small Multiples Grid */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-card rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900">Activity Patterns - Small Multiples</h2>
           <div className="flex gap-2">
@@ -575,7 +575,7 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
 
       {/* Scatter Plot */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-card rounded-lg shadow p-4">
           <h2 className="text-lg font-bold text-gray-900 mb-3">Activity Score vs Organisms</h2>
           <ResponsiveContainer width="100%" height={280}>
             <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
@@ -607,7 +607,7 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-card rounded-lg shadow p-4">
           <h2 className="text-lg font-bold text-gray-900 mb-3">Component Score Distribution</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart
@@ -643,7 +643,7 @@ export default function MotionAnalysisDashboard({ data }: MotionAnalysisDashboar
 
       {/* Detailed Video Panel */}
       {selectedVideo && (
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-card rounded-lg shadow p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-gray-900">
               {getVideoName(selectedVideo.video_info.filename)}

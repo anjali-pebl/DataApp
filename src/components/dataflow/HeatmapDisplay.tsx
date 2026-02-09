@@ -389,7 +389,7 @@ const HeatmapDisplayComponent = ({
 
   if (!data || data.length === 0 || series.length === 0 || processedData.uniqueDays.length === 0) {
     return (
-      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
+      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
         No data available for heatmap view. Check selected range.
       </div>
     );
@@ -434,48 +434,48 @@ const HeatmapDisplayComponent = ({
         <div
           ref={containerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="relative w-full h-full border rounded-md p-2 bg-white overflow-x-auto overflow-y-visible"
+          className="relative w-full h-full border rounded-md p-2 bg-card overflow-x-auto overflow-y-visible"
         >
           {/* Taxonomic Rank Legend - Top Right */}
-          <div className="absolute top-[6px] right-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-md shadow-sm z-10">
+          <div className="absolute top-[6px] right-2 px-3 py-2 bg-card/95 backdrop-blur-sm rounded-md shadow-sm z-10 border border-border">
             <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-gray-700">Taxonomic Ranks:</span>
+              <span className="font-semibold text-foreground">Taxonomic Ranks:</span>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
-                <span className="text-gray-600">Kingdom</span>
+                <span className="text-muted-foreground">Kingdom</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
-                <span className="text-gray-600">Phylum</span>
+                <span className="text-muted-foreground">Phylum</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
-                <span className="text-gray-600">Class</span>
+                <span className="text-muted-foreground">Class</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
-                <span className="text-gray-600">Order</span>
+                <span className="text-muted-foreground">Order</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
-                <span className="text-gray-600">Family</span>
+                <span className="text-muted-foreground">Family</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
-                <span className="text-gray-600">Genus</span>
+                <span className="text-muted-foreground">Genus</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
-                <span className="text-gray-600">Species</span>
+                <span className="text-muted-foreground">Species</span>
               </div>
-              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
                   <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
                   <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
-                <span className="text-gray-600">Parent-Child</span>
+                <span className="text-muted-foreground">Parent-Child</span>
               </div>
             </div>
           </div>
@@ -569,7 +569,7 @@ const HeatmapDisplayComponent = ({
                           style={{
                             fontWeight: isParentNode ? 600 : 'normal',
                             fontStyle: isParentNode ? 'italic' : 'normal',
-                            fill: isParentNode ? '#374151' : '#9ca3af'
+                            fill: isParentNode ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))'
                           }}
                         >
                           {cleanName}
@@ -633,7 +633,7 @@ const HeatmapDisplayComponent = ({
                           y1={parentY + yScale.bandwidth() / 2}
                           x2={lineX}
                           y2={childY + yScale.bandwidth() / 2}
-                          stroke="#9ca3af"
+                          stroke="hsl(var(--muted-foreground))"
                           strokeWidth={2}
                           strokeDasharray="3,3"
                           opacity={0.6}
@@ -682,7 +682,7 @@ const HeatmapDisplayComponent = ({
                                   width={xScale.bandwidth()}
                                   height={yScale.bandwidth()}
                                   fill="transparent"
-                                  stroke="#e5e7eb"
+                                  stroke="hsl(var(--border))"
                                   strokeWidth={0.5}
                                 />
                               </g>
@@ -763,8 +763,8 @@ const HeatmapDisplayComponent = ({
               transform: selectedCell.y > 200 ? 'translateY(-100%)' : 'none',
             }}
           >
-            <div className="bg-white border border-gray-200 rounded-lg shadow-xl p-3 max-w-xs">
-              <p className="font-bold text-sm text-gray-900">{format(parseISO(selectedCell.day), 'PPP')}</p>
+            <div className="bg-card border border-border rounded-lg shadow-xl p-3 max-w-xs">
+              <p className="font-bold text-sm text-foreground">{format(parseISO(selectedCell.day), 'PPP')}</p>
               <div className="flex items-center gap-1.5 mt-1">
                 {(() => {
                   const rank = getTaxonomicRank(selectedCell.species);
@@ -786,11 +786,11 @@ const HeatmapDisplayComponent = ({
                 })()}
               </div>
               <p className="text-sm mt-1">
-                <span className="text-gray-700">{stripRankSuffix(selectedCell.species)}:</span>{' '}
+                <span className="text-muted-foreground">{stripRankSuffix(selectedCell.species)}:</span>{' '}
                 <span className="font-semibold">{selectedCell.value > 0 ? selectedCell.value.toFixed(2) : 'No data'}</span>
               </p>
               {selectedCell.count > 0 && (
-                <p className="text-gray-500 text-xs">({selectedCell.count} {selectedCell.count === 1 ? 'record' : 'records'})</p>
+                <p className="text-muted-foreground text-xs">({selectedCell.count} {selectedCell.count === 1 ? 'record' : 'records'})</p>
               )}
               <div className="flex gap-2 mt-2">
                 {onShowInTree && (
@@ -799,7 +799,7 @@ const HeatmapDisplayComponent = ({
                     Show in Tree
                   </button>
                 )}
-                <button className="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 font-medium px-2 py-1 rounded border border-gray-200 transition-colors cursor-pointer"
+                <button className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground font-medium px-2 py-1 rounded border border-border transition-colors cursor-pointer"
                   onClick={() => setSelectedCell(null)}>
                   Close
                 </button>

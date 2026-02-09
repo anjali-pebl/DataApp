@@ -471,7 +471,7 @@ export function HaplotypeHeatmap({
 
   if (!haplotypeData || haplotypeData.species.length === 0) {
     return (
-      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
+      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
         No haplotype data available
       </div>
     );
@@ -507,7 +507,7 @@ export function HaplotypeHeatmap({
           </div>
         </div>
 
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
           No species match the selected filters
         </div>
       </div>
@@ -602,7 +602,7 @@ export function HaplotypeHeatmap({
         {/* View Mode Selector */}
         <div className="flex items-center gap-4 pb-3 border-b">
           <span className="text-sm font-medium">View Mode:</span>
-          <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+          <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
             <Button
               variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
               size="sm"
@@ -649,7 +649,7 @@ export function HaplotypeHeatmap({
           {viewMode === 'heatmap' && (
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-sm font-medium">Sort:</span>
-              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
                 <Button
                   variant={sortMode === 'hierarchical' ? 'default' : 'ghost'}
                   size="sm"
@@ -721,7 +721,7 @@ export function HaplotypeHeatmap({
         /* Rarefaction View */
         <div
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-4 bg-white overflow-auto flex items-center justify-center"
+          className="flex-1 w-full border rounded-md p-4 bg-card overflow-auto flex items-center justify-center"
         >
           <RarefactionChart
             haplotypeData={enrichedData}
@@ -763,47 +763,47 @@ export function HaplotypeHeatmap({
         <div
           ref={setContainerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-2 bg-white overflow-auto"
+          className="flex-1 w-full border rounded-md p-2 bg-card overflow-auto"
         >
           {/* Taxonomic Rank Legend (only in hierarchical mode) */}
           {sortMode === 'hierarchical' && (
-            <div className="flex flex-wrap items-center justify-end gap-3 text-xs mb-2 pb-2 pr-4 border-b border-gray-200">
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs mb-2 pb-2 pr-4 border-b border-border">
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
-                <span className="text-gray-600">Kingdom</span>
+                <span className="text-muted-foreground">Kingdom</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
-                <span className="text-gray-600">Phylum</span>
+                <span className="text-muted-foreground">Phylum</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
-                <span className="text-gray-600">Class</span>
+                <span className="text-muted-foreground">Class</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
-                <span className="text-gray-600">Order</span>
+                <span className="text-muted-foreground">Order</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
-                <span className="text-gray-600">Family</span>
+                <span className="text-muted-foreground">Family</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
-                <span className="text-gray-600">Genus</span>
+                <span className="text-muted-foreground">Genus</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
-                <span className="text-gray-600">Species</span>
+                <span className="text-muted-foreground">Species</span>
               </div>
-              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
                   <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
                   <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
-                <span className="text-gray-600">Parent-Child</span>
+                <span className="text-muted-foreground">Parent-Child</span>
               </div>
             </div>
           )}
@@ -827,7 +827,7 @@ export function HaplotypeHeatmap({
                     className="font-semibold"
                     style={{
                       fontSize: `${styles.yAxisTitleFontSize}px`,
-                      fill: '#374151'
+                      fill: 'hsl(var(--foreground))'
                     }}
                   >
                     Species Name
@@ -930,7 +930,7 @@ export function HaplotypeHeatmap({
                     className="font-semibold"
                     style={{
                       fontSize: `${styles.yAxisTitleFontSize}px`,
-                      fill: '#374151'
+                      fill: 'hsl(var(--foreground))'
                     }}
                   >
                     Site
@@ -973,7 +973,7 @@ export function HaplotypeHeatmap({
                         y1={parentY + yScale.bandwidth() / 2}
                         x2={lineX}
                         y2={childY - yScale.bandwidth() / 2}
-                        stroke="#9ca3af"
+                        stroke="hsl(var(--muted-foreground))"
                         strokeWidth={2}
                         strokeDasharray="3,3"
                         opacity={0.6}
@@ -1070,7 +1070,7 @@ export function HaplotypeHeatmap({
                             fontSize: `${styles.yAxisLabelFontSize}px`,
                             fontWeight: taxonInfo && !taxonInfo.node.isLeaf ? 600 : styles.yAxisTitleFontWeight,
                             fontStyle: taxonInfo && !taxonInfo.node.isLeaf ? 'italic' : 'normal',
-                            fill: taxonInfo && !taxonInfo.node.isLeaf ? '#374151' : '#1f2937'
+                            fill: taxonInfo && !taxonInfo.node.isLeaf ? 'hsl(var(--foreground))' : 'hsl(var(--foreground))'
                           }}
                           title={`${speciesName}${taxonInfo ? ` (${taxonInfo.rank})` : ''}`}
                         >
@@ -1097,7 +1097,7 @@ export function HaplotypeHeatmap({
                           dominantBaseline="middle"
                           style={{
                             fontSize: `${styles.yAxisLabelFontSize}px`,
-                            fill: isNotEvaluated ? '#d1d5db' : '#4b5563'
+                            fill: isNotEvaluated ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))'
                           }}
                         >
                           {shortStatus}
@@ -1155,7 +1155,7 @@ export function HaplotypeHeatmap({
                                   width={xScale.bandwidth()}
                                   height={yScale.bandwidth()}
                                   fill="transparent"
-                                  stroke="#e5e7eb"
+                                  stroke="hsl(var(--border))"
                                   strokeWidth={0.5}
                                 />
                               </g>
@@ -1224,7 +1224,7 @@ export function HaplotypeHeatmap({
                                   )}
                                   {metadata.taxonomySource && (
                                     <>
-                                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-gray-200">
+                                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                                         <span className="font-semibold">Taxonomy:</span> {metadata.taxonomySource.toUpperCase()}
                                         {metadata.taxonId && ` (ID: ${metadata.taxonId})`}
                                       </p>
@@ -1256,7 +1256,7 @@ export function HaplotypeHeatmap({
                                   )}
                                 </>
                               )}
-                              <p className="text-xs text-blue-600 mt-2 pt-2 border-t border-gray-200 cursor-pointer hover:underline">
+                              <p className="text-xs text-blue-600 mt-2 pt-2 border-t border-border cursor-pointer hover:underline">
                                 Click to show in Tree view
                               </p>
                             </TooltipContent>

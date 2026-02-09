@@ -253,7 +253,7 @@ export function StackedTaxonomyChart({
       const phylumColor = getPhylumColor(originalPhylum);
 
       return (
-        <div className="bg-white border border-gray-300 rounded shadow-lg p-3 max-w-xs">
+        <div className="bg-card border border-border rounded shadow-lg p-3 max-w-xs">
           <p className="font-semibold text-sm mb-2">{label}</p>
           <div className="flex items-center gap-2">
             <span
@@ -262,7 +262,7 @@ export function StackedTaxonomyChart({
             ></span>
             <div>
               <p className="font-medium text-sm">{hoveredEntry.dataKey}</p>
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-muted-foreground">
                 {count} taxa ({percentage.toFixed(1)}%)
               </p>
             </div>
@@ -278,7 +278,7 @@ export function StackedTaxonomyChart({
     <div className="relative w-full" style={{ height: styles.chartHeight, overflow: 'visible' }}>
       {/* Chart Title */}
       <div className="text-center pt-6 mb-2">
-        <h3 className="text-lg font-semibold text-gray-800">{customTitle}</h3>
+        <h3 className="text-lg font-semibold text-foreground">{customTitle}</h3>
       </div>
 
       {/* Stacked Bar Chart */}
@@ -294,7 +294,7 @@ export function StackedTaxonomyChart({
           barSize={styles.barSize}
           barCategoryGap={styles.barCategoryGap}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
 
           <XAxis
             dataKey="sample"
@@ -358,7 +358,7 @@ export function StackedTaxonomyChart({
                 <span
                   style={{
                     fontSize: '11px',
-                    color: isGrayedOut ? '#999' : '#333',
+                    color: isGrayedOut ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
                     fontWeight: isHovered ? 600 : 400,
                     cursor: 'pointer',
                     textDecoration: isHovered ? 'underline' : 'none'
@@ -445,7 +445,7 @@ export function StackedTaxonomyChart({
             <Info className="w-4 h-4" />
             <div className="flex flex-col items-start">
               <span className="font-semibold">Search Online</span>
-              <span className="text-xs text-gray-500">Open a Google search for this phylum</span>
+              <span className="text-xs text-muted-foreground">Open a Google search for this phylum</span>
             </div>
           </Button>
         </DialogContent>

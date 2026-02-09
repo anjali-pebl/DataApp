@@ -69,13 +69,13 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
       <div
         data-taxon-name={displayName}
         className={cn(
-          "flex items-center gap-1 py-0 px-1 hover:bg-gray-100 rounded cursor-pointer transition-colors",
+          "flex items-center gap-1 py-0 px-1 hover:bg-muted rounded cursor-pointer transition-colors",
           // CSV entry nodes: emerald background, full opacity
-          isCSVEntry && "bg-emerald-50 opacity-100",
+          isCSVEntry && "bg-emerald-50 dark:bg-emerald-950/30 opacity-100",
           // Parent-only nodes (not in CSV): semi-transparent
           !isCSVEntry && "opacity-25",
           // Highlighted taxon from heatmap "Show in Tree"
-          isHighlighted && "!bg-yellow-200 !opacity-100 ring-2 ring-yellow-400 rounded"
+          isHighlighted && "!bg-yellow-200 dark:!bg-yellow-900/40 !opacity-100 ring-2 ring-yellow-400 rounded"
         )}
         style={{ paddingLeft: `${indentation + 4}px` }}
         onClick={() => hasChildren && setIsExpanded(!isExpanded)}
@@ -84,9 +84,9 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
         <div className="w-3 h-3 flex items-center justify-center flex-shrink-0">
           {hasChildren && (
             isExpanded ? (
-              <ChevronDown className="w-3 h-3 text-gray-500" />
+              <ChevronDown className="w-3 h-3 text-muted-foreground" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-gray-500" />
+              <ChevronRight className="w-3 h-3 text-muted-foreground" />
             )
           )}
         </div>
@@ -109,11 +109,11 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
           className={cn(
             "flex-1 truncate",
             // CSV entry nodes: emerald color, bold
-            isCSVEntry && "font-semibold text-emerald-700",
-            // Non-CSV nodes: gray
-            !isCSVEntry && "text-gray-700",
+            isCSVEntry && "font-semibold text-emerald-700 dark:text-emerald-400",
+            // Non-CSV nodes: foreground
+            !isCSVEntry && "text-foreground",
             // ALL CSV entry nodes are clickable
-            isCSVEntry && "cursor-pointer hover:bg-gray-200/50 px-1 rounded transition-colors",
+            isCSVEntry && "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors",
             // Unrecognized taxon: special underline styling (no GBIF/WoRMS data)
             isUnrecognizedTaxon && "underline decoration-orange-500 decoration-2"
           )}
@@ -130,14 +130,14 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
 
         {/* Species Count Badge - show only for structural parent nodes (not CSV entries) */}
         {hasChildren && !isCSVEntry && (
-          <span className="text-[8px] bg-blue-100 text-blue-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
+          <span className="text-[8px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 px-1 py-0 rounded-full font-semibold flex-shrink-0">
             {node.speciesCount} {node.speciesCount === 1 ? 'sp.' : 'spp.'}
           </span>
         )}
 
         {/* Haplotype Count Badge - show only for eDNA data (when showHaplotypeBadges is true) */}
         {showHaplotypeBadges && isCSVEntry && node.siteOccurrences && totalHaplotypes > 0 && (
-          <span className="text-[8px] bg-purple-100 text-purple-700 px-1 py-0 rounded-full font-semibold flex-shrink-0">
+          <span className="text-[8px] bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400 px-1 py-0 rounded-full font-semibold flex-shrink-0">
             {totalHaplotypes} hapl.
           </span>
         )}
@@ -145,7 +145,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
         {/* Taxonomy Source and Confidence for CSV Entries - show for all CSV entries */}
         {isCSVEntry && node.source && (
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            <span className="text-[8px] text-gray-500">
+            <span className="text-[8px] text-muted-foreground">
               {node.source.toUpperCase()}
             </span>
             {node.confidence && (
@@ -161,7 +161,7 @@ function TreeNodeComponent({ node, level, onSpeciesClick, highlightedTaxon, show
 
       {/* Children */}
       {hasChildren && isExpanded && (
-        <div className="border-l border-gray-300 ml-1">
+        <div className="border-l border-border ml-1">
           {node.children.map((child, index) => (
             <TreeNodeComponent
               key={`${child.name}-${child.rank}-${index}`}
@@ -269,7 +269,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
 
   return (
     <div
-      className="flex flex-col bg-white border rounded-md overflow-auto"
+      className="flex flex-col bg-card border rounded-md overflow-auto"
       style={{ height: `${containerHeight}px` }}
     >
       {/* Tree Container */}
@@ -286,7 +286,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
             />
           ))
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-500 text-xs">
+          <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
             No species found
           </div>
         )}
@@ -310,7 +310,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               <Edit className="w-4 h-4" />
               <div className="flex flex-col items-start">
                 <span className="font-semibold">Edit in CSV</span>
-                <span className="text-xs text-gray-500">Open CSV editor to correct the species name</span>
+                <span className="text-xs text-muted-foreground">Open CSV editor to correct the species name</span>
               </div>
             </Button>
             <Button
@@ -323,7 +323,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
                 <span className="font-semibold">
                   {selectedTaxonId && selectedTaxonId !== '1' && selectedSource === 'gbif' ? 'View on GBIF' : 'Search GBIF'}
                 </span>
-                <span className="text-xs text-gray-500">View georeferenced sightings records for this taxon</span>
+                <span className="text-xs text-muted-foreground">View georeferenced sightings records for this taxon</span>
               </div>
             </Button>
             <Button
@@ -334,7 +334,7 @@ export function TaxonomicTreeView({ tree, containerHeight, onSpeciesClick, highl
               <Info className="w-4 h-4" />
               <div className="flex flex-col items-start">
                 <span className="font-semibold">Search Google</span>
-                <span className="text-xs text-gray-500">Open a Google search for this taxon</span>
+                <span className="text-xs text-muted-foreground">Open a Google search for this taxon</span>
               </div>
             </Button>
           </div>

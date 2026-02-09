@@ -453,7 +453,7 @@ export function WhiskerPlot({
                 y={-8}
                 textAnchor="middle"
                 fontSize={fontSize}
-                fill="#374151"
+                fill="hsl(var(--foreground))"
                 fontWeight={600}
               >
                 {group.displayDate}

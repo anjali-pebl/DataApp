@@ -411,7 +411,7 @@ export function ColumnChartWithErrorBars({
           y1={yTop}
           x2={xPos}
           y2={yBottom}
-          stroke="#9ca3af"
+          stroke="hsl(var(--muted-foreground))"
           strokeWidth={1}
           strokeDasharray="4 4"
         />
@@ -456,7 +456,7 @@ export function ColumnChartWithErrorBars({
           y={labelY}
           textAnchor="middle"
           fontSize={fontSize}
-          fill="#374151"
+          fill="hsl(var(--foreground))"
           fontWeight={600}
         >
           {group.displayDate}
