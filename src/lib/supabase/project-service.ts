@@ -329,6 +329,35 @@ class ProjectService {
       createdAt: new Date(matchingProject.created_at)
     }
   }
+
+  async getSharedProjects(): Promise<(Project & { isShared: true })[]> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return []
+
+    const { data, error } = await this.supabase
+      .from('project_shares')
+      .select(`
+        project_id,
+        projects:project_id (id, name, description, created_at)
+      `)
+      .eq('shared_with_user_id', user.id)
+
+    if (error) {
+      console.error('Error loading shared projects:', error)
+      return []
+    }
+
+    return (data ?? [])
+      .map((row: any) => row.projects)
+      .filter(Boolean)
+      .map((project: any) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description || undefined,
+        createdAt: new Date(project.created_at),
+        isShared: true as const,
+      }))
+  }
 }
 
 export const projectService = new ProjectService()

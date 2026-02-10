@@ -56,6 +56,7 @@ import { useMapView } from '@/hooks/use-map-view';
 import { useSettings } from '@/hooks/use-settings';
 import { useMapData } from '@/hooks/use-map-data';
 import { useActiveProject } from '@/hooks/use-active-project';
+import { getUserRole, type AccountRole } from '@/lib/supabase/role-service';
 import { projectService } from '@/lib/supabase/project-service';
 import { getTimeWindowSummary } from '@/lib/dateParser';
 import { fileStorageService, type PinFile } from '@/lib/supabase/file-storage-service';
@@ -800,14 +801,26 @@ function MapDrawingPageContent() {
       return acc;
     }, {} as Record<string, boolean>);
   });
+  // User role state
+  const [userRole, setUserRole] = useState<AccountRole | null>(null);
+  useEffect(() => {
+    getUserRole().then(role => setUserRole(role));
+  }, []);
+
   // Use persistent active project hook
   const { activeProject: persistentActiveProject, setActiveProject: setPersistentActiveProject, isLoading: isLoadingActiveProject } = useActiveProject();
-  
+
   // Manage active project with fallback to default
   const activeProjectId = persistentActiveProject || Object.keys(dynamicProjects)[0] || 'milfordhaven';
   const setActiveProjectId = (projectId: string) => {
     setPersistentActiveProject(projectId);
   };
+
+  // Track which project IDs are shared (read-only for partner)
+  const [sharedProjectIds, setSharedProjectIds] = useState<Set<string>>(new Set());
+
+  // Read-only when partner is viewing a shared project
+  const isReadOnly = userRole === 'partner' && sharedProjectIds.has(activeProjectId);
 
   // Unified loading state for smooth UX
   const {
@@ -823,38 +836,51 @@ function MapDrawingPageContent() {
     isUploadingFiles,
   });
 
-  // Load dynamic projects from database
+  // Load dynamic projects from database (own + shared)
   const loadDynamicProjects = useCallback(async () => {
     perfLogger.start('loadProjects');
     setIsLoadingProjects(true);
     try {
-      const databaseProjects = await projectService.getProjects();
+      const [databaseProjects, sharedProjects] = await Promise.all([
+        projectService.getProjects(),
+        projectService.getSharedProjects().catch(() => []),
+      ]);
 
       // Combine hardcoded projects with database projects
       const combinedProjects = { ...PROJECT_LOCATIONS };
 
       databaseProjects.forEach(project => {
-        // Use project ID as key, add isDynamic flag
         combinedProjects[project.id] = {
           name: project.name,
           isDynamic: true
         };
       });
 
-      perfLogger.end('loadProjects', `${databaseProjects.length} projects loaded`);
+      // Add shared projects with a visual indicator
+      const newSharedIds = new Set<string>();
+      sharedProjects.forEach(project => {
+        newSharedIds.add(project.id);
+        combinedProjects[project.id] = {
+          name: `${project.name} (Shared)`,
+          isDynamic: true
+        };
+      });
+      setSharedProjectIds(newSharedIds);
+
+      perfLogger.end('loadProjects', `${databaseProjects.length} own + ${sharedProjects.length} shared projects loaded`);
       setDynamicProjects(combinedProjects);
-      
+
       // Update project visibility to include new projects
       setProjectVisibility(prev => {
         const updated = { ...prev };
-        databaseProjects.forEach(project => {
+        [...databaseProjects, ...sharedProjects].forEach(project => {
           if (!(project.id in updated)) {
-            updated[project.id] = true; // Make new projects visible by default
+            updated[project.id] = true;
           }
         });
         return updated;
       });
-      
+
     } catch (error) {
       console.error('Failed to load dynamic projects:', error);
     } finally {
@@ -1891,6 +1917,7 @@ function MapDrawingPageContent() {
 
   // Update/Delete handlers
   const handleUpdatePin = useCallback(async (id: string, label: string, notes: string, projectId?: string, tagIds?: string[]) => {
+    if (isReadOnly) return;
     try {
       console.log('handleUpdatePin called with:', { id, label, notes, projectId, tagIds });
       
@@ -1922,6 +1949,7 @@ function MapDrawingPageContent() {
   }, [updatePinData, toast]);
 
   const handleDeletePin = useCallback(async (id: string) => {
+    if (isReadOnly) return;
     try {
       await deletePinData(id);
       toast({ title: "Pin Deleted", description: "Pin has been deleted from the map." });
@@ -1936,6 +1964,7 @@ function MapDrawingPageContent() {
   }, [deletePinData, toast]);
 
   const handleUpdateLine = useCallback(async (id: string, label: string, notes: string, projectId?: string, tagIds?: string[]) => {
+    if (isReadOnly) return;
     try {
       await updateLineData(id, { label, notes, projectId, tagIds });
       toast({ title: "Line Updated", description: "Line has been updated successfully." });
@@ -1950,6 +1979,7 @@ function MapDrawingPageContent() {
   }, [updateLineData, toast]);
 
   const handleDeleteLine = useCallback(async (id: string) => {
+    if (isReadOnly) return;
     try {
       await deleteLineData(id);
       toast({ title: "Line Deleted", description: "Line has been deleted from the map." });
@@ -1964,6 +1994,7 @@ function MapDrawingPageContent() {
   }, [deleteLineData, toast]);
 
   const handleUpdateArea = useCallback(async (id: string, label: string, notes: string, path: {lat: number, lng: number}[], projectId?: string, tagIds?: string[]) => {
+    if (isReadOnly) return;
     try {
       await updateAreaData(id, { label, notes, path, projectId, tagIds });
       toast({ title: "Area Updated", description: "Area has been updated successfully." });
@@ -1978,6 +2009,7 @@ function MapDrawingPageContent() {
   }, [updateAreaData, toast]);
 
   const handleDeleteArea = useCallback(async (id: string) => {
+    if (isReadOnly) return;
     try {
       await deleteAreaData(id);
       toast({ title: "Area Deleted", description: "Area has been deleted from the map." });
@@ -3908,6 +3940,10 @@ function MapDrawingPageContent() {
 
   // Initiate file upload - select files first, then show pin selector
   const handleInitiateFileUpload = () => {
+    if (isReadOnly) {
+      toast({ variant: 'destructive', title: 'Read Only', description: 'You do not have permission to upload files to this project.' });
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.csv';
@@ -6499,7 +6535,7 @@ function MapDrawingPageContent() {
             )}
 
             {/* Floating Drawing Tools Button */}
-            {(
+            {!isReadOnly && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>

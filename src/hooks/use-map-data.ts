@@ -7,9 +7,10 @@ import { createClient } from '@/lib/supabase/client'
 export interface UseMapDataProps {
   projectId?: string
   enableSync?: boolean // Whether to sync with database
+  isReadOnly?: boolean // Whether the current project is read-only (e.g., shared with partner)
 }
 
-export function useMapData({ projectId = 'default', enableSync = true }: UseMapDataProps = {}) {
+export function useMapData({ projectId = 'default', enableSync = true, isReadOnly = false }: UseMapDataProps = {}) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' && navigator.onLine)
@@ -775,6 +776,7 @@ export function useMapData({ projectId = 'default', enableSync = true }: UseMapD
     isLoading,
     isOnline,
     isAuthenticated,
+    isReadOnly,
     lastSyncTime,
 
     // Pin operations

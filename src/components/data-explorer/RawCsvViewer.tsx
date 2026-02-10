@@ -27,6 +27,7 @@ interface RawCsvViewerProps {
   isOpen: boolean;
   onClose: () => void;
   onFileUpdated?: () => void; // Called after file is saved to trigger refresh
+  isReadOnly?: boolean;
 }
 
 interface TransformationLogEntry {
@@ -58,7 +59,7 @@ interface TransformationLogEntry {
   };
 }
 
-export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated }: RawCsvViewerProps) {
+export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated, isReadOnly = false }: RawCsvViewerProps) {
   const { toast } = useToast();
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
@@ -366,7 +367,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated 
 
   // Manual cell editing handlers
   const handleCellDoubleClick = (rowIdx: number, cellIdx: number) => {
-    if (!isEditMode) return;
+    if (!isEditMode || isReadOnly) return;
 
     setEditingCell({ row: rowIdx, col: cellIdx });
     setEditValue(rows[rowIdx][cellIdx]);
@@ -1689,6 +1690,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated 
             <div className="flex items-center gap-2">
               {!isLoading && !error && (
                 <>
+                  {!isReadOnly && (
                   <Button
                     variant={isEditMode ? "default" : "outline"}
                     size="sm"
@@ -1704,6 +1706,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated 
                     <Edit className="w-4 h-4" />
                     {isEditMode ? "Exit Edit" : "Edit"}
                   </Button>
+                  )}
                   {isEditMode && (
                     <>
                       {/* Edit toolbar - always visible in edit mode */}

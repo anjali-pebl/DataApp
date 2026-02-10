@@ -57,6 +57,7 @@ interface DataTimelineProps {
   tileName?: string; // Name of the tile (e.g., 'FPOD') - used for file pairing
   onPairedFileClick?: (stdFile: PinFile & { pinLabel: string }, avgFile: PinFile & { pinLabel: string }) => void;
   toolbarExtra?: React.ReactNode;
+  isReadOnly?: boolean;
 }
 
 interface FileWithDateRange {
@@ -206,7 +207,7 @@ const parseFileGrouping = (fileName: string): { project: string; dataType: strin
   return { project, dataType, station, groupKey };
 };
 
-export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap, tileName, onPairedFileClick, toolbarExtra }: DataTimelineProps) {
+export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFile, onRenameFile, onDatesUpdated, onSelectMultipleFiles, onOpenStackedPlots, projectId, onMergedFileClick, onAddFilesToMergedFile, multiFileMergeMode = false, onMultiFileMergeModeChange, viewMode: externalViewMode, pinColorMap: externalPinColorMap, tileName, onPairedFileClick, toolbarExtra, isReadOnly = false }: DataTimelineProps) {
   const { toast } = useToast();
   const [filesWithDates, setFilesWithDates] = useState<FileWithDateRange[]>([]);
   const [internalViewMode, setInternalViewMode] = useState<'table' | 'timeline'>('timeline');
@@ -1763,7 +1764,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                                 <Separator />
 
                                 {/* Delete option */}
-                                {onDeleteFile && (
+                                {onDeleteFile && !isReadOnly && (
                                   deleteConfirmFile?.id === file.id ? (
                                     <div className="flex items-center gap-2 px-3 py-2.5 text-sm">
                                       <span className="text-xs flex-1">Delete?</span>
@@ -2293,7 +2294,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
                               <Separator />
 
                               {/* Delete option */}
-                              {onDeleteFile && (
+                              {onDeleteFile && !isReadOnly && (
                                 deleteConfirmFile?.id === fileWithDate.file.id ? (
                                   <div className="flex items-center gap-2 px-3 py-2 text-sm border-t">
                                     <span className="text-xs">Delete?</span>
