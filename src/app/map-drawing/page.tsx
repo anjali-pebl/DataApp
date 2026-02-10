@@ -963,6 +963,9 @@ function MapDrawingPageContent() {
     checkAuthAndRestore();
   }, [isAuthenticated, isDataLoading, loadDynamicProjects, hasCheckedAuth]);
   
+  // Map style state
+  const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street');
+
   // Drawing state
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('none');
   const [isDrawingLine, setIsDrawingLine] = useState(false);
@@ -5154,6 +5157,7 @@ function MapDrawingPageContent() {
             editingAreaId={isAreaCornerDragging && itemToEdit && 'path' in itemToEdit ? itemToEdit.id : null}
             tempAreaPath={tempAreaPath}
             onAreaCornerDrag={handleAreaCornerDrag}
+            mapStyle={mapStyle}
           />
           )}
 
@@ -5181,7 +5185,7 @@ function MapDrawingPageContent() {
           )}
           
           {/* Main Menu Button */}
-          <div className="absolute top-8 left-4 z-[1000]">
+          <div className="absolute top-4 left-4 z-[1000]">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -5203,7 +5207,7 @@ function MapDrawingPageContent() {
           </div>
 
           {/* Top Right Controls */}
-          <div className="absolute top-8 right-4 z-[1000] flex flex-col gap-2 items-end">
+          <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2 items-end">
             {/* Object Details Panel */}
             {itemToEdit && (
               <div className="w-72 bg-background/95 border rounded-lg shadow-lg p-3">
@@ -7483,44 +7487,28 @@ function MapDrawingPageContent() {
           {/* Control Tools - Bottom Right, Vertical Layout (Individual Buttons) */}
           <div className="absolute bottom-4 right-4 z-[1000] flex flex-col gap-2">
             <TooltipProvider>
-              {/* Current Location - Top */}
+              {/* Map Style Toggle */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
+                  <Button
                     variant="ghost"
-                    size="icon" 
-                    onClick={centerOnCurrentLocation}
-                    disabled={isGettingLocation}
-                    className={`h-10 w-10 rounded-full shadow-lg text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
-                      locationPermission === 'denied' 
-                        ? 'bg-destructive/90 hover:bg-destructive' 
-                        : locationPermission === 'granted'
-                        ? 'bg-accent/90 hover:bg-accent'
-                        : 'bg-primary/90 hover:bg-primary'
-                    }`}
+                    size="icon"
+                    onClick={() => setMapStyle(prev => prev === 'street' ? 'satellite' : 'street')}
+                    className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                   >
-                    {isGettingLocation ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
+                    {mapStyle === 'street' ? (
+                      <Waves className="h-5 w-5" />
                     ) : (
-                      <Crosshair className="h-5 w-5" />
+                      <Globe className="h-5 w-5" />
                     )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  <p>
-                    {isGettingLocation 
-                      ? 'Getting Location...' 
-                      : locationPermission === 'denied'
-                      ? 'Location Denied - Click to Enable'
-                      : locationPermission === 'granted'
-                      ? 'Center on Current Location'
-                      : 'Get Current Location'
-                    }
-                  </p>
+                  <p>{mapStyle === 'street' ? 'Satellite View' : 'Street View'}</p>
                 </TooltipContent>
               </Tooltip>
 
-              {/* Zoom In - Middle */}
+              {/* Zoom In */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button 

@@ -48,12 +48,14 @@ export function DataExplorerMap({
         dragging: true,
       });
 
-      // Add tile layer (using CartoDB Voyager for consistency)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        subdomains: 'abcd',
-        maxZoom: 18,
+      // Add tile layer
+      const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
+      L.tileLayer(`https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${maptilerKey}`, {
+        attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 20,
         minZoom: 3,
+        tileSize: 512,
+        zoomOffset: -1,
       }).addTo(mapRef.current);
 
       // Add click handler

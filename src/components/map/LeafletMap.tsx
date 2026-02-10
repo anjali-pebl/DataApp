@@ -85,6 +85,8 @@ interface LeafletMapProps {
     onAreaCornerDrag?: (cornerIndex: number, newPosition: LatLng) => void;
     // Map ready callback
     onMapReady?: () => void;
+    // Map style toggle
+    mapStyle?: 'street' | 'satellite';
 }
 
 // Coordinate and distance conversion helpers
@@ -359,7 +361,8 @@ const LeafletMap = ({
     showPopups = true, useEditPanel = false, disableDefaultPopups = false, forceUseEditCallback = false, popupMode = 'default',
     lineEditMode = 'none', editingLineId = null, tempLinePath = null, onLinePointDrag, onLineEditComplete, onLineEditCancel,
     areaEditMode = 'none', editingAreaId = null, tempAreaPath = null, onAreaCornerDrag,
-    onMapReady
+    onMapReady,
+    mapStyle = 'street'
 }: LeafletMapProps) => {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const pinLayerRef = useRef<LayerGroup | null>(null);
@@ -388,6 +391,7 @@ const LeafletMap = ({
     const areaSavingRef = useRef<boolean>(false);
     const pinSavingRef = useRef<boolean>(false);
     const editingLayerRef = useRef<LayerGroup | null>(null);
+    const tileLayerRef = useRef<any>(null);
     const [editedPath, setEditedPath] = useState<{lat: number, lng: number}[] | null>(null);
 
     // Initialize map
@@ -408,10 +412,13 @@ const LeafletMap = ({
             });
             mapRef.current = map;
 
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                    subdomains: 'abcd',
-                    maxZoom: 20
+                const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
+                const initialStyle = mapStyle === 'satellite' ? 'hybrid' : 'streets-v2';
+                tileLayerRef.current = L.tileLayer(`https://api.maptiler.com/maps/${initialStyle}/{z}/{x}/{y}.png?key=${maptilerKey}`, {
+                    attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 20,
+                    tileSize: 512,
+                    zoomOffset: -1,
                 }).addTo(map);
                 
                 pinLayerRef.current = L.layerGroup().addTo(map);
@@ -486,6 +493,14 @@ const LeafletMap = ({
             }
         };
     }, []); // Only run once
+
+    // Swap tile layer when mapStyle changes
+    useEffect(() => {
+        if (!tileLayerRef.current) return;
+        const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
+        const style = mapStyle === 'satellite' ? 'hybrid' : 'streets-v2';
+        tileLayerRef.current.setUrl(`https://api.maptiler.com/maps/${style}/{z}/{x}/{y}.png?key=${maptilerKey}`);
+    }, [mapStyle]);
 
     // Initial zoom to fit active project content (runs when page loads/reloads)
     useEffect(() => {
