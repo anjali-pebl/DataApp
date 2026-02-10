@@ -413,7 +413,7 @@ const LeafletMap = ({
             mapRef.current = map;
 
                 const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
-                const initialStyle = mapStyle === 'satellite' ? 'hybrid' : 'streets-v2';
+                const initialStyle = mapStyle === 'satellite' ? 'hybrid' : 'dataviz';
                 tileLayerRef.current = L.tileLayer(`https://api.maptiler.com/maps/${initialStyle}/{z}/{x}/{y}.png?key=${maptilerKey}`, {
                     attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
                     maxZoom: 20,
@@ -498,7 +498,7 @@ const LeafletMap = ({
     useEffect(() => {
         if (!tileLayerRef.current) return;
         const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
-        const style = mapStyle === 'satellite' ? 'hybrid' : 'streets-v2';
+        const style = mapStyle === 'satellite' ? 'hybrid' : 'dataviz';
         tileLayerRef.current.setUrl(`https://api.maptiler.com/maps/${style}/{z}/{x}/{y}.png?key=${maptilerKey}`);
     }, [mapStyle]);
 
