@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useToast } from '@/hooks/use-toast';
 import { fileStorageService } from '@/lib/supabase/file-storage-service';
-import { categorizeFile, TILE_NAMES } from '@/lib/file-categorization-config';
+import { categorizeFile, TILE_NAMES, ALL_ACCEPT_STRING, isMediaFile } from '@/lib/file-categorization-config';
 import type { PinFile, MergedFile } from '@/lib/supabase/types';
 
 import { ProjectDataHeader } from '@/components/project-data/ProjectDataHeader';
@@ -316,6 +316,14 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     });
 
     files.forEach(file => {
+      // Route media files (photos, PDFs) to the Media tile
+      if (isMediaFile(file.fileName)) {
+        if (grouped['Media'] && !grouped['Media'].find(f => f.id === file.id)) {
+          grouped['Media'].push(file);
+        }
+        return;
+      }
+
       const matches = categorizeFile(file.fileName);
       matches.forEach(match => {
         if (grouped[match.tile]) {
@@ -376,7 +384,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.csv,.xlsx,.xls';
+    input.accept = ALL_ACCEPT_STRING;
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       if (files.length > 0) {

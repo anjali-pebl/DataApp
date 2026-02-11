@@ -8,14 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode } from 'lucide-react';
+import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode, Image, FileText, Download } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line as RechartsLine, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, Brush, LabelList, ReferenceLine } from 'recharts';
 import type { LucideIcon } from "lucide-react";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { format, parseISO, isValid, startOfDay, formatISO, subDays } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { categorizeFile } from '@/lib/file-categorization-config';
+import { categorizeFile, isMediaFile, isPhotoFile, isPdfFile, ALL_ACCEPT_STRING } from '@/lib/file-categorization-config';
 
 import { Separator } from '@/components/ui/separator';
 import {
@@ -153,7 +153,8 @@ import {
   LazyDeleteProjectConfirmDialog as DeleteProjectConfirmDialog,
   LazyBatchDeleteConfirmDialog as BatchDeleteConfirmDialog,
   LazyDuplicateWarningDialog as DuplicateWarningDialog,
-  LazyAddProjectDialog as AddProjectDialog
+  LazyAddProjectDialog as AddProjectDialog,
+  LazyPhotoViewerDialog as PhotoViewerDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
@@ -704,6 +705,8 @@ function MapDrawingPageContent() {
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
   const [duplicateFiles, setDuplicateFiles] = useState<{fileName: string, existingFile: PinFile}[]>([]);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+  const [photoViewerData, setPhotoViewerData] = useState<{ url: string; fileName: string; fileId: string } | null>(null);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
 
@@ -1390,6 +1393,15 @@ function MapDrawingPageContent() {
     };
 
     loadPinFiles();
+
+    // Re-fetch files when tab becomes visible (e.g. navigating back from project-data page)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadPinFiles();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [currentProjectContext, activeProjectId]); // Re-load when project changes
 
 
@@ -3851,6 +3863,13 @@ function MapDrawingPageContent() {
     const categories: Record<string, File[]> = {};
 
     files.forEach(file => {
+      // Route media files to "Media" tile
+      if (isMediaFile(file.name)) {
+        if (!categories['Media']) categories['Media'] = [];
+        categories['Media'].push(file);
+        return;
+      }
+
       const matches = categorizeFile(file.name);
       if (matches.length > 0) {
         const tiles = new Set(matches.map(m => m.tile));
@@ -3949,25 +3968,35 @@ function MapDrawingPageContent() {
     }
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.csv';
+    input.accept = ALL_ACCEPT_STRING;
     input.multiple = true;
     input.setAttribute('data-testid', 'file-upload-input');
 
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      const csvFiles = files.filter(file => file.name.toLowerCase().endsWith('.csv'));
 
-      if (csvFiles.length !== files.length) {
+      // Validate file types — allow CSV and media files only
+      const supportedFiles = files.filter(file => {
+        const name = file.name.toLowerCase();
+        return name.endsWith('.csv') || isMediaFile(name);
+      });
+      const unsupportedFiles = files.filter(file => {
+        const name = file.name.toLowerCase();
+        return !name.endsWith('.csv') && !isMediaFile(name);
+      });
+
+      if (unsupportedFiles.length > 0) {
         toast({
           variant: "destructive",
-          title: "Invalid File Type",
-          description: "Please select only CSV files."
+          title: "Unsupported File Type",
+          description: `${unsupportedFiles.map(f => f.name).join(', ')} — only CSV, image, and PDF files are supported.`
         });
-        return;
+        if (supportedFiles.length === 0) return;
       }
 
-      if (csvFiles.length > 0) {
-        setPendingUploadFiles(csvFiles);
+      if (supportedFiles.length > 0) {
+        setPendingUploadFiles(supportedFiles);
+        const csvFiles = supportedFiles.filter(f => f.name.toLowerCase().endsWith('.csv'));
 
         // Auto-detect _ALL_ files (files not assigned to specific pin)
         const hasAllFiles = csvFiles.some(file => {
@@ -4198,13 +4227,14 @@ function MapDrawingPageContent() {
       }
     }
 
-    // Check if any files need a date column (skip if we're already handling date input)
-    if (!skipDuplicateCheck) {
-      console.log('🔍 Checking files for time columns...');
+    // Check if any CSV files need a date column (skip for media files, skip if we're already handling date input)
+    const csvOnlyFiles = csvFiles.filter(f => f.name.toLowerCase().endsWith('.csv'));
+    if (!skipDuplicateCheck && csvOnlyFiles.length > 0) {
+      console.log('🔍 Checking CSV files for time columns...');
 
-      // First, check ALL files for missing date columns
+      // Only check CSV files for missing date columns (media files don't have date columns)
       const filesNeedingDates: File[] = [];
-      for (const file of csvFiles) {
+      for (const file of csvOnlyFiles) {
         const hasTime = await hasTimeColumn(file);
 
         if (!hasTime) {
@@ -4275,7 +4305,7 @@ function MapDrawingPageContent() {
       if (failedUploads.length === 0) {
         toast({
           title: "Files Uploaded Successfully",
-          description: `${uploadResults.length} CSV file${uploadResults.length > 1 ? 's' : ''} uploaded to ${targetType === 'pin' ? 'pin' : 'area'}.`
+          description: `${uploadResults.length} file${uploadResults.length > 1 ? 's' : ''} uploaded to ${targetType === 'pin' ? 'pin' : 'area'}.`
             });
 
             // Keep the explore dropdown open to show the newly uploaded files (pins only)
@@ -5259,6 +5289,7 @@ function MapDrawingPageContent() {
                     )}
                     
                     <div className="space-y-2">
+                      <div>
                       <div className="flex gap-2">
                         {/* Edit button - with dropdown for lines */}
                         {itemToEdit && 'path' in itemToEdit && !('fillVisible' in itemToEdit) ? (
@@ -5420,11 +5451,48 @@ function MapDrawingPageContent() {
                           </PopoverContent>
                         </Popover>
                       </div>
-                      
-                      {/* Share Popover - Only for Pins */}
+                      {/* Photo Preview Strip - Only for Pins with photos */}
+                      {itemToEdit && 'lat' in itemToEdit && (() => {
+                        const pinPhotos = (pinFileMetadata[itemToEdit.id] || []).filter(f => isPhotoFile(f.fileName));
+                        if (pinPhotos.length === 0) return null;
+                        return (
+                          <div className="mt-2">
+                            <div className="flex items-center gap-1 px-1 mb-0.5">
+                              <Image className="h-2.5 w-2.5 text-blue-500" />
+                              <span className="text-[10px] text-muted-foreground">Photos ({pinPhotos.length})</span>
+                            </div>
+                            <div className="flex gap-1 overflow-x-auto px-1 scrollbar-hide">
+                              {pinPhotos.map(photo => {
+                                const url = fileStorageService.getPublicUrl(photo.filePath);
+                                if (!url) return null;
+                                return (
+                                  <button
+                                    key={photo.id}
+                                    onClick={() => {
+                                      setPhotoViewerData({ url, fileName: photo.fileName, fileId: photo.id });
+                                      setShowPhotoViewer(true);
+                                    }}
+                                    className="flex-shrink-0 rounded overflow-hidden border border-border hover:border-primary transition-colors"
+                                    title={photo.fileName}
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={url}
+                                      alt={photo.fileName}
+                                      className="w-14 h-14 object-cover"
+                                    />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Share Popover - Only for Pins (rendered outside flow to avoid space-y gaps) */}
                       {itemToEdit && 'lat' in itemToEdit && (
                         <Popover open={showSharePopover} onOpenChange={setShowSharePopover}>
-                          <PopoverTrigger />
+                          <PopoverTrigger asChild><span className="hidden" /></PopoverTrigger>
                           <PopoverContent className="w-80 p-4 z-[9999]" align="start">
                             <div className="space-y-4">
                               <div>
@@ -5519,7 +5587,8 @@ function MapDrawingPageContent() {
                           </PopoverContent>
                         </Popover>
                       )}
-                      
+                      </div>
+
                       {/* Data Dropdown Button - For Pins and Areas */}
                       {('lat' in itemToEdit || ('path' in itemToEdit && 'fillVisible' in itemToEdit)) && (
                         <div className="relative" data-data-dropdown>
@@ -5609,18 +5678,19 @@ function MapDrawingPageContent() {
                                     {(() => {
                                       // Use files from database only - resolve correct source for pins vs areas
                                       const dbFiles = (isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore] || [];
-                                      
+
                                       // Convert database files to File-like objects for categorization
                                       const dbFilesAsFileObjects = dbFiles.map(f => ({
                                         name: f.fileName,
                                         size: f.fileSize,
                                         type: f.fileType || 'text/csv'
                                       }));
-                                      
+
                                       // Use database files only
                                       const allFiles = dbFilesAsFileObjects;
                                       const categorizedFiles = categorizeFiles(allFiles);
                                       const availableTypes = Object.entries(categorizedFiles).filter(([_, files]) => files.length > 0);
+
                                       
                                       if (availableTypes.length === 0) {
                                         return (
@@ -5652,15 +5722,99 @@ function MapDrawingPageContent() {
                                           return fileName.replace(/\.csv$/i, '');
                                         };
                                         
+                                        // For Media tile, split into Photos and Documents sub-categories
+                                        const mediaSubCategories = fileType === 'Media' ? (() => {
+                                          const photos = files.filter(f => isPhotoFile(f.name));
+                                          const documents = files.filter(f => isPdfFile(f.name));
+                                          const subCats: { label: string; files: typeof files }[] = [];
+                                          if (photos.length > 0) subCats.push({ label: 'Photos', files: photos });
+                                          if (documents.length > 0) subCats.push({ label: 'Documents', files: documents });
+                                          return subCats;
+                                        })() : null;
+
                                         return (
                                           <div key={fileType} className="space-y-1">
                                             <div className="flex items-center gap-2 px-2 py-1">
                                               <span className="font-medium text-xs">{fileType}</span>
                                               <span className="text-muted-foreground text-xs">({files.length} files)</span>
                                             </div>
-                                            
-                                            {/* Show individual files */}
-                                            <div className="ml-4 space-y-0.5">
+
+                                            {/* Media tile: show sub-category headers */}
+                                            {mediaSubCategories && mediaSubCategories.map(subCat => (
+                                              <div key={subCat.label} className="ml-2 space-y-0.5">
+                                                <div className="flex items-center gap-1.5 px-2 py-0.5">
+                                                  {subCat.label === 'Photos' ? <Image className="h-3 w-3 text-blue-500" /> : <FileText className="h-3 w-3 text-red-500" />}
+                                                  <span className="text-xs text-muted-foreground font-medium">{subCat.label}</span>
+                                                </div>
+                                                <div className="ml-4 space-y-0.5">
+                                                  {subCat.files.map((file, idx) => {
+                                                    const dbMetadata = ((isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore])?.find(
+                                                      meta => meta.fileName === file.name
+                                                    );
+                                                    return (
+                                                      <div key={`media-${subCat.label}-${idx}`} className="flex items-center gap-1 group max-w-full">
+                                                        <Button
+                                                          variant="ghost"
+                                                          size="sm"
+                                                          onClick={async () => {
+                                                            if (!dbMetadata) return;
+                                                            if (isPhotoFile(file.name)) {
+                                                              const publicUrl = fileStorageService.getPublicUrl(dbMetadata.filePath);
+                                                              if (publicUrl) {
+                                                                setPhotoViewerData({ url: publicUrl, fileName: file.name, fileId: dbMetadata.id });
+                                                                setShowPhotoViewer(true);
+                                                              }
+                                                            } else if (isPdfFile(file.name)) {
+                                                              const publicUrl = fileStorageService.getPublicUrl(dbMetadata.filePath);
+                                                              if (publicUrl) window.open(publicUrl, '_blank');
+                                                            }
+                                                          }}
+                                                          className="flex-1 min-w-0 justify-start gap-1 h-7 text-xs hover:bg-accent/50 px-2"
+                                                        >
+                                                          {isPhotoFile(file.name) ? (
+                                                            <Image className="h-3 w-3 flex-shrink-0 text-blue-500" />
+                                                          ) : (
+                                                            <FileText className="h-3 w-3 flex-shrink-0 text-red-500" />
+                                                          )}
+                                                          <span className="truncate max-w-[150px]" title={file.name}>{file.name}</span>
+                                                          <span className="text-muted-foreground ml-auto flex-shrink-0 text-[10px]">
+                                                            {`${(file.size / 1024).toFixed(0)}KB`}
+                                                          </span>
+                                                        </Button>
+                                                        {dbMetadata && (
+                                                          deleteConfirmFile?.id === dbMetadata.id ? (
+                                                            <div className="flex items-center gap-1">
+                                                              <span className="text-xs mr-1">Delete?</span>
+                                                              <Button size="sm" variant="destructive" className="h-5 text-[10px] px-1" onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                setDeleteConfirmFile(null);
+                                                                const success = await fileStorageService.deleteFileSimple(dbMetadata.id);
+                                                                if (success) {
+                                                                  const setMetadata = isArea ? setAreaFileMetadata : setPinFileMetadata;
+                                                                  setMetadata(prev => ({ ...prev, [selectedPinForExplore]: prev[selectedPinForExplore]?.filter(f => f.id !== dbMetadata.id) || [] }));
+                                                                  toast({ title: "File Deleted", description: `${file.name} has been deleted.` });
+                                                                  setShowExploreDropdown(true);
+                                                                } else {
+                                                                  toast({ variant: "destructive", title: "Delete Failed", description: `Failed to delete ${file.name}.` });
+                                                                }
+                                                              }}>Yes</Button>
+                                                              <Button size="sm" variant="outline" className="h-5 text-[10px] px-1" onClick={(e) => { e.stopPropagation(); setDeleteConfirmFile(null); }}>No</Button>
+                                                            </div>
+                                                          ) : (
+                                                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDeleteConfirmFile({ id: dbMetadata.id, name: file.name }); }} className="h-6 w-6 p-0 flex-shrink-0" title={`Delete ${file.name}`}>
+                                                              <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                                                            </Button>
+                                                          )
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            ))}
+
+                                            {/* Show individual files (non-media tiles) */}
+                                            {!mediaSubCategories && <div className="ml-4 space-y-0.5">
                                               {files.map((file, idx) => {
                                                 // Check if this file has metadata (is from database)
                                                 const dbMetadata = ((isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore])?.find(
@@ -5673,7 +5827,31 @@ function MapDrawingPageContent() {
                                                       variant="ghost"
                                                       size="sm"
                                                       onClick={async () => {
-                                                        // Download file from Supabase if it's a database file
+                                                        // Handle media files differently
+                                                        if (dbMetadata && isPhotoFile(file.name)) {
+                                                          // Photo: get public URL and open photo viewer
+                                                          const publicUrl = fileStorageService.getPublicUrl(dbMetadata.filePath);
+                                                          if (publicUrl) {
+                                                            setPhotoViewerData({ url: publicUrl, fileName: file.name, fileId: dbMetadata.id });
+                                                            setShowPhotoViewer(true);
+                                                          } else {
+                                                            toast({ variant: "destructive", title: "Error", description: "Could not get file URL." });
+                                                          }
+                                                          return;
+                                                        }
+
+                                                        if (dbMetadata && isPdfFile(file.name)) {
+                                                          // PDF: open in new browser tab
+                                                          const publicUrl = fileStorageService.getPublicUrl(dbMetadata.filePath);
+                                                          if (publicUrl) {
+                                                            window.open(publicUrl, '_blank');
+                                                          } else {
+                                                            toast({ variant: "destructive", title: "Error", description: "Could not get file URL." });
+                                                          }
+                                                          return;
+                                                        }
+
+                                                        // Download CSV file from Supabase if it's a database file
                                                         if (dbMetadata) {
                                                           setDownloadingFileId(dbMetadata.id);
                                                           try {
@@ -5683,7 +5861,7 @@ function MapDrawingPageContent() {
                                                               const actualFile = new File([fileContent], dbMetadata.fileName, {
                                                                 type: dbMetadata.fileType || 'text/csv'
                                                               });
-                                                              
+
                                                               // Open modal with the downloaded file
                                                               // Don't close anything - keep the UI state
                                                               openMarineDeviceModal(fileType as 'GP' | 'FPOD' | 'Subcam', [actualFile]);
@@ -5711,11 +5889,15 @@ function MapDrawingPageContent() {
                                                     >
                                                       {downloadingFileId === dbMetadata?.id ? (
                                                         <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                                                      ) : isPhotoFile(file.name) ? (
+                                                        <Image className="h-3 w-3 flex-shrink-0 text-blue-500" />
+                                                      ) : isPdfFile(file.name) ? (
+                                                        <FileText className="h-3 w-3 flex-shrink-0 text-red-500" />
                                                       ) : (
                                                         <Calendar className="h-3 w-3 flex-shrink-0" />
                                                       )}
                                                       <span className="truncate max-w-[150px]" title={file.name}>
-                                                        {getDateFromFileName(file.name)}
+                                                        {isMediaFile(file.name) ? file.name : getDateFromFileName(file.name)}
                                                       </span>
                                                       <span className="text-muted-foreground ml-auto flex-shrink-0 text-[10px]">
                                                         {downloadingFileId === dbMetadata?.id ? 'Loading...' : `${(file.size / 1024).toFixed(0)}KB`}
@@ -5812,7 +5994,7 @@ function MapDrawingPageContent() {
                                                   </div>
                                                 );
                                               })}
-                                            </div>
+                                            </div>}
                                           </div>
                                         );
                                       });
@@ -5824,10 +6006,31 @@ function MapDrawingPageContent() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  // Don't close the dropdown, just trigger file upload
-                                  // Determine if this is a pin or area based on properties
+                                  if (isReadOnly) {
+                                    toast({ variant: 'destructive', title: 'Read Only', description: 'You do not have permission to upload files.' });
+                                    return;
+                                  }
                                   const targetType = ('fillVisible' in itemToEdit && 'path' in itemToEdit) ? 'area' : 'pin';
-                                  handleFileUpload(itemToEdit.id, targetType);
+                                  const targetId = itemToEdit.id;
+                                  // Open file picker, then upload directly to this pin/area
+                                  const input = document.createElement('input');
+                                  input.type = 'file';
+                                  input.accept = ALL_ACCEPT_STRING;
+                                  input.multiple = true;
+                                  input.onchange = async (e) => {
+                                    const files = Array.from((e.target as HTMLInputElement).files || []);
+                                    const supported = files.filter(f => {
+                                      const n = f.name.toLowerCase();
+                                      return n.endsWith('.csv') || isMediaFile(n);
+                                    });
+                                    if (supported.length === 0) {
+                                      toast({ variant: 'destructive', title: 'Unsupported File Type', description: 'Only CSV, image, and PDF files are supported.' });
+                                      return;
+                                    }
+                                    setPendingUploadFiles(supported);
+                                    await handleFileUpload(targetId, targetType, supported);
+                                  };
+                                  input.click();
                                 }}
                                 disabled={isUploadingFiles}
                                 className="w-full justify-start gap-2 h-8 text-xs"
@@ -7699,6 +7902,32 @@ function MapDrawingPageContent() {
           setPendingUploadFiles([]);
         }}
       />
+
+      {/* Photo Viewer Dialog */}
+      {photoViewerData && (
+        <PhotoViewerDialog
+          open={showPhotoViewer}
+          onOpenChange={setShowPhotoViewer}
+          imageUrl={photoViewerData.url}
+          fileName={photoViewerData.fileName}
+          onDownload={async () => {
+            try {
+              const response = await fetch(photoViewerData.url);
+              const blob = await response.blob();
+              const downloadUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = downloadUrl;
+              a.download = photoViewerData.fileName;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(downloadUrl);
+            } catch {
+              toast({ variant: "destructive", title: "Download Failed", description: "Could not download the file." });
+            }
+          }}
+        />
+      )}
 
       {/* Duplicate File Warning Dialog */}
       <Dialog open={showDuplicateWarning} onOpenChange={(open) => {

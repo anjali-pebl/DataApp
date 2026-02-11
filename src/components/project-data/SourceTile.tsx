@@ -3,14 +3,17 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ChevronDown, FileCode, BarChart3, Calendar } from 'lucide-react';
+import { ChevronDown, FileCode, BarChart3, Calendar, Image, FileText, Download, Trash2 } from 'lucide-react';
 import { DataTimeline } from '@/components/pin-data/DataTimeline';
 import type { PinFile } from '@/lib/supabase/types';
 import {
   categorizeFile,
   getCategoriesForTile,
-  tileHasCategories
+  tileHasCategories,
+  isPhotoFile,
+  isPdfFile
 } from '@/lib/file-categorization-config';
+import { fileStorageService } from '@/lib/supabase/file-storage-service';
 
 export interface SourceTileProps {
   source: string;
@@ -185,27 +188,29 @@ export function SourceTile({
               </Popover>
             )}
 
-            {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
-              <Button
-                variant={viewMode === 'table' ? 'default' : 'ghost'}
-                size="sm"
-                className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
-                onClick={() => setViewMode('table')}
-              >
-                <Calendar className="h-3 w-3 mr-1" />
-                <span className="text-xs">Table</span>
-              </Button>
-              <Button
-                variant={viewMode === 'timeline' ? 'default' : 'ghost'}
-                size="sm"
-                className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
-                onClick={() => setViewMode('timeline')}
-              >
-                <BarChart3 className="h-3 w-3 mr-1" />
-                <span className="text-xs">Timeline</span>
-              </Button>
-            </div>
+            {/* View Mode Toggle (not useful for Media tile) */}
+            {label !== 'Media' && (
+              <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
+                <Button
+                  variant={viewMode === 'table' ? 'default' : 'ghost'}
+                  size="sm"
+                  className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                  onClick={() => setViewMode('table')}
+                >
+                  <Calendar className="h-3 w-3 mr-1" />
+                  <span className="text-xs">Table</span>
+                </Button>
+                <Button
+                  variant={viewMode === 'timeline' ? 'default' : 'ghost'}
+                  size="sm"
+                  className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                  onClick={() => setViewMode('timeline')}
+                >
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  <span className="text-xs">Timeline</span>
+                </Button>
+              </div>
+            )}
 
             <span className="text-xs text-white bg-teal-800 px-2 py-1 rounded">
               {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
@@ -226,26 +231,144 @@ export function SourceTile({
           WebkitOverflowScrolling: 'touch',
         }}
       >
-        <DataTimeline
-          key={`${projectId}-${label}`}
-          files={filteredFiles}
-          getFileDateRange={getFileDateRange}
-          onFileClick={onFileClick}
-          onRenameFile={onRenameFile}
-          onDeleteFile={onDeleteFile}
-          onDatesUpdated={onDatesUpdated}
-          onSelectMultipleFiles={onSelectMultipleFiles}
-          projectId={projectId}
-          onMergedFileClick={onMergedFileClick}
-          onAddFilesToMergedFile={onAddFilesToMergedFile}
-          multiFileMergeMode={isMergeEnabled}
-          onMultiFileMergeModeChange={setIsMergeEnabled}
-          viewMode={viewMode}
-          pinColorMap={pinColorMap}
-          tileName={label}
-          onPairedFileClick={onPairedFileClick}
-        />
+        {label === 'Media' ? (
+          <MediaFileList files={filteredFiles} onDeleteFile={onDeleteFile} pinColorMap={pinColorMap} />
+        ) : (
+          <DataTimeline
+            key={`${projectId}-${label}`}
+            files={filteredFiles}
+            getFileDateRange={getFileDateRange}
+            onFileClick={onFileClick}
+            onRenameFile={onRenameFile}
+            onDeleteFile={onDeleteFile}
+            onDatesUpdated={onDatesUpdated}
+            onSelectMultipleFiles={onSelectMultipleFiles}
+            projectId={projectId}
+            onMergedFileClick={onMergedFileClick}
+            onAddFilesToMergedFile={onAddFilesToMergedFile}
+            multiFileMergeMode={isMergeEnabled}
+            onMultiFileMergeModeChange={setIsMergeEnabled}
+            viewMode={viewMode}
+            pinColorMap={pinColorMap}
+            tileName={label}
+            onPairedFileClick={onPairedFileClick}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Simple file list for media files (photos & PDFs) */
+function MediaFileList({ files, onDeleteFile, pinColorMap }: { files: any[]; onDeleteFile: (file: any) => Promise<void>; pinColorMap: Map<string, string> }) {
+  const [deleteConfirmId, setDeleteConfirmId] = React.useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = React.useState<{ url: string; fileName: string } | null>(null);
+
+  const photos = files.filter(f => isPhotoFile(f.fileName));
+  const documents = files.filter(f => isPdfFile(f.fileName));
+
+  const handleFileClick = (file: any) => {
+    const publicUrl = fileStorageService.getPublicUrl(file.filePath);
+    if (!publicUrl) return;
+
+    if (isPhotoFile(file.fileName)) {
+      setPhotoPreview({ url: publicUrl, fileName: file.fileName });
+    } else if (isPdfFile(file.fileName)) {
+      window.open(publicUrl, '_blank');
+    }
+  };
+
+  const handleDownload = async (file: any) => {
+    const publicUrl = fileStorageService.getPublicUrl(file.filePath);
+    if (!publicUrl) return;
+    try {
+      const response = await fetch(publicUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { /* ignore */ }
+  };
+
+  const renderFile = (file: any) => {
+    const pinColor = pinColorMap.get(file.pinLabel) || '#94a3b8';
+    return (
+    <div key={file.id} className="flex items-center h-[22px] text-xs hover:bg-muted/30">
+      {/* Pin indicator + label — matches DataTimeline table rows */}
+      <div className="flex items-center gap-1.5 px-4 whitespace-nowrap">
+        <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: pinColor }} />
+        <span className="text-xs text-muted-foreground">{file.pinLabel}</span>
+      </div>
+      {/* File name */}
+      <button onClick={() => handleFileClick(file)} className="flex items-center gap-1.5 flex-1 min-w-0 text-left px-4">
+        {isPhotoFile(file.fileName) ? (
+          <Image className="h-3 w-3 flex-shrink-0 text-blue-500" />
+        ) : (
+          <FileText className="h-3 w-3 flex-shrink-0 text-red-500" />
+        )}
+        <span className="font-mono truncate hover:text-primary hover:underline cursor-pointer">{file.fileName}</span>
+      </button>
+      {/* Actions — always visible */}
+      <div className="flex items-center gap-1 px-2">
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleDownload(file)} title="Download">
+          <Download className="h-3 w-3 text-muted-foreground" />
+        </Button>
+        {deleteConfirmId === file.id ? (
+          <div className="flex items-center gap-1">
+            <span className="text-xs">Delete?</span>
+            <Button size="sm" variant="destructive" className="h-5 text-[10px] px-1" onClick={async () => { setDeleteConfirmId(null); await onDeleteFile(file); }}>Yes</Button>
+            <Button size="sm" variant="outline" className="h-5 text-[10px] px-1" onClick={() => setDeleteConfirmId(null)}>No</Button>
+          </div>
+        ) : (
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setDeleteConfirmId(file.id)} title="Delete">
+            <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+  };
+
+  return (
+    <div className="py-1 space-y-2">
+      {photos.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 px-4 py-1">
+            <Image className="h-3 w-3 text-blue-500" />
+            <span className="text-xs font-medium text-muted-foreground">Photos ({photos.length})</span>
+          </div>
+          {photos.map(renderFile)}
+        </div>
+      )}
+      {documents.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 px-4 py-1">
+            <FileText className="h-3 w-3 text-red-500" />
+            <span className="text-xs font-medium text-muted-foreground">Documents ({documents.length})</span>
+          </div>
+          {documents.map(renderFile)}
+        </div>
+      )}
+
+      {/* Photo preview modal */}
+      {photoPreview && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center" onClick={() => setPhotoPreview(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] p-4" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setPhotoPreview(null)} className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70 z-10">
+              <span className="sr-only">Close</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <p className="text-white text-sm mb-2 text-center">{photoPreview.fileName}</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoPreview.url} alt={photoPreview.fileName} className="max-w-full max-h-[75vh] object-contain rounded" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

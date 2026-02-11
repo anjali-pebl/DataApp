@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { getMergedFilesByProjectAction } from '@/app/api/merged-files/actions';
 import type { MergedFile } from '@/lib/supabase/merged-files-service';
-import { categorizeFile } from '@/lib/file-categorization-config';
+import { categorizeFile, isMediaFile } from '@/lib/file-categorization-config';
 import { createPairedTimelineEntries, type PairedTimelineEntry, getFpodBaseName, getFpodSuffix } from '@/lib/fpod-file-pairing';
 
 // Lazy load MergeFilesDialog - only loads when user clicks merge button
@@ -822,7 +822,10 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
   // Initialize files with dates from database
   useEffect(() => {
-    if (files.length === 0) {
+    // Filter out media files (photos, PDFs) — they have no date range
+    const timeseriesFiles = files.filter(f => !isMediaFile(f.fileName));
+
+    if (timeseriesFiles.length === 0) {
       setFilesWithDates([]);
       setPairingMap(new Map());
       return;
@@ -830,7 +833,7 @@ export function DataTimeline({ files, getFileDateRange, onFileClick, onDeleteFil
 
     // Apply FPOD pairing when tileName is 'FPOD' and not in stack plot selection mode
     const shouldPair = tileName === 'FPOD' && !stackPlotMode && selectedFileIds.size === 0;
-    let filesToDisplay = files;
+    let filesToDisplay = timeseriesFiles;
     const newPairingMap = new Map<string, PairedTimelineEntry>();
 
     console.log('[FPOD-PAIRING] Init effect running:', {

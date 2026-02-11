@@ -10,6 +10,32 @@
  * - Categories are optional - some patterns assign files to tiles without categories
  */
 
+// ---------- Media file constants ----------
+
+export const PHOTO_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif', '.avif'];
+export const DOCUMENT_EXTENSIONS = ['.pdf'];
+export const MEDIA_EXTENSIONS = [...PHOTO_EXTENSIONS, ...DOCUMENT_EXTENSIONS];
+
+/** Accept string for file input elements — CSV + all media types */
+export const ALL_ACCEPT_STRING = '.csv,' + MEDIA_EXTENSIONS.join(',');
+
+/** Check if a filename is a photo */
+export function isPhotoFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return PHOTO_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
+/** Check if a filename is a PDF */
+export function isPdfFile(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith('.pdf');
+}
+
+/** Check if a filename is a media file (photo or PDF) */
+export function isMediaFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return MEDIA_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
 export interface FileCategoryRule {
   /** String that must be contained in the filename (case-insensitive by default) */
   contains: string;
@@ -121,6 +147,7 @@ export const TILE_NAMES = [
   'FPOD',
   'Water and Crop Samples',
   'eDNA',
+  'Media',
 ] as const;
 
 export type TileName = typeof TILE_NAMES[number];
