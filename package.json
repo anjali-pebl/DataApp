@@ -63,7 +63,7 @@
     "dotenv": "^16.6.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.475.0",
-    "next": "15.2.3",
+    "next": "15.2.8",
     "node-fetch": "^3.3.2",
     "openai": "^6.8.1",
     "papaparse": "^5.5.3",
