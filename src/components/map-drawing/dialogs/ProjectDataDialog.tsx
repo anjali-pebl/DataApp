@@ -22,12 +22,19 @@ import {
   BarChart3,
   FileCode,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Table
 } from 'lucide-react';
 import { DataTimeline } from '@/components/pin-data/DataTimeline';
 import { DataTimelineSkeleton } from '@/components/loading/PageSkeletons';
 import type { Pin, Line as LineType, Area, Project, PinFile, MergedFile } from '@/lib/supabase/types';
 import { fileStorageService } from '@/lib/supabase/file-storage-service';
+import {
+  categorizeFile,
+  getCategoriesForTile,
+  tileHasCategories,
+  TILE_NAMES
+} from '@/lib/file-categorization-config';
 
 export interface ProjectDataDialogProps {
   open: boolean;
@@ -71,7 +78,239 @@ export interface ProjectDataDialogProps {
   extractDateRange: (fileName: string) => string | null;
   getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
   reloadProjectFiles: () => Promise<void>;
-  openMarineDeviceModal: (fileType: any, files: File[]) => void;
+  openMarineDeviceModal: (
+    fileType: any,
+    files: File[],
+    metadata?: {
+      pinLabel?: string;
+      startDate?: Date;
+      endDate?: Date;
+      fileCategories?: string[];
+    }
+  ) => void;
+}
+
+// Source Tile Component with per-tile category filtering
+function SourceTile({
+  source,
+  label,
+  files,
+  getFileDateRange,
+  onFileClick,
+  onRenameFile,
+  onDeleteFile,
+  onDatesUpdated,
+  onSelectMultipleFiles,
+  projectId,
+  onMergedFileClick,
+  onAddFilesToMergedFile,
+  multiFileMergeMode,
+  setMultiFileMergeMode,
+  pinColorMap
+}: {
+  source: string;
+  label: string;
+  files: any[];
+  getFileDateRange: (file: PinFile) => Promise<{ start: Date; end: Date } | null>;
+  onFileClick: any;
+  onRenameFile: any;
+  onDeleteFile: any;
+  onDatesUpdated: any;
+  onSelectMultipleFiles: any;
+  projectId: string;
+  onMergedFileClick: any;
+  onAddFilesToMergedFile: any;
+  multiFileMergeMode: 'union' | 'intersection';
+  setMultiFileMergeMode: (mode: 'union' | 'intersection') => void;
+  pinColorMap: Map<string, string>;
+}) {
+  const [selectedCategories, setSelectedCategories] = React.useState<string[]>([]);
+  const [viewMode, setViewMode] = React.useState<'table' | 'timeline'>('timeline');
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [startY, setStartY] = React.useState(0);
+  const [scrollTop, setScrollTop] = React.useState(0);
+
+  // Get all categories for a file in this specific tile
+  const getFileCategories = (fileName: string): string[] => {
+    const matches = categorizeFile(fileName);
+    const categoriesForThisTile = matches
+      .filter(match => match.tile === label)
+      .map(match => match.category)
+      .filter((cat): cat is string => cat !== undefined);
+    return categoriesForThisTile;
+  };
+
+  // Get unique categories for this tile from the configuration
+  const availableCategories = getCategoriesForTile(label);
+  const hasCategories = tileHasCategories(label);
+
+  // Filter files by selected categories
+  // If 1 category: OR logic (show if file has that category)
+  // If 2+ categories: AND logic (show only if file has ALL selected categories)
+  const filteredFiles = !hasCategories || selectedCategories.length === 0
+    ? files
+    : files.filter(file => {
+        const fileCategories = getFileCategories(file.fileName);
+
+        if (selectedCategories.length === 1) {
+          // Single category: show if file has this category
+          return fileCategories.some(cat => selectedCategories.includes(cat));
+        } else {
+          // Multiple categories: show only if file has ALL selected categories
+          return selectedCategories.every(cat => fileCategories.includes(cat));
+        }
+      });
+
+  // Drag to scroll handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!contentRef.current) return;
+    setIsDragging(true);
+    setStartY(e.pageY - contentRef.current.offsetTop);
+    setScrollTop(contentRef.current.scrollTop);
+    contentRef.current.style.cursor = 'grabbing';
+    contentRef.current.style.userSelect = 'none';
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !contentRef.current) return;
+    e.preventDefault();
+    const y = e.pageY - contentRef.current.offsetTop;
+    const walk = (y - startY) * 2; // Scroll speed multiplier
+    contentRef.current.scrollTop = scrollTop - walk;
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    if (contentRef.current) {
+      contentRef.current.style.cursor = 'grab';
+      contentRef.current.style.userSelect = 'auto';
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (isDragging) {
+      setIsDragging(false);
+      if (contentRef.current) {
+        contentRef.current.style.cursor = 'grab';
+        contentRef.current.style.userSelect = 'auto';
+      }
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-lg overflow-visible flex flex-col max-h-[500px]">
+      {/* Tile Header */}
+      <div className="bg-teal-700 border-b border-teal-800 px-4 py-3 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm text-white">{label}</h3>
+          <div className="flex items-center gap-2">
+            {/* Category Filter Dropdown */}
+            {hasCategories && availableCategories.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-700 transition-colors text-xs ${selectedCategories.length > 0 ? 'bg-amber-500 text-white' : 'bg-teal-800 text-white'}`}>
+                    <FileCode className="h-3 w-3" />
+                    <span className="font-semibold">{selectedCategories.length > 0 ? selectedCategories.length : availableCategories.length}</span>
+                    <span>Categories</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="end">
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold mb-2 flex items-center justify-between">
+                      <span>Filter by Category</span>
+                      {selectedCategories.length > 0 && (
+                        <button
+                          onClick={() => setSelectedCategories([])}
+                          className="text-primary hover:text-primary/80 text-[10px]"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    {availableCategories.map(category => (
+                      <label key={category} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategories.includes(category)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCategories([...selectedCategories, category]);
+                            } else {
+                              setSelectedCategories(selectedCategories.filter(c => c !== category));
+                            }
+                          }}
+                          className="h-3 w-3"
+                        />
+                        <span className="font-medium">{category}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('table')}
+              >
+                <Calendar className="h-3 w-3 mr-1" />
+                <span className="text-xs">Table</span>
+              </Button>
+              <Button
+                variant={viewMode === 'timeline' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('timeline')}
+              >
+                <BarChart3 className="h-3 w-3 mr-1" />
+                <span className="text-xs">Timeline</span>
+              </Button>
+            </div>
+
+            <span className="text-xs text-white bg-teal-800 px-2 py-1 rounded">
+              {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tile Content */}
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-y-auto overflow-x-auto cursor-grab scrollbar-hide"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        <DataTimeline
+          files={filteredFiles}
+          getFileDateRange={getFileDateRange}
+          onFileClick={onFileClick}
+          onRenameFile={onRenameFile}
+          onDeleteFile={onDeleteFile}
+          onDatesUpdated={onDatesUpdated}
+          onSelectMultipleFiles={onSelectMultipleFiles}
+          projectId={projectId}
+          onMergedFileClick={onMergedFileClick}
+          onAddFilesToMergedFile={onAddFilesToMergedFile}
+          multiFileMergeMode={multiFileMergeMode}
+          onMultiFileMergeModeChange={setMultiFileMergeMode}
+          viewMode={viewMode}
+          pinColorMap={pinColorMap}
+        />
+      </div>
+    </div>
+  );
 }
 
 export function ProjectDataDialog({
@@ -132,7 +371,7 @@ export function ProjectDataDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden z-[9999] flex flex-col">
+      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !translate-x-0 !translate-y-0 w-screen h-screen max-w-none max-h-none !m-0 !p-6 !rounded-none !border-0 overflow-hidden z-[9999] flex flex-col">
         <DialogHeader className="flex-shrink-0 pb-1.5 pr-8">
           <div className="flex items-center justify-between gap-3">
             <DialogTitle className="flex items-center gap-1.5 text-sm">
@@ -198,6 +437,96 @@ export function ProjectDataDialog({
               );
             }
 
+            // Compute global color map for consistent colors across all tiles
+            // This is computed once for ALL files and passed to each tile
+            // Colorblind-friendly palette (Paul Tol scheme)
+            const COLORS = [
+              '#4477AA', // Blue
+              '#EE6677', // Red/pink
+              '#228833', // Green
+              '#CCBB44', // Olive yellow
+              '#66CCEE', // Cyan
+              '#AA3377', // Purple
+              '#CC6644', // Burnt orange
+              '#BBBBBB', // Grey
+              '#336688', // Steel blue
+              '#885533', // Brown
+            ];
+
+            const getPinPrefix = (pinLabel: string): string => {
+              // Extract the location identifier by removing data type suffixes
+              // Examples:
+              // "Farm 1 - FPOD" -> "Farm 1"
+              // "Farm 1 FPOD" -> "Farm 1"
+              // "Control A - SubCam" -> "Control A"
+              // "Control A SubCam" -> "Control A"
+              // "All Locations" -> "All Locations" (special case)
+
+              // Special case: "All Locations" should be its own group
+              if (pinLabel === 'All Locations') {
+                return 'All Locations';
+              }
+
+              // First, try splitting by " - " (common separator)
+              const dashSplit = pinLabel.split(' - ');
+              if (dashSplit.length > 1) {
+                return dashSplit[0].trim();
+              }
+
+              // If no " - ", try to remove known data type suffixes from the end
+              const knownSuffixes = [
+                'FPOD', 'SubCam', 'GP', 'GrowProbe',
+                'EDNA', 'EDNAW', 'EDNAS',
+                'WQ', 'CHEM', 'CHEMSW', 'CHEMWQ', 'CROP',
+                'Hapl', 'Taxo', 'Cred', 'Meta'
+              ];
+
+              let result = pinLabel.trim();
+
+              // Try to remove suffixes (case-insensitive, with space, underscore, or dash separator)
+              for (const suffix of knownSuffixes) {
+                const patterns = [
+                  ` ${suffix}`,    // "Farm 1 FPOD"
+                  `_${suffix}`,    // "Farm1_FPOD"
+                  `-${suffix}`,    // "Farm1-FPOD"
+                ];
+
+                for (const pattern of patterns) {
+                  if (result.toLowerCase().endsWith(pattern.toLowerCase())) {
+                    result = result.slice(0, -pattern.length).trim();
+                    break;
+                  }
+                }
+              }
+
+              // If nothing was removed, return the original label
+              return result || pinLabel;
+            };
+
+            // Group pins by their prefix
+            const prefixGroups = new Map<string, string[]>();
+            allFiles.forEach(f => {
+              const prefix = getPinPrefix(f.pinLabel);
+              if (!prefixGroups.has(prefix)) {
+                prefixGroups.set(prefix, []);
+              }
+              prefixGroups.get(prefix)!.push(f.pinLabel);
+            });
+
+            // Assign colors to prefixes (sorted for consistency)
+            const prefixColorMap = new Map<string, string>();
+            Array.from(prefixGroups.keys()).sort().forEach((prefix, index) => {
+              prefixColorMap.set(prefix, COLORS[index % COLORS.length]);
+            });
+
+            // Map each pin label to its prefix color
+            const globalPinColorMap = new Map<string, string>();
+            allFiles.forEach(f => {
+              const prefix = getPinPrefix(f.pinLabel);
+              const color = prefixColorMap.get(prefix) || COLORS[0];
+              globalPinColorMap.set(f.pinLabel, color);
+            });
+
             // Handler for clicking file names in timeline
             const handleTimelineFileClick = async (file: PinFile & { pinLabel: string }) => {
               try {
@@ -229,6 +558,62 @@ export function ProjectDataDialog({
                   fileType = 'GP';
                 }
 
+                // Extract metadata for header display
+                const pinLabel = file.pinLabel || 'Unassigned';
+                const dateRange = await getFileDateRange(file);
+
+                // Convert string dates to Date objects, with validation
+                // Handle both DD/MM/YYYY and ISO date formats
+                let startDate: Date | undefined = undefined;
+                let endDate: Date | undefined = undefined;
+
+                if (dateRange?.startDate) {
+                  // Check if it's DD/MM/YYYY format (contains /)
+                  if (dateRange.startDate.includes('/')) {
+                    const [day, month, year] = dateRange.startDate.split('/');
+                    const parsedStart = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                    if (!isNaN(parsedStart.getTime())) {
+                      startDate = parsedStart;
+                    }
+                  } else {
+                    const parsedStart = new Date(dateRange.startDate);
+                    if (!isNaN(parsedStart.getTime())) {
+                      startDate = parsedStart;
+                    }
+                  }
+                }
+
+                if (dateRange?.endDate) {
+                  // Check if it's DD/MM/YYYY format (contains /)
+                  if (dateRange.endDate.includes('/')) {
+                    const [day, month, year] = dateRange.endDate.split('/');
+                    const parsedEnd = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                    if (!isNaN(parsedEnd.getTime())) {
+                      endDate = parsedEnd;
+                    }
+                  } else {
+                    const parsedEnd = new Date(dateRange.endDate);
+                    if (!isNaN(parsedEnd.getTime())) {
+                      endDate = parsedEnd;
+                    }
+                  }
+                }
+
+                // Extract ALL categories from filename using categorization
+                const categories = categorizeFile(file.fileName);
+                const fileCategories = categories
+                  .map(c => c.category)
+                  .filter((c): c is string => c !== undefined); // Remove undefined categories
+
+                console.log('📋 [PROJECT DATA DIALOG] File metadata:', {
+                  fileName: file.fileName,
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategories,
+                  rawDateRange: dateRange
+                });
+
                 // Download file content
                 const fileContent = await fileStorageService.downloadFile(file.filePath);
                 if (fileContent) {
@@ -237,8 +622,13 @@ export function ProjectDataDialog({
                     type: file.fileType || 'text/csv'
                   });
 
-                  // Open modal with the downloaded file
-                  openMarineDeviceModal(fileType, [actualFile]);
+                  // Open modal with the downloaded file and metadata
+                  openMarineDeviceModal(fileType, [actualFile], {
+                    pinLabel,
+                    startDate,
+                    endDate,
+                    fileCategories
+                  });
                 } else {
                   toast({
                     variant: "destructive",
@@ -254,6 +644,31 @@ export function ProjectDataDialog({
                   description: "Failed to open file."
                 });
               }
+            };
+
+            // Group files by source category using the new categorization config
+            // A file can appear in multiple tiles if it matches multiple patterns
+            const groupFilesBySource = (files: any[]) => {
+              const grouped: Record<string, any[]> = {};
+
+              // Initialize groups for all tile names
+              TILE_NAMES.forEach(tileName => {
+                grouped[tileName] = [];
+              });
+
+              files.forEach(file => {
+                const matches = categorizeFile(file.fileName);
+                matches.forEach(match => {
+                  if (grouped[match.tile]) {
+                    // Only add the file if it's not already in this tile's group
+                    if (!grouped[match.tile].find(f => f.id === file.id)) {
+                      grouped[match.tile].push(file);
+                    }
+                  }
+                });
+              });
+
+              return grouped;
             };
 
             // Helper function to check if file matches type filter
@@ -272,16 +687,10 @@ export function ProjectDataDialog({
               return parts.length > 0 ? parts[parts.length - 1] : '';
             };
 
-            // Apply filters to get filtered files
+            // Apply filters to get filtered files (suffix filter removed - now per-tile)
             const filteredFiles = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-
-              // Suffix filter
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
 
               // Date range filter
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
@@ -292,37 +701,29 @@ export function ProjectDataDialog({
               // File source filter (upload vs merged)
               const fileSourceMatch = selectedFileSources.length === 0 || selectedFileSources.includes(file.fileSource);
 
-              return pinMatch && typeMatch && suffixMatch && dateRangeMatch && fileSourceMatch;
+              return pinMatch && typeMatch && dateRangeMatch && fileSourceMatch;
             });
 
             // Calculate unique values for cascading filters
-            // For pins: show pins available after applying type, suffix, and dateRange filters
+            // For pins: show pins available after applying type and dateRange filters
             const filesForPinOptions = allFiles.filter(file => {
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
                 const fileRange = extractDateRange(file.fileName);
                 return fileRange === range;
               });
-              return typeMatch && suffixMatch && dateRangeMatch;
+              return typeMatch && dateRangeMatch;
             });
             const uniquePins = Array.from(new Set(filesForPinOptions.map(file => file.pinLabel))).sort();
 
-            // For types: show types available after applying pin, suffix, and dateRange filters
+            // For types: show types available after applying pin and dateRange filters
             const filesForTypeOptions = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
               const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
                 const fileRange = extractDateRange(file.fileName);
                 return fileRange === range;
               });
-              return pinMatch && suffixMatch && dateRangeMatch;
+              return pinMatch && dateRangeMatch;
             });
             // Build type list from filesForTypeOptions
             const typeMap = new Map<string, any[]>();
@@ -343,29 +744,11 @@ export function ProjectDataDialog({
             });
             const uniqueTypes = Array.from(typeMap.keys()).sort();
 
-            // For suffixes: show suffixes available after applying pin, type, and dateRange filters
-            const filesForSuffixOptions = allFiles.filter(file => {
-              const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
-              const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const dateRangeMatch = selectedDateRanges.length === 0 || selectedDateRanges.some(range => {
-                const fileRange = extractDateRange(file.fileName);
-                return fileRange === range;
-              });
-              return pinMatch && typeMatch && dateRangeMatch;
-            });
-            const uniqueSuffixes = Array.from(new Set(filesForSuffixOptions.map(file => {
-              return extractSuffix(file.fileName);
-            }).filter(suffix => suffix !== ''))).sort();
-
-            // For date ranges: show date ranges available after applying pin, type, and suffix filters
+            // For date ranges: show date ranges available after applying pin and type filters
             const filesForDateRangeOptions = allFiles.filter(file => {
               const pinMatch = selectedPins.length === 0 || selectedPins.includes(file.pinLabel);
               const typeMatch = selectedTypes.length === 0 || selectedTypes.some(type => matchesType(file, type));
-              const suffixMatch = selectedSuffixes.length === 0 || selectedSuffixes.some(suffix => {
-                const fileSuffix = extractSuffix(file.fileName);
-                return fileSuffix === suffix;
-              });
-              return pinMatch && typeMatch && suffixMatch;
+              return pinMatch && typeMatch;
             });
             const uniqueDateRanges = Array.from(new Set(filesForDateRangeOptions.map(file => {
               return extractDateRange(file.fileName);
@@ -383,7 +766,7 @@ export function ProjectDataDialog({
               uniquePins: uniquePins.length
             };
 
-            const hasActiveFilters = selectedPins.length > 0 || selectedTypes.length > 0 || selectedSuffixes.length > 0 || selectedDateRanges.length > 0 || selectedFileSources.length < 2;
+            const hasActiveFilters = selectedPins.length > 0 || selectedTypes.length > 0 || selectedDateRanges.length > 0 || selectedFileSources.length < 2;
 
             return (
               <div className="space-y-2">
@@ -402,7 +785,6 @@ export function ProjectDataDialog({
                           onClick={() => {
                             setSelectedPins([]);
                             setSelectedTypes([]);
-                            setSelectedSuffixes([]);
                             setSelectedDateRanges([]);
                             setSelectedFileSources(['upload', 'merged']);
                           }}
@@ -568,50 +950,6 @@ export function ProjectDataDialog({
                       </PopoverContent>
                     </Popover>
 
-                    {/* File Suffixes - Filterable */}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted transition-colors ${selectedSuffixes.length > 0 ? 'bg-amber-500/20 border border-amber-500/50' : ''}`}>
-                          <FileCode className="h-3 w-3 text-amber-500" />
-                          <span className="font-semibold">{selectedSuffixes.length > 0 ? selectedSuffixes.length : uniqueSuffixes.length}</span>
-                          <span className="text-muted-foreground">Suffixes</span>
-                          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="start">
-                        <div className="space-y-1">
-                          <div className="text-xs font-semibold mb-2 flex items-center justify-between">
-                            <span>Filter by Suffix</span>
-                            {selectedSuffixes.length > 0 && (
-                              <button
-                                onClick={() => setSelectedSuffixes([])}
-                                className="text-primary hover:text-primary/80 text-[10px]"
-                              >
-                                Clear
-                              </button>
-                            )}
-                          </div>
-                          {uniqueSuffixes.map(suffix => (
-                            <label key={suffix} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selectedSuffixes.includes(suffix)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedSuffixes([...selectedSuffixes, suffix]);
-                                  } else {
-                                    setSelectedSuffixes(selectedSuffixes.filter(s => s !== suffix));
-                                  }
-                                }}
-                                className="h-3 w-3"
-                              />
-                              <span className="font-mono">{suffix}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
                     {/* Date Ranges - Filterable */}
                     <Popover>
                       <PopoverTrigger asChild>
@@ -673,11 +1011,34 @@ export function ProjectDataDialog({
                 {isLoadingMergedFiles || (isPageLoading && isInitialLoad) ? (
                   <DataTimelineSkeleton />
                 ) : (
-                  <DataTimeline
-                    files={filteredFiles}
-                    getFileDateRange={getFileDateRange}
-                    onFileClick={handleTimelineFileClick}
-                    onRenameFile={async (file, newName) => {
+                  <>
+                    {/* Group files by source */}
+                    {(() => {
+                      const filesBySource = groupFilesBySource(filteredFiles);
+                      const tilesWithFiles = TILE_NAMES.filter(tileName => filesBySource[tileName]?.length > 0);
+
+                      if (tilesWithFiles.length === 0) {
+                        return (
+                          <div className="text-center py-8">
+                            <Database className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                            <p className="text-muted-foreground">No files match the current filters</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-1 gap-4">
+                          {tilesWithFiles.map(tileName => {
+                            const files = filesBySource[tileName];
+                            return (
+                              <SourceTile
+                                key={tileName}
+                                source={tileName}
+                                label={tileName}
+                                files={files}
+                                getFileDateRange={getFileDateRange}
+                                onFileClick={handleTimelineFileClick}
+                                onRenameFile={async (file, newName) => {
                       console.log('Timeline rename request for file:', file.id, 'New name:', newName);
 
                       try {
@@ -741,8 +1102,8 @@ export function ProjectDataDialog({
                         });
                         return false;
                       }
-                    }}
-                    onDeleteFile={async (file) => {
+                                    }}
+                                    onDeleteFile={async (file) => {
                       console.log('Timeline delete request for file:', file.id, file.fileName);
 
                       try {
@@ -805,8 +1166,8 @@ export function ProjectDataDialog({
                           description: "An error occurred while deleting the file."
                         });
                       }
-                    }}
-                    onDatesUpdated={async () => {
+                                    }}
+                                    onDatesUpdated={async () => {
                       console.log('📅 Dates updated, reloading files...');
 
                       // Reload files for all pins to get updated dates
@@ -825,8 +1186,8 @@ export function ProjectDataDialog({
 
                       console.log('✅ Files reloaded with updated dates');
                       setPinFileMetadata(fileMetadata);
-                    }}
-                    onSelectMultipleFiles={async (selectedFiles) => {
+                                    }}
+                                    onSelectMultipleFiles={async (selectedFiles) => {
                       try {
                         console.log('🔄 Multi-file selection:', selectedFiles.map(f => f.fileName));
 
@@ -910,9 +1271,9 @@ export function ProjectDataDialog({
                           description: error instanceof Error ? error.message : 'Failed to process multiple files'
                         });
                       }
-                    }}
-                    projectId={activeProjectId}
-                    onMergedFileClick={async (mergedFile) => {
+                                    }}
+                                    projectId={activeProjectId}
+                                    onMergedFileClick={async (mergedFile) => {
                       try {
                         console.log('🔄 Opening merged file:', mergedFile.fileName);
 
@@ -962,17 +1323,24 @@ export function ProjectDataDialog({
                           description: error instanceof Error ? error.message : 'Failed to open merged file'
                         });
                       }
-                    }}
-                    onAddFilesToMergedFile={async (mergedFile) => {
+                                    }}
+                                    onAddFilesToMergedFile={async (mergedFile) => {
                       toast({
                         title: "Add Files Feature",
                         description: "This feature is coming soon! You'll be able to add more files to this merge."
                       });
                       // TODO: Implement add files to merged file dialog
-                    }}
-                    multiFileMergeMode={multiFileMergeMode}
-                    onMultiFileMergeModeChange={setMultiFileMergeMode}
-                  />
+                                    }}
+                                multiFileMergeMode={multiFileMergeMode}
+                                setMultiFileMergeMode={setMultiFileMergeMode}
+                                pinColorMap={globalPinColorMap}
+                              />
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </>
                 )}
               </div>
             );

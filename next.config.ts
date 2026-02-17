@@ -203,7 +203,7 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: https: blob:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mapbox.com https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://www.marinespecies.org https://api.gbif.org",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.maptiler.com https://api.mapbox.com https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://www.marinespecies.org https://api.gbif.org",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

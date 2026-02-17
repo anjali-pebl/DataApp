@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ErrorBar, LabelList, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ErrorBar, LabelList, Customized } from 'recharts';
 import type { SpotSampleGroup } from '@/lib/statistical-utils';
 
 interface SpotSampleStyles {
@@ -43,6 +43,7 @@ interface ColumnChartWithErrorBarsProps {
   columnColorMode?: 'unique' | 'single';
   singleColumnColor?: string;
   yAxisRange?: { min?: number; max?: number };
+  showDateSeparators?: boolean; // Show vertical lines between different sampling days (only in Detailed mode)
 }
 
 /**
@@ -59,8 +60,9 @@ export function ColumnChartWithErrorBars({
   showXAxisLabels = true,
   spotSampleStyles,
   columnColorMode = 'single',
-  singleColumnColor = '#3b82f6',
-  yAxisRange
+  singleColumnColor = '#4477AA', // Colorblind-friendly blue
+  yAxisRange,
+  showDateSeparators = false
 }: ColumnChartWithErrorBarsProps) {
 
   // Helper function to capitalize first letter of parameter names
@@ -71,11 +73,13 @@ export function ColumnChartWithErrorBars({
 
   // Extract styling properties with defaults
   const baseYAxisLabelFontSize = spotSampleStyles?.yAxisLabelFontSize ?? 12;
+  // Add extra top margin when showDateSeparators is true to accommodate date labels
+  const dateLabelsTopMargin = showDateSeparators ? 45 : 0;
   const styles = {
     barGap: spotSampleStyles?.barGap ?? 4,
     barCategoryGap: spotSampleStyles?.barCategoryGap ?? 10,
     columnBorderWidth: spotSampleStyles?.columnBorderWidth ?? 0,
-    chartMarginTop: spotSampleStyles?.chartMarginTop ?? 20,
+    chartMarginTop: (spotSampleStyles?.chartMarginTop ?? 20) + dateLabelsTopMargin,
     chartMarginRight: spotSampleStyles?.chartMarginRight ?? 30,
     chartMarginLeft: spotSampleStyles?.chartMarginLeft ?? 40,
     chartMarginBottom: spotSampleStyles?.chartMarginBottom ?? 80,
@@ -149,6 +153,55 @@ export function ColumnChartWithErrorBars({
     return result;
   });
 
+  // Calculate date groups for separators and top labels (when showDateSeparators is true)
+  const dateGroups = React.useMemo(() => {
+    if (!showDateSeparators) return { groups: [], separatorIndices: [] };
+
+    const groups: Array<{ date: string; startIndex: number; endIndex: number; displayDate: string }> = [];
+    const separatorIndices: number[] = [];
+    let currentDate = parameterData[0]?.date;
+    let startIndex = 0;
+
+    parameterData.forEach((group, index) => {
+      if (group.date !== currentDate || index === parameterData.length - 1) {
+        // End of current group (or last item)
+        const endIndex = group.date !== currentDate ? index - 1 : index;
+
+        // Format the display date (DD/MM/YY)
+        const dateObj = new Date(currentDate);
+        const displayDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getFullYear()).slice(-2)}`;
+
+        groups.push({
+          date: currentDate,
+          startIndex,
+          endIndex,
+          displayDate
+        });
+
+        // Record separator position (between groups)
+        if (group.date !== currentDate) {
+          separatorIndices.push(index);
+          startIndex = index;
+          currentDate = group.date;
+        }
+      }
+    });
+
+    // Handle last group if it wasn't closed
+    if (groups.length === 0 || groups[groups.length - 1].date !== currentDate) {
+      const dateObj = new Date(currentDate);
+      const displayDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getFullYear()).slice(-2)}`;
+      groups.push({
+        date: currentDate,
+        startIndex,
+        endIndex: parameterData.length - 1,
+        displayDate
+      });
+    }
+
+    return { groups, separatorIndices };
+  }, [showDateSeparators, parameterData]);
+
   // Custom tooltip
   const CustomTooltip = ({ active, payload }: any) => {
     if (!active || !payload || payload.length === 0) return null;
@@ -218,10 +271,13 @@ export function ColumnChartWithErrorBars({
     const line2Components = spotSampleStyles?.xAxisLine2Components ?? ['station', 'sample'];
 
     // Build final display based on mode
+    // Skip date in x-axis labels when showDateSeparators is true (date is shown at top)
+    const shouldShowDate = styles.xAxisShowDate && !showDateSeparators;
+
     if (labelLineMode === 'single') {
       // Single line mode: show all enabled components on one line
       const labelComponents: string[] = [];
-      if (styles.xAxisShowDate && dateLabel) {
+      if (shouldShowDate && dateLabel) {
         labelComponents.push(dateLabel);
       }
       if (styles.xAxisShowStationName && stationName) {
@@ -254,10 +310,11 @@ export function ColumnChartWithErrorBars({
       const line2Parts: string[] = [];
 
       // Build line 1 from assigned components (respecting visibility toggles)
+      // Skip date when showDateSeparators is true (date is shown at top)
       line1Components.forEach(comp => {
         const value = componentMap[comp];
         if (value) {
-          if (comp === 'date' && !styles.xAxisShowDate) return;
+          if (comp === 'date' && !shouldShowDate) return;
           if (comp === 'station' && !styles.xAxisShowStationName) return;
           if (comp === 'sample' && !styles.xAxisShowSampleId) return;
           line1Parts.push(value);
@@ -268,7 +325,7 @@ export function ColumnChartWithErrorBars({
       line2Components.forEach(comp => {
         const value = componentMap[comp];
         if (value) {
-          if (comp === 'date' && !styles.xAxisShowDate) return;
+          if (comp === 'date' && !shouldShowDate) return;
           if (comp === 'station' && !styles.xAxisShowStationName) return;
           if (comp === 'sample' && !styles.xAxisShowSampleId) return;
           line2Parts.push(value);
@@ -327,6 +384,89 @@ export function ColumnChartWithErrorBars({
     }
   };
 
+  // Custom component for rendering date separators and labels
+  const DateSeparatorsLayer = (props: any) => {
+    if (!showDateSeparators) return null;
+
+    const { xAxisMap, yAxisMap, offset } = props;
+    const xAxis = xAxisMap?.[0];
+    const yAxis = yAxisMap?.[0];
+
+    if (!xAxis || !yAxis || !xAxis.bandSize) return null;
+
+    const bandSize = xAxis.bandSize;
+    const yTop = offset?.top || styles.chartMarginTop;
+    const yBottom = yAxis.y + yAxis.height;
+
+    // Render separator lines and date labels
+    const elements: React.ReactNode[] = [];
+
+    // Add separator lines at date boundaries
+    dateGroups.separatorIndices.forEach((sepIndex, i) => {
+      const xPos = xAxis.x + (sepIndex * bandSize);
+      elements.push(
+        <line
+          key={`sep-line-${i}`}
+          x1={xPos}
+          y1={yTop}
+          x2={xPos}
+          y2={yBottom}
+          stroke="hsl(var(--muted-foreground))"
+          strokeWidth={1}
+          strokeDasharray="4 4"
+        />
+      );
+    });
+
+    // Add date labels at the top of each group (scale font size to avoid overlap)
+    const defaultFontSize = styles.xAxisLabelFontSize + 1;
+    const minFontSize = 8; // Minimum readable font size
+    const charWidth = 0.6; // Approximate character width as fraction of font size
+    const minSpacing = 5; // Minimum spacing between labels in pixels
+
+    // Calculate label positions first
+    const labelPositions = dateGroups.groups.map((group) => {
+      const startX = xAxis.x + (group.startIndex * bandSize) + (bandSize / 2);
+      const endX = xAxis.x + (group.endIndex * bandSize) + (bandSize / 2);
+      return (startX + endX) / 2;
+    });
+
+    // Find minimum distance between adjacent labels
+    let minDistance = Infinity;
+    for (let i = 1; i < labelPositions.length; i++) {
+      const distance = labelPositions[i] - labelPositions[i - 1];
+      if (distance < minDistance) minDistance = distance;
+    }
+
+    // Calculate font size that fits all labels
+    // Label width ≈ fontSize * charWidth * numChars (date format "DD/MM/YY" = 8 chars)
+    const numChars = 8;
+    const maxLabelWidth = minDistance - minSpacing;
+    const calculatedFontSize = maxLabelWidth / (charWidth * numChars);
+    const fontSize = Math.max(minFontSize, Math.min(defaultFontSize, calculatedFontSize));
+
+    dateGroups.groups.forEach((group, i) => {
+      const centerX = labelPositions[i];
+      const labelY = yTop - 20;
+
+      elements.push(
+        <text
+          key={`date-label-${i}`}
+          x={centerX}
+          y={labelY}
+          textAnchor="middle"
+          fontSize={fontSize}
+          fill="hsl(var(--foreground))"
+          fontWeight={600}
+        >
+          {group.displayDate}
+        </text>
+      );
+    });
+
+    return <g>{elements}</g>;
+  };
+
   return (
     <ResponsiveContainer width={width} height={styles.chartHeight}>
       <BarChart
@@ -341,6 +481,9 @@ export function ColumnChartWithErrorBars({
         barCategoryGap={`${styles.barCategoryGap}%`}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+
+        {/* Date separators and labels layer */}
+        {showDateSeparators && <Customized component={DateSeparatorsLayer} />}
 
         <XAxis
           dataKey="xAxisLabel"
@@ -363,9 +506,10 @@ export function ColumnChartWithErrorBars({
           }}
           tick={{ fontSize: styles.yAxisLabelFontSize }}
           domain={[
-            yAxisRange?.min !== undefined ? yAxisRange.min : 'auto',
+            yAxisRange?.min !== undefined ? Math.max(0, yAxisRange.min) : 0,
             yAxisRange?.max !== undefined ? yAxisRange.max : 'auto'
           ]}
+          allowDataOverflow={true}
         />
 
         <Tooltip content={<CustomTooltip />} />
@@ -375,7 +519,7 @@ export function ColumnChartWithErrorBars({
             // Use single color mode if selected, otherwise use unique colors per sample
             const color = columnColorMode === 'single'
               ? singleColumnColor
-              : (sampleIdColors[entry.sampleId] || '#3b82f6');
+              : (sampleIdColors[entry.sampleId] || '#4477AA'); // Colorblind-friendly blue
             return (
               <Cell
                 key={`cell-${entry.xAxisLabel}-${index}`}
@@ -385,12 +529,42 @@ export function ColumnChartWithErrorBars({
               />
             );
           })}
-          {/* Data labels on top of each column */}
+          {/* Data labels on top of each column with white background for visibility */}
           <LabelList
             dataKey="mean"
             position="top"
-            formatter={(value: number) => value.toFixed(2)}
-            style={{ fontSize: 11, fill: '#333', fontWeight: 500 }}
+            content={({ x, y, value, width }: any) => {
+              if (value === undefined || value === null) return null;
+              const text = typeof value === 'number' ? value.toFixed(2) : String(value);
+              const textWidth = text.length * 6.5; // Approximate width based on character count
+              const textHeight = 14;
+              const padding = 2;
+              // Center the label over the bar by using x + width/2
+              const centerX = (x as number) + (width as number) / 2;
+              return (
+                <g>
+                  <rect
+                    x={centerX - textWidth / 2 - padding}
+                    y={(y as number) - textHeight - padding}
+                    width={textWidth + padding * 2}
+                    height={textHeight + padding}
+                    fill="rgba(255, 255, 255, 0.85)"
+                    rx={2}
+                    ry={2}
+                  />
+                  <text
+                    x={centerX}
+                    y={(y as number) - 4}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fill="#333"
+                    fontWeight={500}
+                  >
+                    {text}
+                  </text>
+                </g>
+              );
+            }}
           />
           {/*
             Error bars - only rendered when errorY is defined (SD > 0 and count > 1)

@@ -14,6 +14,8 @@ export interface UserFileDetails {
   projectId: string | null
   startDate: Date | null
   endDate: Date | null
+  isDiscrete?: boolean
+  uniqueDates?: string[]
   fileSource?: 'regular' | 'merged' // Add fileSource to identify merged files
 }
 
@@ -89,7 +91,7 @@ export async function getAllUserFilesAction(): Promise<{
       console.log(`[Data Explorer Actions] 🔍 Fetching files for ${pinIds.length} pins...`);
       const { data: pinFilesData, error: filesError } = await supabase
         .from('pin_files')
-        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date')
+        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date, is_discrete, unique_dates')
         .in('pin_id', pinIds)
         .order('file_name', { ascending: true });
 
@@ -111,7 +113,7 @@ export async function getAllUserFilesAction(): Promise<{
       console.log(`[Data Explorer Actions] 🔍 Fetching files for ${areaIds.length} areas...`);
       const { data: areaFilesData, error: areaFilesError } = await supabase
         .from('pin_files')
-        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date')
+        .select('id, file_name, file_type, pin_id, area_id, project_id, uploaded_at, start_date, end_date, is_discrete, unique_dates')
         .in('area_id', areaIds)
         .order('file_name', { ascending: true });
 
@@ -185,6 +187,8 @@ export async function getAllUserFilesAction(): Promise<{
         projectId: item.project_id,
         startDate: item.start_date ? new Date(item.start_date) : null,
         endDate: item.end_date ? new Date(item.end_date) : null,
+        isDiscrete: item.is_discrete || false,
+        uniqueDates: item.unique_dates || undefined,
         fileSource: 'regular' as const
       };
     });
@@ -1277,16 +1281,23 @@ export async function updateCsvFileAction(fileId: string, csvContent: string): P
       };
     }
 
-    // Update the updated_at timestamp in the database to invalidate caches
-    console.log('[Data Explorer Actions] Updating file timestamp for cache invalidation...');
+    // Update the updated_at timestamp and clear stored date fields to force re-analysis
+    console.log('[Data Explorer Actions] Updating file timestamp and clearing stored dates for re-analysis...');
     const { error: timestampError } = await supabase
       .from('pin_files')
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        updated_at: new Date().toISOString(),
+        // Clear stored dates so they get re-analyzed from the edited CSV content
+        start_date: null,
+        end_date: null,
+        is_discrete: null,
+        unique_dates: null
+      })
       .eq('id', fileId);
 
     if (timestampError) {
-      console.warn('[Data Explorer Actions] Failed to update timestamp (non-critical):', timestampError);
-      // Don't fail the whole operation if timestamp update fails
+      console.warn('[Data Explorer Actions] Failed to update timestamp/clear dates (non-critical):', timestampError);
+      // Don't fail the whole operation if update fails
     }
 
     console.log('[Data Explorer Actions] CSV file updated successfully');

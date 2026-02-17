@@ -44,6 +44,7 @@ interface WhiskerPlotProps {
   showXAxisLabels?: boolean;
   spotSampleStyles?: SpotSampleStyles;
   yAxisRange?: { min?: number; max?: number };
+  showDateSeparators?: boolean; // Show vertical lines between different sampling days (only in Detailed mode)
 }
 
 /**
@@ -59,7 +60,8 @@ export function WhiskerPlot({
   height = 400,
   showXAxisLabels = true,
   spotSampleStyles,
-  yAxisRange
+  yAxisRange,
+  showDateSeparators = false
 }: WhiskerPlotProps) {
 
   // Helper function to capitalize first letter of parameter names
@@ -166,6 +168,39 @@ export function WhiskerPlot({
   // Calculate Y-axis domain
   const allValues = parameterData.flatMap(d => [d.stats.min, d.stats.max]).filter(v => !isNaN(v) && isFinite(v));
   const dataMax = allValues.length > 0 ? Math.max(...allValues) : 1;
+  const dataMin = allValues.length > 0 ? Math.min(...allValues) : 0;
+
+  // Helper to calculate nice round tick values for a range
+  const calculateNiceRange = (minVal: number, maxVal: number, minTicks = 6): { min: number; max: number; ticks: number[] } => {
+    const range = maxVal - minVal;
+    // Add 10% padding to the range
+    const padding = range * 0.1;
+    const paddedMin = minVal - padding;
+    const paddedMax = maxVal + padding;
+
+    // Calculate step size
+    const roughStep = (paddedMax - paddedMin) / (minTicks - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalizedStep = roughStep / magnitude;
+
+    let niceStep: number;
+    if (normalizedStep <= 1) niceStep = 1 * magnitude;
+    else if (normalizedStep <= 2) niceStep = 2 * magnitude;
+    else if (normalizedStep <= 5) niceStep = 5 * magnitude;
+    else niceStep = 10 * magnitude;
+
+    // Round min down and max up to nice values
+    const niceMin = Math.max(0, Math.floor(paddedMin / niceStep) * niceStep); // Never go below 0
+    const niceMax = Math.ceil(paddedMax / niceStep) * niceStep;
+
+    // Generate ticks
+    const ticks: number[] = [];
+    for (let tick = niceMin; tick <= niceMax + niceStep * 0.5; tick += niceStep) {
+      ticks.push(Math.round(tick * 1000) / 1000); // Avoid floating point issues
+    }
+
+    return { min: niceMin, max: niceMax, ticks };
+  };
 
   // Use custom range if provided, otherwise calculate from data
   let yMin: number;
@@ -174,23 +209,26 @@ export function WhiskerPlot({
 
   if (yAxisRange?.min !== undefined || yAxisRange?.max !== undefined) {
     // Custom range provided
-    yMin = yAxisRange.min !== undefined ? yAxisRange.min : 0;
+    yMin = yAxisRange.min !== undefined ? Math.max(0, yAxisRange.min) : Math.max(0, dataMin);
     const customMax = yAxisRange.max !== undefined ? yAxisRange.max : dataMax;
     yTicks = calculateNiceTicks(customMax, 8);
     yMax = yAxisRange.max !== undefined ? yAxisRange.max : yTicks[yTicks.length - 1];
   } else {
-    // Auto-calculate from data
-    yMin = 0; // Always start at 0
-    yTicks = calculateNiceTicks(dataMax, 8); // At least 8 ticks for granular intervals
-    yMax = yTicks[yTicks.length - 1]; // Use the last tick as max
+    // Auto-calculate from data - use data-responsive range
+    const niceRange = calculateNiceRange(dataMin, dataMax, 8);
+    yMin = niceRange.min;
+    yMax = niceRange.max;
+    yTicks = niceRange.ticks;
   }
 
   const yRange = yMax - yMin;
 
   // Chart dimensions
   const chartHeight = styles.chartHeight;
+  // Add extra top margin when showDateSeparators is true to accommodate date labels
+  const dateLabelsTopMargin = showDateSeparators ? 20 : 0;
   const margin = {
-    top: styles.chartMarginTop,
+    top: styles.chartMarginTop + dateLabelsTopMargin,
     right: styles.chartMarginRight,
     bottom: styles.chartMarginBottom,
     left: styles.chartMarginLeft
@@ -235,7 +273,7 @@ export function WhiskerPlot({
   console.log('  - whiskerCapWidth:', styles.whiskerCapWidth, '% of box width');
   console.log('  - number of boxes:', parameterData.length);
   console.log('[WHISKER-PLOT] 📊 Y-axis:');
-  console.log('  - Y min:', yMin, '(always 0)');
+  console.log('  - Y min:', yMin, '(data-responsive, never below 0)');
   console.log('  - Y max:', yMax);
   console.log('  - Y ticks:', yTicks);
   console.log('  - Data max:', dataMax);
@@ -243,6 +281,68 @@ export function WhiskerPlot({
   console.log('  - Chart width mode:', styles.chartWidth ? `Fixed (${styles.chartWidth}px)` : 'Auto');
   console.log('  - Plot width:', plotWidth, 'px');
   console.log('  - Total chart width:', chartWidth, 'px');
+
+  // Calculate date groups for top labels (when showDateSeparators is true)
+  const dateGroups = React.useMemo(() => {
+    if (!showDateSeparators) return [];
+
+    const groups: Array<{ date: string; startIndex: number; endIndex: number; centerX: number; displayDate: string }> = [];
+    let currentDate = parameterData[0]?.date;
+    let startIndex = 0;
+
+    parameterData.forEach((group, index) => {
+      if (group.date !== currentDate || index === parameterData.length - 1) {
+        // End of current group (or last item)
+        const endIndex = group.date !== currentDate ? index - 1 : index;
+        const actualEndIndex = group.date !== currentDate ? index - 1 : index;
+
+        // Calculate center position of the group
+        const startX = spacing * startIndex + spacing / 2;
+        const endX = spacing * actualEndIndex + spacing / 2;
+        const centerX = (startX + endX) / 2;
+
+        // Format the date for display (extract from xAxisLabel)
+        const firstGroupItem = parameterData[startIndex];
+        const labelParts = firstGroupItem.xAxisLabel.match(/^(.+?)\s+\[/);
+        const displayDate = labelParts ? labelParts[1] : currentDate;
+
+        groups.push({
+          date: currentDate,
+          startIndex,
+          endIndex: actualEndIndex,
+          centerX,
+          displayDate
+        });
+
+        // Start new group
+        if (group.date !== currentDate) {
+          currentDate = group.date;
+          startIndex = index;
+        }
+      }
+    });
+
+    // Handle last group if not already added
+    if (groups.length === 0 || groups[groups.length - 1].date !== currentDate) {
+      const startX = spacing * startIndex + spacing / 2;
+      const endX = spacing * (parameterData.length - 1) + spacing / 2;
+      const centerX = (startX + endX) / 2;
+
+      const firstGroupItem = parameterData[startIndex];
+      const labelParts = firstGroupItem?.xAxisLabel.match(/^(.+?)\s+\[/);
+      const displayDate = labelParts ? labelParts[1] : currentDate;
+
+      groups.push({
+        date: currentDate,
+        startIndex,
+        endIndex: parameterData.length - 1,
+        centerX,
+        displayDate
+      });
+    }
+
+    return groups;
+  }, [parameterData, spacing, showDateSeparators]);
 
   // Tooltip state
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
@@ -324,6 +424,43 @@ export function WhiskerPlot({
             strokeWidth={1}
           />
 
+          {/* Date group labels at top of chart (only when showDateSeparators is true) */}
+          {showDateSeparators && (() => {
+            // Scale font size to avoid overlap while showing all labels
+            const defaultFontSize = styles.xAxisLabelFontSize + 1;
+            const minFontSize = 8; // Minimum readable font size
+            const charWidth = 0.6; // Approximate character width as fraction of font size
+            const minSpacing = 5; // Minimum spacing between labels in pixels
+
+            // Find minimum distance between adjacent labels
+            let minDistance = Infinity;
+            for (let i = 1; i < dateGroups.length; i++) {
+              const distance = dateGroups[i].centerX - dateGroups[i - 1].centerX;
+              if (distance < minDistance) minDistance = distance;
+            }
+
+            // Calculate font size that fits all labels
+            // Label width ≈ fontSize * charWidth * numChars (date format "DD/MM/YY" = 8 chars)
+            const numChars = 8;
+            const maxLabelWidth = minDistance - minSpacing;
+            const calculatedFontSize = maxLabelWidth / (charWidth * numChars);
+            const fontSize = Math.max(minFontSize, Math.min(defaultFontSize, calculatedFontSize));
+
+            return dateGroups.map((group, index) => (
+              <text
+                key={`date-label-${index}`}
+                x={group.centerX}
+                y={-8}
+                textAnchor="middle"
+                fontSize={fontSize}
+                fill="hsl(var(--foreground))"
+                fontWeight={600}
+              >
+                {group.displayDate}
+              </text>
+            ));
+          })()}
+
           {/* Y-axis label */}
           <text
             x={0}
@@ -337,10 +474,37 @@ export function WhiskerPlot({
             {spotSampleStyles?.yAxisLabel || capitalizeParameter(parameter)}
           </text>
 
+          {/* Date group separator lines - vertical lines between different sampling days (only in Detailed mode) */}
+          {showDateSeparators && parameterData.map((group, index) => {
+            // Skip first item - no separator needed before it
+            if (index === 0) return null;
+
+            const prevGroup = parameterData[index - 1];
+            // Only draw separator when date changes
+            if (group.date === prevGroup.date) return null;
+
+            // Position the line between the previous and current boxplot
+            const separatorX = spacing * index;
+
+            return (
+              <line
+                key={`date-sep-${index}`}
+                x1={separatorX}
+                y1={0}
+                x2={separatorX}
+                y2={plotHeight}
+                stroke="#94a3b8"
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                opacity={0.7}
+              />
+            );
+          })}
+
           {/* Box plots */}
           {parameterData.map((group, index) => {
             const x = spacing * index + spacing / 2;
-            const color = sampleIdColors[group.sampleId] || '#3b82f6';
+            const color = sampleIdColors[group.sampleId] || '#4477AA'; // Colorblind-friendly blue
             // Create unique key from group properties
             const uniqueKey = `${group.date}-${group.sampleId}-${group.bladeId || 'no-blade'}-${index}`;
 
@@ -487,7 +651,8 @@ export function WhiskerPlot({
             if (labelLineMode === 'single') {
               // Single line mode: show all enabled components on one line
               const labelComponents: string[] = [];
-              if (styles.xAxisShowDate && dateLabel) {
+              // Skip date in x-axis labels when showDateSeparators is true (date shown at top)
+              if (styles.xAxisShowDate && dateLabel && !showDateSeparators) {
                 labelComponents.push(dateLabel);
               }
               if (styles.xAxisShowStationName && stationName) {
@@ -519,10 +684,11 @@ export function WhiskerPlot({
               const line2Parts: string[] = [];
 
               // Build line 1 from assigned components (respecting visibility toggles)
+              // Skip date when showDateSeparators is true (date shown at top of chart)
               line1Components.forEach(comp => {
                 const value = componentMap[comp];
                 if (value) {
-                  if (comp === 'date' && !styles.xAxisShowDate) return;
+                  if (comp === 'date' && (!styles.xAxisShowDate || showDateSeparators)) return;
                   if (comp === 'station' && !styles.xAxisShowStationName) return;
                   if (comp === 'sample' && !styles.xAxisShowSampleId) return;
                   line1Parts.push(value);
@@ -530,10 +696,11 @@ export function WhiskerPlot({
               });
 
               // Build line 2 from assigned components (respecting visibility toggles)
+              // Skip date when showDateSeparators is true (date shown at top of chart)
               line2Components.forEach(comp => {
                 const value = componentMap[comp];
                 if (value) {
-                  if (comp === 'date' && !styles.xAxisShowDate) return;
+                  if (comp === 'date' && (!styles.xAxisShowDate || showDateSeparators)) return;
                   if (comp === 'station' && !styles.xAxisShowStationName) return;
                   if (comp === 'sample' && !styles.xAxisShowSampleId) return;
                   line2Parts.push(value);

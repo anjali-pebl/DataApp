@@ -36,6 +36,16 @@ interface PinPlotInstanceProps {
   preParsedData?: ParseResult;
   // Merged file metadata (for displaying file info)
   mergedFileMetadata?: MergedFileMetadata;
+  // File metadata for header display
+  pinLabel?: string; // Location name
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
+  // Display overrides for paired FPOD plots
+  hideBrush?: boolean;
+  showDateTimeAxis?: boolean;
+  // Location coordinates for sunrise/sunset shading
+  coordinates?: { lat: number; lng: number };
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -69,6 +79,9 @@ interface PinPlotInstanceProps {
   isSubtractedPlot?: boolean;
   includeZeroValues?: boolean;
   onIncludeZeroValuesChange?: (include: boolean) => void;
+  // Methodology modal props
+  projectId?: string;
+  tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
 
@@ -80,6 +93,13 @@ function PinPlotInstanceComponent({
   files,
   preParsedData,
   mergedFileMetadata,
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories,
+  hideBrush,
+  showDateTimeAxis,
+  coordinates,
   timeAxisMode,
   globalTimeRange,
   globalBrushRange,
@@ -97,10 +117,20 @@ function PinPlotInstanceComponent({
   pinId,
   isSubtractedPlot = false,
   includeZeroValues = false,
-  onIncludeZeroValuesChange
+  onIncludeZeroValuesChange,
+  projectId,
+  tileName
 }: PinPlotInstanceProps) {
   const { toast } = useToast();
   const componentId = useId();
+
+  console.log('🎯 [PinPlotInstance] Received metadata:', {
+    pinLabel,
+    startDate,
+    endDate,
+    fileCategories,
+    fileType
+  });
 
   // State
   const [plotTitle, setPlotTitle] = useState(initialPlotTitle);
@@ -294,6 +324,13 @@ function PinPlotInstanceComponent({
               showYAxisLabels={true}
               fileName={files.length > 0 ? files[0].name : undefined}
               dataSource="csv"
+              pinLabel={pinLabel}
+              startDate={startDate}
+              endDate={endDate}
+              fileCategories={fileCategories}
+              hideBrush={hideBrush}
+              showDateTimeAxis={showDateTimeAxis}
+              coordinates={coordinates}
               timeAxisMode={timeAxisMode}
               globalTimeRange={globalTimeRange}
               globalBrushRange={globalBrushRange}
@@ -309,7 +346,7 @@ function PinPlotInstanceComponent({
               initialCompactView={initialCompactView}
               initialCustomParameterNames={initialCustomParameterNames}
               // Set defaults for merged plots (detected by preParsedData)
-              defaultAxisMode={preParsedData ? 'multi' : 'single'}
+              defaultAxisMode='multi'
               defaultParametersExpanded={preParsedData ? true : false}
               // Date format toggle (only for non-merged plots)
               currentDateFormat={dateFormat}
@@ -327,6 +364,9 @@ function PinPlotInstanceComponent({
               isSubtractedPlot={isSubtractedPlot}
               includeZeroValues={includeZeroValues}
               onIncludeZeroValuesChange={onIncludeZeroValuesChange}
+              // Methodology modal props
+              projectId={projectId}
+              tileName={tileName}
             />
           </div>
         ) : (

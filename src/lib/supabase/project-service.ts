@@ -293,6 +293,71 @@ class ProjectService {
       createdAt: new Date(data.created_at)
     }
   }
+
+  /**
+   * Get project by slug/name match (for legacy location-based project IDs)
+   * Converts slug like 'milfordhaven' to match 'Milford Haven'
+   */
+  async getProjectBySlug(slug: string): Promise<Project | null> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return null
+
+    // Get all user's projects and find one whose name matches the slug
+    const { data, error } = await this.supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', user.id)
+
+    if (error || !data) return null
+
+    // Convert slug to comparable format and find matching project
+    const normalizeForComparison = (str: string) =>
+      str.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+    const normalizedSlug = normalizeForComparison(slug)
+
+    const matchingProject = data.find(project =>
+      normalizeForComparison(project.name) === normalizedSlug
+    )
+
+    if (!matchingProject) return null
+
+    return {
+      id: matchingProject.id,
+      name: matchingProject.name,
+      description: matchingProject.description || undefined,
+      createdAt: new Date(matchingProject.created_at)
+    }
+  }
+
+  async getSharedProjects(): Promise<(Project & { isShared: true })[]> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return []
+
+    const { data, error } = await this.supabase
+      .from('project_shares')
+      .select(`
+        project_id,
+        projects:project_id (id, name, description, created_at)
+      `)
+      .eq('shared_with_user_id', user.id)
+
+    if (error) {
+      console.error('Error loading shared projects:', error)
+      return []
+    }
+
+    return (data ?? [])
+      .map((row: any) => row.projects)
+      .filter(Boolean)
+      .map((project: any) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description || undefined,
+        createdAt: new Date(project.created_at),
+        isShared: true as const,
+      }))
+  }
 }
 
 export const projectService = new ProjectService()

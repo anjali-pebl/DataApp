@@ -117,8 +117,11 @@ export default function CustomAuthForm() {
       // Track successful signup
       analyticsService.trackAction('signup', 'authentication', { email }, startTime).catch(err => console.error('Analytics tracking error:', err))
 
+      const isPeblEmail = email.toLowerCase().endsWith('@pebl-cic.co.uk')
       setSuccess(
-        'Account created! Please check your email to confirm your account.'
+        isPeblEmail
+          ? 'Account created! Please check your email to confirm your account.'
+          : 'Account created! Please check your email to confirm your account. A PEBL administrator will review your access request.'
       )
       setEmail('')
       setPassword('')

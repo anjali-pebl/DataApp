@@ -552,17 +552,24 @@ function parseDataRow(
 
   // Special handling for eDNA Meta files without time columns
   // These files have concentration data but no timestamps - use filename date instead
+  // ONLY inject filename date when the file has NO real date column detected
+  // (timeColumnIndex === 0 means fallback/default, not a real match)
+  // If a real date column exists but this row's cell is empty, skip the row instead
+  // of injecting a synthetic date that creates phantom timeline entries
   const isEdnaMetaFile = fileName &&
     fileName.toLowerCase().includes('edna') &&
     (fileName.toLowerCase().includes('_meta') || fileName.toLowerCase().includes('_metadata'));
 
-  if (!hasValidTime && isEdnaMetaFile && fileName) {
+  const hasRealDateColumn = timeColumnIndex > 0 ||
+    headers[timeColumnIndex]?.toLowerCase().includes('date') ||
+    headers[timeColumnIndex]?.toLowerCase().includes('time');
+
+  if (!hasValidTime && isEdnaMetaFile && fileName && !hasRealDateColumn) {
     // Extract date from filename (e.g., "NORF_EDNAS_ALL_2507" → "2025-07-01")
     const extractedDate = extractEdnaDate(fileName);
     if (extractedDate) {
       dataPoint.time = extractedDate.toISOString();
       hasValidTime = true;
-      // console.log('[CSV PARSER] eDNA Meta file: Injected synthetic date from filename:', dataPoint.time);
     }
   }
 
@@ -598,12 +605,48 @@ function parseCSVLine(line: string): string[] {
 /**
  * Process time values with format detection and conversion
  * Handles various formats and ensures ISO 8601 output
+ * Supports comma-separated multiple dates (e.g., "30/07/2024, 31/07/2024")
+ * Returns comma-separated ISO dates for multi-date cells
  */
 function processTimeValue(value: string, fileType: FileType, dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'): string {
   if (!value || value === '') return '';
 
   // Clean up the value
   const cleanValue = value.trim();
+
+  // Check for comma-separated multiple dates (e.g., "30/07/2024, 31/07/2024")
+  if (cleanValue.includes(',')) {
+    const dateParts = cleanValue.split(',').map(d => d.trim()).filter(d => d !== '');
+    console.log('[MULTI-DATE] Detected comma-separated dates:', dateParts);
+    const parsedDates: string[] = [];
+
+    for (const datePart of dateParts) {
+      const parsed = parseSingleTimeValue(datePart, fileType, dateFormat);
+      console.log('[MULTI-DATE] Parsing part:', datePart, '→', parsed || 'FAILED');
+      if (parsed) {
+        parsedDates.push(parsed);
+      }
+    }
+
+    if (parsedDates.length > 0) {
+      // Return comma-separated ISO dates
+      console.log('[MULTI-DATE] Success! Returning:', parsedDates.join(','));
+      return parsedDates.join(',');
+    }
+    console.log('[MULTI-DATE] All parts failed to parse');
+    return '';
+  }
+
+  // Single date - use the regular parser
+  return parseSingleTimeValue(cleanValue, fileType, dateFormat);
+}
+
+/**
+ * Parse a single time/date value (no commas)
+ * Internal helper for processTimeValue
+ */
+function parseSingleTimeValue(cleanValue: string, fileType: FileType, dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'): string {
+  if (!cleanValue || cleanValue === '') return '';
 
   // Handle case where time might have only HH:MM format (missing date)
   // This would be invalid - skip these rows
@@ -676,6 +719,118 @@ function processTimeValue(value: string, fileType: FileType, dateFormat: 'DD/MM/
 
     // Date only formats - add midnight time
     { regex: /^(\d{4})-(\d{2})-(\d{2})$/, handler: (v: string) => v + 'T00:00:00Z' },
+
+    // ISO date only: YYYY-MM-DD (no time component)
+    { regex: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (!match) return '';
+      const [, year, month, day] = match;
+      const result = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00Z`;
+      console.log(`[TIME CONVERSION ISO-DATE-ONLY] Input: "${v}" | Output: ${result}`);
+      return result;
+    }},
+
+    // No separator: YYYYMMDD (e.g., 20240731)
+    { regex: /^(\d{4})(\d{2})(\d{2})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (!match) return '';
+      const [, year, month, day] = match;
+      const result = `${year}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION YYYYMMDD] Input: "${v}" | Output: ${result}`);
+      return result;
+    }},
+
+    // No separator: DDMMYYYY (e.g., 31072024)
+    { regex: /^(\d{2})(\d{2})(\d{4})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{2})(\d{2})(\d{4})$/);
+      if (!match) return '';
+      const [, d1, d2, year] = match;
+      let day: string, month: string;
+      if (dateFormat === 'DD/MM/YYYY') {
+        day = d1; month = d2;
+      } else {
+        month = d1; day = d2;
+      }
+      const result = `${year}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION DDMMYYYY] Input: "${v}" | Format: ${dateFormat} | Output: ${result}`);
+      return result;
+    }},
+
+    // Dot separator year-first: YYYY.MM.DD (e.g., 2024.07.31)
+    { regex: /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
+      if (!match) return '';
+      const [, year, month, day] = match;
+      const result = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00Z`;
+      console.log(`[TIME CONVERSION YYYY.MM.DD] Input: "${v}" | Output: ${result}`);
+      return result;
+    }},
+
+    // Dot separator day-first: DD.MM.YYYY (e.g., 31.07.2024)
+    { regex: /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (!match) return '';
+      const [, d1, d2, year] = match;
+      let day: string, month: string;
+      if (dateFormat === 'DD/MM/YYYY') {
+        day = d1.padStart(2, '0'); month = d2.padStart(2, '0');
+      } else {
+        month = d1.padStart(2, '0'); day = d2.padStart(2, '0');
+      }
+      const result = `${year}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION DD.MM.YYYY] Input: "${v}" | Format: ${dateFormat} | Output: ${result}`);
+      return result;
+    }},
+
+    // Dot separator with 2-digit year: DD.MM.YY (e.g., 31.07.24)
+    { regex: /^(\d{1,2})\.(\d{1,2})\.(\d{2})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2})$/);
+      if (!match) return '';
+      const [, d1, d2, yy] = match;
+      const fullYear = 2000 + parseInt(yy, 10);
+      let day: string, month: string;
+      if (dateFormat === 'DD/MM/YYYY') {
+        day = d1.padStart(2, '0'); month = d2.padStart(2, '0');
+      } else {
+        month = d1.padStart(2, '0'); day = d2.padStart(2, '0');
+      }
+      const result = `${fullYear}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION DD.MM.YY] Input: "${v}" | Format: ${dateFormat} | Output: ${result}`);
+      return result;
+    }},
+
+    // Dash separator day-first: DD-MM-YYYY (e.g., 31-07-2024)
+    { regex: /^(\d{1,2})-(\d{1,2})-(\d{4})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (!match) return '';
+      const [, d1, d2, year] = match;
+      let day: string, month: string;
+      if (dateFormat === 'DD/MM/YYYY') {
+        day = d1.padStart(2, '0'); month = d2.padStart(2, '0');
+      } else {
+        month = d1.padStart(2, '0'); day = d2.padStart(2, '0');
+      }
+      const result = `${year}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION DD-MM-YYYY] Input: "${v}" | Format: ${dateFormat} | Output: ${result}`);
+      return result;
+    }},
+
+    // Dash separator with 2-digit year: DD-MM-YY (e.g., 31-07-24)
+    { regex: /^(\d{1,2})-(\d{1,2})-(\d{2})$/, handler: (v: string) => {
+      const match = v.match(/^(\d{1,2})-(\d{1,2})-(\d{2})$/);
+      if (!match) return '';
+      const [, d1, d2, yy] = match;
+      const fullYear = 2000 + parseInt(yy, 10);
+      let day: string, month: string;
+      if (dateFormat === 'DD/MM/YYYY') {
+        day = d1.padStart(2, '0'); month = d2.padStart(2, '0');
+      } else {
+        month = d1.padStart(2, '0'); day = d2.padStart(2, '0');
+      }
+      const result = `${fullYear}-${month}-${day}T00:00:00Z`;
+      console.log(`[TIME CONVERSION DD-MM-YY] Input: "${v}" | Format: ${dateFormat} | Output: ${result}`);
+      return result;
+    }},
 
     // Date only with 4-digit year: DD/MM/YYYY or MM/DD/YYYY
     { regex: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, handler: (v: string) => {
@@ -1070,9 +1225,14 @@ async function parseNmaxCsv(file: File): Promise<HaplotypeParseResult> {
     // Sort species alphabetically
     result.species.sort((a, b) => a.localeCompare(b));
 
-    // Fetch taxonomy data from WoRMS/GBIF
+    // Fetch taxonomy data from GBIF (no WoRMS fallback for eDNA - GBIF provides georeferenced sightings)
     try {
-      const taxonomyMap = await lookupSpeciesBatch(result.species);
+      const taxonomyMap = await lookupSpeciesBatch(
+        result.species,
+        5, // maxConcurrent
+        undefined, // onProgress
+        false // useWormsFallback - disabled for eDNA
+      );
 
       // Update metadata for each cell with taxonomy data
       result.data.forEach(cell => {
@@ -1242,9 +1402,14 @@ async function parseHaplotypeCsvOriginal(file: File): Promise<HaplotypeParseResu
     // Sort species alphabetically (as specified: 2A)
     result.species.sort((a, b) => a.localeCompare(b));
 
-    // Fetch taxonomy data from WoRMS/GBIF
+    // Fetch taxonomy data from GBIF (no WoRMS fallback for eDNA - GBIF provides georeferenced sightings)
     try {
-      const taxonomyMap = await lookupSpeciesBatch(result.species);
+      const taxonomyMap = await lookupSpeciesBatch(
+        result.species,
+        5, // maxConcurrent
+        undefined, // onProgress
+        false // useWormsFallback - disabled for eDNA
+      );
 
       // Update metadata for each cell with taxonomy data
       result.data.forEach(cell => {

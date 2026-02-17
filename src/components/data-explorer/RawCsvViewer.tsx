@@ -1,9 +1,19 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2, X, Download, Edit, Sparkles, Save, Check, FileText, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
+import { Loader2, X, Download, Edit, Sparkles, Save, Check, FileText, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Trash2, Plus, PaintBucket, Clipboard, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, MoreHorizontal } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
 import { fetchRawCsvAction, transformSingleCellAction, updateCsvFileAction } from '@/app/data-explorer/actions';
@@ -16,6 +26,8 @@ interface RawCsvViewerProps {
   fileName: string;
   isOpen: boolean;
   onClose: () => void;
+  onFileUpdated?: () => void; // Called after file is saved to trigger refresh
+  isReadOnly?: boolean;
 }
 
 interface TransformationLogEntry {
@@ -47,7 +59,7 @@ interface TransformationLogEntry {
   };
 }
 
-export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewerProps) {
+export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated, isReadOnly = false }: RawCsvViewerProps) {
   const { toast } = useToast();
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
@@ -68,6 +80,20 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
 
+  // Fill dialog state
+  const [showFillDialog, setShowFillDialog] = useState(false);
+  const [fillValue, setFillValue] = useState('');
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    cellKey: string;
+    rowIdx: number;
+    colIdx: number;
+    isHeader: boolean;
+  } | null>(null);
+
   // AI generation state
   const [showAiPromptDialog, setShowAiPromptDialog] = useState(false);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
@@ -76,6 +102,30 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
   const [transformationLog, setTransformationLog] = useState<TransformationLogEntry[]>([]);
   const [showLog, setShowLog] = useState(false);
   const [expandedLogEntries, setExpandedLogEntries] = useState<Set<number>>(new Set()); // Track expanded log entries
+
+  // Drag-to-scroll state
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isDragScrolling, setIsDragScrolling] = useState(false);
+  const [dragScrollStart, setDragScrollStart] = useState({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+
+  // Throttle ref for drag selection (requestAnimationFrame)
+  const rafRef = useRef<number | null>(null);
+  const pendingSelectionRef = useRef<{ row: number; col: number; isCtrl: boolean } | null>(null);
+
+  // Refs for keyboard handler to avoid re-registering on every data change
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const selectedCellsRef = useRef(selectedCells);
+  selectedCellsRef.current = selectedCells;
+
+  // Pagination state for performance
+  const [currentPage, setCurrentPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+
+  // Calculate paginated rows
+  const totalPages = Math.ceil(rows.length / rowsPerPage);
+  const paginatedRows = rows.slice(currentPage * rowsPerPage, (currentPage + 1) * rowsPerPage);
+  const startRowIndex = currentPage * rowsPerPage; // For correct row numbering
 
   // Fetch raw CSV data when dialog opens
   useEffect(() => {
@@ -94,6 +144,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
       if (result.success && result.data) {
         setHeaders(result.data.headers);
         setRows(result.data.rows);
+        setCurrentPage(0); // Reset to first page when loading new data
       } else {
         setError(result.error || 'Failed to load CSV data');
         toast({
@@ -120,6 +171,11 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
   const handleCellMouseDown = (rowIdx: number, cellIdx: number, event: React.MouseEvent) => {
     if (!isEditMode) return;
 
+    // Allow Shift+drag for scrolling - don't handle cell selection
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      return; // Let the event bubble up to the scroll container
+    }
+
     event.preventDefault();
     const cellKey = `${rowIdx}-${cellIdx}`;
 
@@ -142,23 +198,21 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     }
   };
 
-  const handleCellMouseEnter = (rowIdx: number, cellIdx: number, event?: React.MouseEvent) => {
-    if (!isEditMode || !isSelecting || !selectionStart) return;
+  // Throttled drag selection - uses requestAnimationFrame to batch updates at 60fps
+  const flushPendingSelection = useCallback(() => {
+    const pending = pendingSelectionRef.current;
+    if (!pending || !selectionStart) return;
 
-    const cellKey = `${rowIdx}-${cellIdx}`;
+    const { row: rowIdx, col: cellIdx, isCtrl } = pending;
+    pendingSelectionRef.current = null;
 
-    // Check if Ctrl is still being held (for Ctrl+drag)
-    const isCtrlHeld = event?.ctrlKey || event?.metaKey;
-
-    if (isCtrlHeld) {
-      // Ctrl+Drag: Add cells as mouse moves over them (additive selection)
+    if (isCtrl) {
       setSelectedCells(prev => {
         const next = new Set(prev);
-        next.add(cellKey);
+        next.add(`${rowIdx}-${cellIdx}`);
         return next;
       });
     } else {
-      // Regular drag: Calculate rectangular selection range
       const minRow = Math.min(selectionStart.row, rowIdx);
       const maxRow = Math.max(selectionStart.row, rowIdx);
       const minCol = Math.min(selectionStart.col, cellIdx);
@@ -173,10 +227,37 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
 
       setSelectedCells(cellsInRange);
     }
-  };
+  }, [selectionStart]);
 
-  const handleCellMouseUp = () => {
+  const handleCellMouseEnter = useCallback((rowIdx: number, cellIdx: number, event?: React.MouseEvent) => {
+    if (!isEditMode || !isSelecting || !selectionStart) return;
+
+    const isCtrlHeld = event?.ctrlKey || event?.metaKey;
+    pendingSelectionRef.current = { row: rowIdx, col: cellIdx, isCtrl: !!isCtrlHeld };
+
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        flushPendingSelection();
+      });
+    }
+  }, [isEditMode, isSelecting, selectionStart, flushPendingSelection]);
+
+  const handleCellMouseUp = (e?: React.MouseEvent, rowIdx?: number, colIdx?: number) => {
     if (!isEditMode) return;
+
+    // If we were dragging a selection and have multiple cells, show context menu
+    if (isSelecting && selectedCells.size > 1 && e && rowIdx !== undefined && colIdx !== undefined) {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        cellKey: `${rowIdx}-${colIdx}`,
+        rowIdx,
+        colIdx,
+        isHeader: false
+      });
+    }
+
     setIsSelecting(false);
     setSelectionStart(null);
   };
@@ -240,35 +321,53 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     });
   };
 
-  // Check if all cells in a column are selected (excluding header)
-  const isColumnFullySelected = (colIdx: number): boolean => {
-    if (rows.length === 0) return false;
+  // Memoized column selection state - computed once when selectedCells or rows change
+  // This replaces the expensive per-column iteration that was causing 100k+ iterations per render
+  const columnSelectionState = useMemo(() => {
+    const state: Map<number, { full: boolean; partial: boolean }> = new Map();
 
-    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-      if (!selectedCells.has(`${rowIdx}-${colIdx}`)) {
-        return false;
-      }
+    if (rows.length === 0 || headers.length === 0) {
+      return state;
     }
-    return true;
+
+    // Count selected cells per column in a single pass through selectedCells
+    const columnCounts = new Map<number, number>();
+
+    selectedCells.forEach(cellKey => {
+      // Only count data cells (not headers)
+      if (!cellKey.startsWith('header-')) {
+        const parts = cellKey.split('-');
+        const colIdx = parseInt(parts[1], 10);
+        if (!isNaN(colIdx)) {
+          columnCounts.set(colIdx, (columnCounts.get(colIdx) || 0) + 1);
+        }
+      }
+    });
+
+    // Compute state for each column
+    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+      const count = columnCounts.get(colIdx) || 0;
+      state.set(colIdx, {
+        full: count === rows.length,
+        partial: count > 0 && count < rows.length
+      });
+    }
+
+    return state;
+  }, [selectedCells, rows.length, headers.length]);
+
+  // Simple accessors that use the memoized state
+  const isColumnFullySelected = (colIdx: number): boolean => {
+    return columnSelectionState.get(colIdx)?.full ?? false;
   };
 
-  // Check if some (but not all) cells in a column are selected
   const isColumnPartiallySelected = (colIdx: number): boolean => {
-    if (rows.length === 0) return false;
-
-    let selectedCount = 0;
-    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-      if (selectedCells.has(`${rowIdx}-${colIdx}`)) {
-        selectedCount++;
-      }
-    }
-
-    return selectedCount > 0 && selectedCount < rows.length;
+    return columnSelectionState.get(colIdx)?.partial ?? false;
   };
 
   // Manual cell editing handlers
   const handleCellDoubleClick = (rowIdx: number, cellIdx: number) => {
-    if (!isEditMode) return;
+    if (!isEditMode || isReadOnly) return;
 
     setEditingCell({ row: rowIdx, col: cellIdx });
     setEditValue(rows[rowIdx][cellIdx]);
@@ -314,10 +413,13 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     const oldValue = rows[editingCell.row][editingCell.col];
 
     if (editValue !== oldValue) {
-      // Update the cell value
+      // Update the cell value - only copy the affected row, not all rows
+      const targetRow = editingCell.row;
+      const targetCol = editingCell.col;
       setRows(prevRows => {
-        const newRows = prevRows.map(row => [...row]);
-        newRows[editingCell.row][editingCell.col] = editValue;
+        const newRows = [...prevRows];
+        newRows[targetRow] = [...newRows[targetRow]];
+        newRows[targetRow][targetCol] = editValue;
         return newRows;
       });
 
@@ -409,6 +511,484 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     });
   };
 
+  // Handle adding a new column
+  const handleAddColumn = (position: 'start' | 'end' | 'left' | 'right', atColumn?: number) => {
+    let insertIndex: number;
+
+    if (position === 'start') {
+      insertIndex = 0;
+    } else if (position === 'end') {
+      insertIndex = headers.length;
+    } else if (position === 'left' && atColumn !== undefined) {
+      insertIndex = atColumn;
+    } else if (position === 'right' && atColumn !== undefined) {
+      insertIndex = atColumn + 1;
+    } else {
+      // Fallback: after the rightmost selected column
+      let maxCol = -1;
+      selectedCells.forEach(cellKey => {
+        if (cellKey.startsWith('header-')) {
+          const colIdx = parseInt(cellKey.split('-')[1]);
+          maxCol = Math.max(maxCol, colIdx);
+        } else {
+          const [_, colIdx] = cellKey.split('-').map(Number);
+          maxCol = Math.max(maxCol, colIdx);
+        }
+      });
+      insertIndex = maxCol >= 0 ? maxCol + 1 : headers.length;
+    }
+
+    // Generate a unique column name
+    let newColName = 'New Column';
+    let counter = 1;
+    while (headers.includes(newColName)) {
+      newColName = `New Column ${counter}`;
+      counter++;
+    }
+
+    // Insert new header
+    const newHeaders = [...headers];
+    newHeaders.splice(insertIndex, 0, newColName);
+    setHeaders(newHeaders);
+
+    // Insert empty cell in each row
+    const newRows = rows.map(row => {
+      const newRow = [...row];
+      newRow.splice(insertIndex, 0, '');
+      return newRow;
+    });
+    setRows(newRows);
+
+    setHasUnsavedChanges(true);
+    setSelectedCells(new Set());
+
+    toast({
+      title: 'Column Added',
+      description: `Added "${newColName}" at position ${insertIndex + 1}. Double-click the header to rename it.`
+    });
+
+    logger.info('Column added', {
+      context: 'RawCsvViewer',
+      data: { fileId, columnName: newColName, position: insertIndex }
+    });
+  };
+
+  // Handle adding a new row
+  const handleAddRow = (position: 'start' | 'end' | 'above' | 'below', atRow?: number) => {
+    let insertIndex: number;
+
+    if (position === 'start') {
+      insertIndex = 0;
+    } else if (position === 'end') {
+      insertIndex = rows.length;
+    } else if (position === 'above' && atRow !== undefined) {
+      insertIndex = atRow;
+    } else if (position === 'below' && atRow !== undefined) {
+      insertIndex = atRow + 1;
+    } else {
+      // Fallback: after the bottommost selected row
+      let maxRow = -1;
+      selectedCells.forEach(cellKey => {
+        if (!cellKey.startsWith('header-')) {
+          const [rowIdx, _] = cellKey.split('-').map(Number);
+          maxRow = Math.max(maxRow, rowIdx);
+        }
+      });
+      insertIndex = maxRow >= 0 ? maxRow + 1 : rows.length;
+    }
+
+    // Create empty row with same number of columns
+    const newRow = headers.map(() => '');
+
+    const newRows = [...rows];
+    newRows.splice(insertIndex, 0, newRow);
+    setRows(newRows);
+
+    setHasUnsavedChanges(true);
+    setSelectedCells(new Set());
+
+    toast({
+      title: 'Row Added',
+      description: `Added new row at position ${insertIndex + 1}`
+    });
+
+    logger.info('Row added', {
+      context: 'RawCsvViewer',
+      data: { fileId, position: insertIndex }
+    });
+  };
+
+  // Handle filling selected cells with a value
+  const handleFillCells = () => {
+    if (selectedCells.size === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No Cells Selected',
+        description: 'Please select cells to fill'
+      });
+      return;
+    }
+
+    // Count how many data cells vs header cells
+    let dataCellCount = 0;
+    let headerCellCount = 0;
+    selectedCells.forEach(cellKey => {
+      if (cellKey.startsWith('header-')) {
+        headerCellCount++;
+      } else {
+        dataCellCount++;
+      }
+    });
+
+    // Update headers if any header cells selected
+    if (headerCellCount > 0) {
+      setHeaders(prevHeaders => {
+        const newHeaders = [...prevHeaders];
+        selectedCells.forEach(cellKey => {
+          if (cellKey.startsWith('header-')) {
+            const colIdx = parseInt(cellKey.split('-')[1]);
+            newHeaders[colIdx] = fillValue;
+          }
+        });
+        return newHeaders;
+      });
+    }
+
+    // Update data cells - only copy affected rows
+    if (dataCellCount > 0) {
+      const affectedRows = new Set<number>();
+      const cellUpdates: Array<{ row: number; col: number }> = [];
+      selectedCells.forEach(cellKey => {
+        if (!cellKey.startsWith('header-')) {
+          const [rowIdx, colIdx] = cellKey.split('-').map(Number);
+          cellUpdates.push({ row: rowIdx, col: colIdx });
+          affectedRows.add(rowIdx);
+        }
+      });
+
+      setRows(prevRows => {
+        const newRows = [...prevRows];
+        affectedRows.forEach(rowIdx => {
+          if (rowIdx < newRows.length) {
+            newRows[rowIdx] = [...newRows[rowIdx]];
+          }
+        });
+        cellUpdates.forEach(({ row, col }) => {
+          if (row < newRows.length && col < newRows[row].length) {
+            newRows[row][col] = fillValue;
+          }
+        });
+        return newRows;
+      });
+    }
+
+    // Mark all filled cells as edited (batch update)
+    setEditedCells(prev => {
+      const next = new Set(prev);
+      selectedCells.forEach(cellKey => next.add(cellKey));
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+    setShowFillDialog(false);
+    setFillValue('');
+
+    const totalFilled = dataCellCount + headerCellCount;
+    toast({
+      title: 'Cells Filled',
+      description: `Filled ${totalFilled} cell${totalFilled !== 1 ? 's' : ''} with "${fillValue}"`
+    });
+
+    logger.info('Cells filled', {
+      context: 'RawCsvViewer',
+      data: { fileId, cellCount: totalFilled, value: fillValue }
+    });
+  };
+
+  // Handle clearing selected cells (fill with empty string)
+  const handleClearCells = () => {
+    if (selectedCells.size === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No Cells Selected',
+        description: 'Please select cells to clear'
+      });
+      return;
+    }
+
+    let dataCellCount = 0;
+    let headerCellCount = 0;
+    selectedCells.forEach(cellKey => {
+      if (cellKey.startsWith('header-')) {
+        headerCellCount++;
+      } else {
+        dataCellCount++;
+      }
+    });
+
+    if (headerCellCount > 0) {
+      setHeaders(prevHeaders => {
+        const newHeaders = [...prevHeaders];
+        selectedCells.forEach(cellKey => {
+          if (cellKey.startsWith('header-')) {
+            const colIdx = parseInt(cellKey.split('-')[1]);
+            newHeaders[colIdx] = '';
+          }
+        });
+        return newHeaders;
+      });
+    }
+
+    if (dataCellCount > 0) {
+      const affectedRows = new Set<number>();
+      const cellUpdates: Array<{ row: number; col: number }> = [];
+      selectedCells.forEach(cellKey => {
+        if (!cellKey.startsWith('header-')) {
+          const [rowIdx, colIdx] = cellKey.split('-').map(Number);
+          cellUpdates.push({ row: rowIdx, col: colIdx });
+          affectedRows.add(rowIdx);
+        }
+      });
+
+      setRows(prevRows => {
+        const newRows = [...prevRows];
+        affectedRows.forEach(rowIdx => {
+          if (rowIdx < newRows.length) {
+            newRows[rowIdx] = [...newRows[rowIdx]];
+          }
+        });
+        cellUpdates.forEach(({ row, col }) => {
+          if (row < newRows.length && col < newRows[row].length) {
+            newRows[row][col] = '';
+          }
+        });
+        return newRows;
+      });
+    }
+
+    // Mark all cleared cells as edited (batch update)
+    setEditedCells(prev => {
+      const next = new Set(prev);
+      selectedCells.forEach(cellKey => next.add(cellKey));
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+
+    const totalCleared = dataCellCount + headerCellCount;
+    toast({
+      title: 'Cells Cleared',
+      description: `Cleared ${totalCleared} cell${totalCleared !== 1 ? 's' : ''}`
+    });
+
+    logger.info('Cells cleared', {
+      context: 'RawCsvViewer',
+      data: { fileId, cellCount: totalCleared }
+    });
+  };
+
+  // Handle paste from clipboard to selected cells
+  const handlePasteToSelected = async () => {
+    if (selectedCells.size === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No Cells Selected',
+        description: 'Please select cells to paste into'
+      });
+      return;
+    }
+
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+
+      if (!clipboardText) {
+        toast({
+          variant: 'destructive',
+          title: 'Clipboard Empty',
+          description: 'No text found in clipboard'
+        });
+        return;
+      }
+
+      // Parse clipboard content - could be single value or grid
+      const clipboardRows = clipboardText.split('\n').map(row => row.split('\t'));
+      const isSingleValue = clipboardRows.length === 1 && clipboardRows[0].length === 1;
+
+      if (isSingleValue) {
+        // Fill all selected cells with the single value
+        const value = clipboardRows[0][0];
+
+        // Only copy affected rows
+        const affectedRows = new Set<number>();
+        const cellUpdates: Array<{ row: number; col: number }> = [];
+        selectedCells.forEach(cellKey => {
+          if (!cellKey.startsWith('header-')) {
+            const [rowIdx, colIdx] = cellKey.split('-').map(Number);
+            cellUpdates.push({ row: rowIdx, col: colIdx });
+            affectedRows.add(rowIdx);
+          }
+        });
+
+        setRows(prevRows => {
+          const newRows = [...prevRows];
+          affectedRows.forEach(rowIdx => {
+            if (rowIdx < newRows.length) {
+              newRows[rowIdx] = [...newRows[rowIdx]];
+            }
+          });
+          cellUpdates.forEach(({ row, col }) => {
+            if (row < newRows.length && col < newRows[row].length) {
+              newRows[row][col] = value;
+            }
+          });
+          return newRows;
+        });
+
+        // Update headers if any are selected
+        setHeaders(prevHeaders => {
+          const newHeaders = [...prevHeaders];
+          selectedCells.forEach(cellKey => {
+            if (cellKey.startsWith('header-')) {
+              const colIdx = parseInt(cellKey.split('-')[1]);
+              newHeaders[colIdx] = value;
+            }
+          });
+          return newHeaders;
+        });
+
+        // Mark all pasted cells as edited (batch update)
+        setEditedCells(prev => {
+          const next = new Set(prev);
+          selectedCells.forEach(cellKey => next.add(cellKey));
+          return next;
+        });
+
+        setHasUnsavedChanges(true);
+        toast({
+          title: 'Pasted',
+          description: `Filled ${selectedCells.size} cell${selectedCells.size !== 1 ? 's' : ''} with "${value.substring(0, 30)}${value.length > 30 ? '...' : ''}"`
+        });
+      } else {
+        // Grid paste - find top-left of selection and paste from there
+        let minRow = Infinity, minCol = Infinity;
+        selectedCells.forEach(cellKey => {
+          if (!cellKey.startsWith('header-')) {
+            const [rowIdx, colIdx] = cellKey.split('-').map(Number);
+            minRow = Math.min(minRow, rowIdx);
+            minCol = Math.min(minCol, colIdx);
+          }
+        });
+
+        if (minRow === Infinity) {
+          // Only headers selected - use first header position
+          selectedCells.forEach(cellKey => {
+            if (cellKey.startsWith('header-')) {
+              const colIdx = parseInt(cellKey.split('-')[1]);
+              minCol = Math.min(minCol, colIdx);
+            }
+          });
+          minRow = 0;
+        }
+
+        // Paste the grid - only copy affected rows
+        let pastedCount = 0;
+        const pastedCellKeys: string[] = [];
+        const affectedPasteRows = new Set<number>();
+        clipboardRows.forEach((clipboardRow, rOffset) => {
+          clipboardRow.forEach((_, cOffset) => {
+            const targetRow = minRow + rOffset;
+            affectedPasteRows.add(targetRow);
+          });
+        });
+
+        setRows(prevRows => {
+          const newRows = [...prevRows];
+          affectedPasteRows.forEach(rowIdx => {
+            if (rowIdx < newRows.length) {
+              newRows[rowIdx] = [...newRows[rowIdx]];
+            }
+          });
+          clipboardRows.forEach((clipboardRow, rOffset) => {
+            clipboardRow.forEach((value, cOffset) => {
+              const targetRow = minRow + rOffset;
+              const targetCol = minCol + cOffset;
+              if (targetRow < newRows.length && targetCol < newRows[targetRow].length) {
+                newRows[targetRow][targetCol] = value;
+                pastedCellKeys.push(`${targetRow}-${targetCol}`);
+                pastedCount++;
+              }
+            });
+          });
+          return newRows;
+        });
+
+        // Mark all pasted cells as edited (batch update after setRows)
+        setEditedCells(prev => {
+          const next = new Set(prev);
+          pastedCellKeys.forEach(key => next.add(key));
+          return next;
+        });
+
+        setHasUnsavedChanges(true);
+        toast({
+          title: 'Pasted Grid',
+          description: `Pasted ${clipboardRows.length} rows × ${clipboardRows[0].length} columns (${pastedCount} cells)`
+        });
+      }
+    } catch (err) {
+      logger.error('Error pasting from clipboard', err, { context: 'RawCsvViewer' });
+      toast({
+        variant: 'destructive',
+        title: 'Paste Failed',
+        description: 'Could not read clipboard. Please try again or use Fill instead.'
+      });
+    }
+  };
+
+  // Handle right-click context menu
+  const handleContextMenu = (
+    e: React.MouseEvent,
+    rowIdx: number,
+    colIdx: number,
+    isHeader: boolean = false
+  ) => {
+    if (!isEditMode) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const cellKey = isHeader ? `header-${colIdx}` : `${rowIdx}-${colIdx}`;
+
+    // If right-clicking on a cell not in selection, select just that cell
+    if (!selectedCells.has(cellKey)) {
+      setSelectedCells(new Set([cellKey]));
+    }
+
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      cellKey,
+      rowIdx,
+      colIdx,
+      isHeader
+    });
+  };
+
+  // Close context menu when clicking elsewhere
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    const handleScroll = () => setContextMenu(null);
+
+    if (contextMenu) {
+      window.addEventListener('click', handleClick);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('click', handleClick);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [contextMenu]);
+
   // Handle deleting selected rows
   const handleDeleteRows = () => {
     // Get unique row indices from selected cells
@@ -463,10 +1043,23 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     });
   };
 
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
+
   // Global mouse up listener to handle selection outside table
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (isSelecting) {
+        // Flush any pending selection before ending
+        if (pendingSelectionRef.current) {
+          flushPendingSelection();
+        }
         setIsSelecting(false);
         setSelectionStart(null);
       }
@@ -481,11 +1074,18 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
     if (!isEditMode || !isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if we're editing a cell
+      if (editingCell || editingHeader !== null) return;
+
+      // Use refs to get current values without needing them as dependencies
+      const currentRows = rowsRef.current;
+      const currentSelectedCells = selectedCellsRef.current;
+
       // Ctrl+A or Cmd+A: Select all cells
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
         const allCells = new Set<string>();
-        rows.forEach((row, rowIdx) => {
+        currentRows.forEach((row, rowIdx) => {
           row.forEach((_, cellIdx) => {
             allCells.add(`${rowIdx}-${cellIdx}`);
           });
@@ -497,9 +1097,60 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
         });
       }
 
+      // Ctrl+V or Cmd+V: Paste to selected cells
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && currentSelectedCells.size > 0) {
+        e.preventDefault();
+        handlePasteToSelected();
+      }
+
+      // Delete or Backspace: Clear selected cells (set to empty string)
+      if ((e.key === 'Delete' || e.key === 'Backspace') && currentSelectedCells.size > 0) {
+        e.preventDefault();
+
+        // Collect affected cells first
+        const affectedRows = new Set<number>();
+        const cellUpdates: Array<{ row: number; col: number }> = [];
+        currentSelectedCells.forEach(cellKey => {
+          if (!cellKey.startsWith('header-')) {
+            const [rowIdx, colIdx] = cellKey.split('-').map(Number);
+            cellUpdates.push({ row: rowIdx, col: colIdx });
+            affectedRows.add(rowIdx);
+          }
+        });
+
+        // Only copy affected rows, not all rows
+        setRows(prevRows => {
+          const newRows = [...prevRows];
+          affectedRows.forEach(rowIdx => {
+            if (rowIdx < newRows.length) {
+              newRows[rowIdx] = [...newRows[rowIdx]];
+            }
+          });
+          cellUpdates.forEach(({ row, col }) => {
+            if (row < newRows.length && col < newRows[row].length) {
+              newRows[row][col] = '';
+            }
+          });
+          return newRows;
+        });
+
+        // Batch editedCells update - single state update instead of N
+        setEditedCells(prev => {
+          const next = new Set(prev);
+          cellUpdates.forEach(({ row, col }) => next.add(`${row}-${col}`));
+          return next;
+        });
+        setHasUnsavedChanges(true);
+
+        toast({
+          title: 'Cells Cleared',
+          description: `Cleared ${currentSelectedCells.size} cell${currentSelectedCells.size !== 1 ? 's' : ''}`
+        });
+      }
+
       // Escape: Deselect all cells
       if (e.key === 'Escape') {
-        if (selectedCells.size > 0) {
+        if (currentSelectedCells.size > 0) {
           setSelectedCells(new Set());
           toast({
             title: 'Selection Cleared',
@@ -511,7 +1162,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditMode, isOpen, rows, selectedCells.size, toast]);
+  }, [isEditMode, isOpen, toast, editingCell, editingHeader, handlePasteToSelected]);
 
   const handleDownload = () => {
     try {
@@ -596,6 +1247,11 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
       setHasUnsavedChanges(false);
       setTransformationLog([]);
 
+      // Notify parent to refresh data (dates will need to be re-fetched)
+      if (onFileUpdated) {
+        onFileUpdated();
+      }
+
       logger.info('CSV edits saved successfully', {
         context: 'RawCsvViewer',
         data: { fileId, fileName }
@@ -609,6 +1265,53 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Drag-to-scroll handlers for horizontal/vertical scrolling
+  const handleDragScrollStart = (e: React.MouseEvent) => {
+    // Allow drag scroll when:
+    // 1. Middle mouse button (always)
+    // 2. Left click when NOT in edit mode
+    // 3. Left click + Shift in edit mode (for scrolling while editing)
+    const isMiddleClick = e.button === 1;
+    const isLeftClick = e.button === 0;
+    const canDragScroll = isMiddleClick || (isLeftClick && !isEditMode) || (isLeftClick && isEditMode && e.shiftKey);
+
+    if (canDragScroll) {
+      e.preventDefault();
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      setIsDragScrolling(true);
+      setDragScrollStart({
+        x: e.pageX,
+        y: e.pageY,
+        scrollLeft: container.scrollLeft,
+        scrollTop: container.scrollTop
+      });
+      container.style.cursor = 'grabbing';
+      container.style.userSelect = 'none';
+    }
+  };
+
+  const handleDragScrollMove = (e: React.MouseEvent) => {
+    if (!isDragScrolling || !scrollContainerRef.current) return;
+    e.preventDefault();
+
+    const container = scrollContainerRef.current;
+    const walkX = (e.pageX - dragScrollStart.x) * 1.5; // Horizontal scroll speed
+    const walkY = (e.pageY - dragScrollStart.y) * 1.5; // Vertical scroll speed
+
+    container.scrollLeft = dragScrollStart.scrollLeft - walkX;
+    container.scrollTop = dragScrollStart.scrollTop - walkY;
+  };
+
+  const handleDragScrollEnd = () => {
+    setIsDragScrolling(false);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.cursor = '';
+      scrollContainerRef.current.style.userSelect = '';
     }
   };
 
@@ -987,6 +1690,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
             <div className="flex items-center gap-2">
               {!isLoading && !error && (
                 <>
+                  {!isReadOnly && (
                   <Button
                     variant={isEditMode ? "default" : "outline"}
                     size="sm"
@@ -1002,63 +1706,93 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
                     <Edit className="w-4 h-4" />
                     {isEditMode ? "Exit Edit" : "Edit"}
                   </Button>
+                  )}
                   {isEditMode && (
                     <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const allCells = new Set<string>();
-                          rows.forEach((row, rowIdx) => {
-                            row.forEach((_, cellIdx) => {
-                              allCells.add(`${rowIdx}-${cellIdx}`);
-                            });
-                          });
-                          setSelectedCells(allCells);
-                          toast({
-                            title: 'All Cells Selected',
-                            description: `Selected ${allCells.size} cells`
-                          });
-                        }}
-                        className="text-xs"
-                      >
-                        Select All
-                      </Button>
+                      {/* Edit toolbar - always visible in edit mode */}
+                      <div className="flex items-center gap-1 px-2 py-1 bg-muted/50 rounded-md border">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleAddColumn('end')}
+                          className="h-7 px-2 text-xs gap-1"
+                          title="Add column at end"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Column
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleAddRow('end')}
+                          className="h-7 px-2 text-xs gap-1"
+                          title="Add row at end"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Row
+                        </Button>
+                        <div className="w-px h-4 bg-border mx-1" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleDeleteColumns}
+                          disabled={selectedCells.size === 0}
+                          className="h-7 px-2 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                          title="Delete selected columns"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Col
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleDeleteRows}
+                          disabled={selectedCells.size === 0}
+                          className="h-7 px-2 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                          title="Delete selected rows"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Row
+                        </Button>
+                        <div className="w-px h-4 bg-border mx-1" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowFillDialog(true)}
+                          disabled={selectedCells.size === 0}
+                          className="h-7 px-2 text-xs gap-1"
+                          title="Fill selected cells"
+                        >
+                          <PaintBucket className="w-3 h-3" />
+                          Fill
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handlePasteToSelected}
+                          disabled={selectedCells.size === 0}
+                          className="h-7 px-2 text-xs gap-1"
+                          title="Paste from clipboard"
+                        >
+                          <Clipboard className="w-3 h-3" />
+                          Paste
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleClearCells}
+                          disabled={selectedCells.size === 0}
+                          className="h-7 px-2 text-xs gap-1"
+                          title="Clear selected cells"
+                        >
+                          <X className="w-3 h-3" />
+                          Clear
+                        </Button>
+                      </div>
                       {selectedCells.size > 0 && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedCells(new Set());
-                              toast({
-                                title: 'Selection Cleared',
-                                description: 'All cells deselected'
-                              });
-                            }}
-                            className="text-xs"
-                          >
-                            Deselect All
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDeleteRows}
-                            className="text-xs gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Rows
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDeleteColumns}
-                            className="text-xs gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Columns
-                          </Button>
-                        </>
+                        <span className="text-xs text-muted-foreground">
+                          {selectedCells.size} selected
+                        </span>
                       )}
                     </>
                   )}
@@ -1171,7 +1905,20 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
             )}
 
             {!isLoading && !error && headers.length > 0 && (
-              <div className="h-full overflow-auto scroll-smooth scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent hover:scrollbar-thumb-muted-foreground/30">
+              <div
+                ref={scrollContainerRef}
+                className={cn(
+                  "h-full overflow-auto scroll-smooth",
+                  isEditMode
+                    ? "scrollbar scrollbar-thumb-muted-foreground/40 scrollbar-track-muted/20"
+                    : "scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent hover:scrollbar-thumb-muted-foreground/30 cursor-grab"
+                )}
+                onMouseDown={!isEditMode ? handleDragScrollStart : undefined}
+                onMouseMove={!isEditMode ? handleDragScrollMove : undefined}
+                onMouseUp={!isEditMode ? handleDragScrollEnd : undefined}
+                onMouseLeave={!isEditMode ? handleDragScrollEnd : undefined}
+                style={isEditMode ? { scrollbarWidth: 'auto', scrollbarColor: 'rgba(100,100,100,0.5) rgba(200,200,200,0.2)' } : undefined}
+              >
                 <table className="w-full border-collapse text-sm relative">
                   <thead className="sticky top-0 z-20 shadow-sm">
                     {/* Column selection checkboxes row - only visible in edit mode */}
@@ -1225,13 +1972,14 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
                             key={idx}
                             className={cn(
                               "border border-border bg-muted p-2 text-left font-semibold min-w-[120px] max-w-[300px] whitespace-nowrap",
-                              isEditMode && !isEditingThisHeader && "cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors",
+                              isEditMode && !isEditingThisHeader && "cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900",
                               isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500 ring-inset",
                               isHeaderAiTransformed && "bg-purple-100 dark:bg-purple-900/50",
                               isHeaderEdited && "bg-green-100 dark:bg-green-900/50"
                             )}
                             onClick={isEditMode && !isEditingThisHeader ? (e) => handleColumnHeaderClick(idx, e) : undefined}
                             onDoubleClick={isEditMode && !isEditingThisHeader ? () => handleHeaderDoubleClick(idx) : undefined}
+                            onContextMenu={isEditMode ? (e) => handleContextMenu(e, -1, idx, true) : undefined}
                             title={isEditMode ? `Double-click to edit column header` : header}
                           >
                             {isEditingThisHeader ? (
@@ -1289,37 +2037,40 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, rowIdx) => (
+                    {paginatedRows.map((row, pageRowIdx) => {
+                      const actualRowIdx = startRowIndex + pageRowIdx;
+                      return (
                       <tr
-                        key={rowIdx}
-                        className="hover:bg-muted/50 transition-colors"
+                        key={actualRowIdx}
+                        className="hover:bg-muted/50"
                       >
                         <td className="border border-border p-2 text-center font-mono text-xs text-muted-foreground bg-muted/30 sticky left-0 z-10 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
-                          {rowIdx + 1}
+                          {actualRowIdx + 1}
                         </td>
                         {row.map((cell, cellIdx) => {
-                          const cellKey = `${rowIdx}-${cellIdx}`;
+                          const cellKey = `${actualRowIdx}-${cellIdx}`;
                           const isSelected = selectedCells.has(cellKey);
-                          const isEditing = editingCell?.row === rowIdx && editingCell?.col === cellIdx;
+                          const isEditing = editingCell?.row === actualRowIdx && editingCell?.col === cellIdx;
                           const isAiTransformed = aiTransformedCells.has(cellKey);
                           const isManuallyEdited = editedCells.has(cellKey);
 
                           return (
                             <td
                               key={cellIdx}
-                              data-row={rowIdx}
+                              data-row={actualRowIdx}
                               data-col={cellIdx}
                               className={cn(
-                                "border border-border p-2 font-mono text-xs whitespace-nowrap transition-colors relative",
+                                "border border-border p-2 font-mono text-xs whitespace-nowrap relative",
                                 isEditMode && !isEditing && "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950",
                                 isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500 ring-inset",
                                 isAiTransformed && "bg-purple-100 dark:bg-purple-900/50",
                                 isManuallyEdited && "bg-green-100 dark:bg-green-900/50"
                               )}
-                              onMouseDown={isEditMode && !isEditing ? (e) => handleCellMouseDown(rowIdx, cellIdx, e) : undefined}
-                              onMouseEnter={isEditMode && isSelecting ? (e) => handleCellMouseEnter(rowIdx, cellIdx, e) : undefined}
-                              onMouseUp={isEditMode ? handleCellMouseUp : undefined}
-                              onDoubleClick={() => handleCellDoubleClick(rowIdx, cellIdx)}
+                              onMouseDown={isEditMode && !isEditing ? (e) => handleCellMouseDown(actualRowIdx, cellIdx, e) : undefined}
+                              onMouseEnter={isEditMode && isSelecting ? (e) => handleCellMouseEnter(actualRowIdx, cellIdx, e) : undefined}
+                              onMouseUp={isEditMode ? (e) => handleCellMouseUp(e, actualRowIdx, cellIdx) : undefined}
+                              onDoubleClick={() => handleCellDoubleClick(actualRowIdx, cellIdx)}
+                              onContextMenu={isEditMode ? (e) => handleContextMenu(e, actualRowIdx, cellIdx) : undefined}
                             >
                               {isEditing ? (
                                 <div className="flex items-center gap-1">
@@ -1374,7 +2125,8 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
                           );
                         })}
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
 
@@ -1383,10 +2135,196 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
                     <p className="text-muted-foreground">No data rows found</p>
                   </div>
                 )}
+
+                {/* Pagination Controls */}
+                {rows.length > rowsPerPage && (
+                  <div className="flex items-center justify-between px-4 py-2 border-t bg-muted/30">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>Rows per page:</span>
+                      <select
+                        value={rowsPerPage}
+                        onChange={(e) => {
+                          setRowsPerPage(Number(e.target.value));
+                          setCurrentPage(0);
+                        }}
+                        className="border rounded px-2 py-1 text-xs bg-background"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                        <option value={200}>200</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">
+                        {startRowIndex + 1}-{Math.min(startRowIndex + rowsPerPage, rows.length)} of {rows.length}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                        disabled={currentPage === 0}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                        disabled={currentPage >= totalPages - 1}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
+
+        {/* Context Menu Popup */}
+        {contextMenu && (
+          <div
+            className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-[100] min-w-[180px]"
+            style={{
+              left: Math.min(contextMenu.x, window.innerWidth - 200),
+              top: Math.min(contextMenu.y, window.innerHeight - 300),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Insert Column Options */}
+            <div className="px-2 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              Column
+            </div>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+              onClick={() => {
+                handleAddColumn('left', contextMenu.colIdx);
+                setContextMenu(null);
+              }}
+            >
+              <ArrowLeft className="w-4 h-4 text-gray-500" />
+              Insert column left
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+              onClick={() => {
+                handleAddColumn('right', contextMenu.colIdx);
+                setContextMenu(null);
+              }}
+            >
+              <ArrowRight className="w-4 h-4 text-gray-500" />
+              Insert column right
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 text-red-600 dark:text-red-400 transition-colors"
+              onClick={() => {
+                handleDeleteColumns();
+                setContextMenu(null);
+              }}
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete column(s)
+            </button>
+
+            <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+
+            {/* Insert Row Options - only show if not on header */}
+            {!contextMenu.isHeader && (
+              <>
+                <div className="px-2 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  Row
+                </div>
+                <button
+                  className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+                  onClick={() => {
+                    handleAddRow('above', contextMenu.rowIdx);
+                    setContextMenu(null);
+                  }}
+                >
+                  <ArrowUp className="w-4 h-4 text-gray-500" />
+                  Insert row above
+                </button>
+                <button
+                  className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+                  onClick={() => {
+                    handleAddRow('below', contextMenu.rowIdx);
+                    setContextMenu(null);
+                  }}
+                >
+                  <ArrowDown className="w-4 h-4 text-gray-500" />
+                  Insert row below
+                </button>
+                <button
+                  className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 text-red-600 dark:text-red-400 transition-colors"
+                  onClick={() => {
+                    handleDeleteRows();
+                    setContextMenu(null);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete row(s)
+                </button>
+
+                <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+              </>
+            )}
+
+            {/* Cell Operations */}
+            <div className="px-2 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              Cells
+            </div>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+              onClick={() => {
+                setShowFillDialog(true);
+                setContextMenu(null);
+              }}
+            >
+              <PaintBucket className="w-4 h-4 text-gray-500" />
+              Fill selected cells...
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+              onClick={() => {
+                handlePasteToSelected();
+                setContextMenu(null);
+              }}
+            >
+              <Clipboard className="w-4 h-4 text-gray-500" />
+              Paste from clipboard
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors"
+              onClick={() => {
+                handleClearCells();
+                setContextMenu(null);
+              }}
+            >
+              <X className="w-4 h-4 text-gray-500" />
+              Clear cells
+            </button>
+
+            {selectedCells.size > 0 && (
+              <>
+                <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                <button
+                  className="w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30"
+                  onClick={() => {
+                    setShowAiPromptDialog(true);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent font-medium">
+                    AI Transform ({selectedCells.size})
+                  </span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Transform Processing Console Log */}
         {isAiProcessing && aiProgress && transformationLog.length > 0 && (
@@ -1462,6 +2400,63 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose }: RawCsvViewer
         onSubmit={handleAiGenerate}
         isProcessing={isAiProcessing}
       />
+
+      {/* Fill Dialog */}
+      <Dialog open={showFillDialog} onOpenChange={setShowFillDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PaintBucket className="w-5 h-5 text-blue-500" />
+              Fill Selected Cells
+            </DialogTitle>
+            <DialogDescription>
+              Enter a value to fill {selectedCells.size} selected cell{selectedCells.size !== 1 ? 's' : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label htmlFor="fill-value" className="text-sm font-medium">
+                Fill Value
+              </label>
+              <input
+                id="fill-value"
+                type="text"
+                value={fillValue}
+                onChange={(e) => setFillValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleFillCells();
+                  }
+                }}
+                placeholder="Enter value to fill..."
+                className="w-full px-3 py-2 border rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Tip: Leave empty to clear all selected cells
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowFillDialog(false);
+                setFillValue('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleFillCells}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <PaintBucket className="w-4 h-4 mr-2" />
+              Fill {selectedCells.size} Cell{selectedCells.size !== 1 ? 's' : ''}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Transformation Log Panel */}
       {showLog && transformationLog.length > 0 && (

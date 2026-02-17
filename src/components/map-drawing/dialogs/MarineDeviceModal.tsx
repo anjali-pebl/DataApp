@@ -19,8 +19,14 @@ interface AvailableProject {
 export interface MarineDeviceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  selectedFileType: 'GP' | 'FPOD' | 'Subcam' | null;
+  selectedFileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA' | null;
   selectedFiles: File[];
+  selectedFileMetadata?: {
+    pinLabel?: string;
+    startDate?: Date;
+    endDate?: Date;
+    fileCategories?: string[];
+  } | null;
   isLoadingFromSavedPlot: boolean;
   onRequestFileSelection: () => void;
   availableFilesForPlots: PinFile[];
@@ -41,6 +47,7 @@ function MarineDeviceModalComponent({
   onOpenChange,
   selectedFileType,
   selectedFiles,
+  selectedFileMetadata,
   isLoadingFromSavedPlot,
   onRequestFileSelection,
   availableFilesForPlots,
@@ -67,7 +74,7 @@ function MarineDeviceModalComponent({
       open={open}
       onOpenChange={handleOpenChange}
     >
-      <DialogContent className="max-w-6xl h-[80vh] marine-device-modal" data-marine-modal>
+      <DialogContent className="max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] m-0 p-0 rounded-none sm:rounded-none border-0 marine-device-modal" data-marine-modal>
         <DialogHeader className="sr-only">
           <DialogTitle>
             {selectedFileType ? `${selectedFileType} Data Analysis` : 'Data Viewer'}
@@ -78,6 +85,7 @@ function MarineDeviceModalComponent({
             <PinMarineDeviceData
               fileType={selectedFileType}
               files={selectedFiles}
+              selectedFileMetadata={selectedFileMetadata}
               onRequestFileSelection={onRequestFileSelection}
               availableFiles={availableFilesForPlots}
               onDownloadFile={onDownloadFile}

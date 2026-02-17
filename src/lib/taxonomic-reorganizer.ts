@@ -23,7 +23,7 @@ export interface ReorganizationResult {
  * Extract taxonomic rank from species name
  */
 function extractRank(name: string): string | null {
-  const match = name.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+  const match = name.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)/);
   return match ? match[1] : null;
 }
 
@@ -31,7 +31,7 @@ function extractRank(name: string): string | null {
  * Remove rank suffix from name
  */
 function stripRankSuffix(name: string): string {
-  return name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').trim();
+  return name.replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').trim();
 }
 
 /**
@@ -40,6 +40,7 @@ function stripRankSuffix(name: string): string {
 function getRankLevel(rank: string | null): number {
   const levels: Record<string, number> = {
     'phyl': 0,
+    'gigaclass': 1,
     'infraclass': 1,
     'class': 2,
     'ord': 3,

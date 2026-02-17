@@ -355,19 +355,34 @@ class FileStorageService {
 
   /**
    * Download a file from Supabase Storage by file path
+   * Uses signed URL with cache-busting to ensure fresh content after edits
    */
   async downloadFile(filePath: string): Promise<Blob | null> {
     try {
-      const { data, error } = await this.supabase.storage
+      // Create signed URL with cache-busting timestamp
+      const { data: urlData, error: urlError } = await this.supabase.storage
         .from('pin-files')
-        .download(filePath)
+        .createSignedUrl(filePath, 60); // 60 second expiry
 
-      if (error) {
-        console.error('Download file error:', error)
-        return null
+      if (urlError || !urlData?.signedUrl) {
+        console.error('Failed to create signed URL:', urlError);
+        return null;
       }
 
-      return data
+      // Add cache-buster to bypass CDN/browser cache
+      const cacheBustedUrl = urlData.signedUrl + '&_cb=' + Date.now();
+
+      const response = await fetch(cacheBustedUrl, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+
+      if (!response.ok) {
+        console.error('Download file error: HTTP', response.status);
+        return null;
+      }
+
+      return await response.blob();
     } catch (error) {
       console.error('Download file error:', error)
       return null
@@ -416,27 +431,37 @@ class FileStorageService {
 
       console.log('📄 File metadata:', { filePath: fileData.file_path, fileName: fileData.file_name, updatedAt: fileData.updated_at });
 
-      // Build file path with cache-busting query parameter
-      let downloadPath = fileData.file_path;
-      if (fileData.updated_at) {
-        const timestamp = new Date(fileData.updated_at).getTime();
-        // Note: Supabase storage.download() doesn't support query params, but we log for debugging
-        console.log(`📌 Cache-busting timestamp: ${timestamp} (${fileData.updated_at})`);
-      }
-
-      // Download the file using the file path
-      // Note: Supabase's .download() method handles auth and should bypass most caches
-      const { data, error } = await this.supabase.storage
+      // Create signed URL with cache-busting to ensure fresh content after edits
+      const { data: urlData, error: urlError } = await this.supabase.storage
         .from('pin-files')
-        .download(fileData.file_path);
+        .createSignedUrl(fileData.file_path, 60); // 60 second expiry
 
-      if (error) {
-        console.error('❌ Download error:', error);
-        return { success: false, error: error.message };
+      if (urlError || !urlData?.signedUrl) {
+        console.error('❌ Failed to create signed URL:', urlError);
+        return { success: false, error: urlError?.message || 'Failed to create download URL' };
       }
 
-      console.log('✅ File downloaded successfully');
-      return { success: true, data: { blob: data, fileName: fileData.file_name } };
+      // Add cache-buster using updated_at timestamp or current time
+      const cacheBuster = fileData.updated_at
+        ? new Date(fileData.updated_at).getTime()
+        : Date.now();
+      const cacheBustedUrl = urlData.signedUrl + '&_cb=' + cacheBuster;
+      console.log(`📌 Cache-busting with timestamp: ${cacheBuster}`);
+
+      // Fetch with no-cache headers
+      const response = await fetch(cacheBustedUrl, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+
+      if (!response.ok) {
+        console.error('❌ Download error: HTTP', response.status);
+        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      const blob = await response.blob();
+      console.log('✅ File downloaded successfully, size:', blob.size, 'bytes');
+      return { success: true, data: { blob, fileName: fileData.file_name } };
 
     } catch (error) {
       console.error('❌ Download file by ID error:', error);

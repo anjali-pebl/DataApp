@@ -2,8 +2,10 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import dynamic from 'next/dynamic';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Brush, Tooltip as RechartsTooltip, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Brush, Tooltip as RechartsTooltip, ReferenceLine, ReferenceArea } from 'recharts';
+import SunCalc from 'suncalc';
 import { format, parseISO, isValid } from 'date-fns';
+import { formatDateUTC } from '@/lib/timezone-utils';
 import { HexColorPicker } from 'react-colorful';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -12,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -45,6 +48,16 @@ interface PinChartDisplayProps {
   showYAxisLabels?: boolean;
   fileName?: string;
   dataSource?: 'csv' | 'marine';
+  // File metadata for header display
+  pinLabel?: string; // Location name (e.g., "Control_S", "Farm_AS")
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
+  // Display overrides for paired FPOD plots
+  hideBrush?: boolean;
+  showDateTimeAxis?: boolean;
+  // Location coordinates for sunrise/sunset shading
+  coordinates?: { lat: number; lng: number };
   // Time synchronization props
   timeAxisMode?: 'separate' | 'common';
   globalTimeRange?: { min: Date | null; max: Date | null };
@@ -91,25 +104,76 @@ interface PinChartDisplayProps {
   isSubtractedPlot?: boolean;
   includeZeroValues?: boolean;
   onIncludeZeroValuesChange?: (include: boolean) => void;
+  // Methodology modal props
+  projectId?: string;
+  tileName?: 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA';
 }
 
 // Color palette matching the marine data theme
+// Chart color CSS variables reordered to alternate cool-warm
+// This ensures sequential parameters get mixed warm/cool colors
 const CHART_COLORS = [
-  '--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5',
-  '--chart-6', '--chart-7', '--chart-8', '--chart-9'
+  '--chart-1', // Blue (cool)
+  '--chart-2', // Red/pink (warm)
+  '--chart-5', // Cyan (cool)
+  '--chart-7', // Burnt orange (warm)
+  '--chart-3', // Green (cool)
+  '--chart-6', // Purple (warm)
+  '--chart-9', // Steel blue (cool)
+  '--chart-4', // Olive yellow (warm)
+  '--chart-8', // Grey (neutral)
 ];
 
-// Palette of 8 contrasting colors for quick picking
+// Colorblind-friendly palette for quick picking (Paul Tol scheme)
+// Ordered to alternate cool-warm so sequential parameters get mixed colors
 const DEFAULT_COLOR_PALETTE = [
-  '#3b82f6', // Blue
-  '#ef4444', // Red
-  '#10b981', // Green
-  '#f59e0b', // Amber
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#f97316', // Orange
+  '#4477AA', // Blue (cool)
+  '#EE6677', // Red/pink (warm)
+  '#66CCEE', // Cyan (cool)
+  '#CC6644', // Burnt orange (warm)
+  '#228833', // Green (cool)
+  '#AA3377', // Purple (warm)
+  '#336688', // Steel blue (cool)
+  '#CCBB44', // Olive yellow (warm)
+  '#BBBBBB', // Grey (neutral)
 ];
+
+// Common names for GrowProbe parameters (used for tooltips and Y-axis labels)
+// Keys are normalized (lowercase, no special chars) for flexible matching
+const GROWPROBE_COMMON_NAMES: Record<string, string> = {
+  'temp': 'Temperature (degrees Celsius)',
+  'ir': 'Turbidity (arbitrary units)',
+  'vis': 'Visible Light (arbitrary units)',
+  'light': 'Light Intensity (Lux)',
+  'lux': 'Light Intensity (Lux)',
+  'accel_x': 'Acceleration X-axis (g-force)',
+  'accel_y': 'Acceleration Y-axis (g-force)',
+  'accel_z': 'Acceleration Z-axis (g-force)',
+  'tilt': 'Tilt Angle (device orientation)',
+  'mag_x': 'Magnetic Field X-axis',
+  'mag_y': 'Magnetic Field Y-axis',
+  'mag_z': 'Magnetic Field Z-axis',
+  'direction': 'Compass Direction (degrees from North)',
+  'h.angle': 'Compass Direction (degrees from North)',
+  'battery': 'Battery Voltage (Volts)',
+  'vbat': 'Battery Voltage (Volts)',
+};
+
+// Helper function to get GrowProbe common name with flexible matching
+function getGrowProbeCommonName(parameter: string): string | null {
+  // Normalize the parameter name: lowercase, extract the base name before any units/parentheses
+  const normalized = parameter.toLowerCase().split(/[\s(]/)[0].trim();
+  return GROWPROBE_COMMON_NAMES[normalized] || null;
+}
+
+// Hidden sensor parameters (accelerometer, magnetic field, visible light) - shown via toggle
+const HIDDEN_SENSOR_PARAMS_PATTERNS = ['accel_', 'mag_', 'vis'];
+
+// Helper to check if parameter is a hidden sensor param
+function isHiddenSensorParam(parameter: string): boolean {
+  const lower = parameter.toLowerCase();
+  return HIDDEN_SENSOR_PARAMS_PATTERNS.some(pattern => lower.startsWith(pattern));
+}
 
 interface ParameterState {
   visible: boolean;
@@ -154,6 +218,151 @@ const format24HourTick = (timeValue: string | number): string => {
   } catch (e) {
     return String(timeValue);
   }
+};
+
+// Estimate timezone offset (in hours) from longitude
+// This is an approximation: each 15 degrees of longitude = 1 hour offset
+// More accurate than using local machine timezone for remote locations
+const getTimezoneOffsetFromLongitude = (lng: number): number => {
+  return Math.round(lng / 15);
+};
+
+// Format UTC date to a specific timezone offset (in hours)
+const formatDateInTimezone = (date: Date, offsetHours: number, formatStr: string): string => {
+  // Create a new date adjusted for the timezone offset
+  const utcTime = date.getTime();
+  const offsetMs = offsetHours * 60 * 60 * 1000;
+  const adjustedDate = new Date(utcTime + offsetMs);
+
+  // Format using UTC methods to avoid double-conversion
+  const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+  const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+  const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+
+  if (formatStr === 'dd/MM HH:mm') {
+    return `${day}/${month} ${hours}:${minutes}`;
+  }
+  return `${day}/${month} ${hours}:${minutes}`;
+};
+
+// Format as date + time for 24hr average FPOD data
+// If coordinates provided, uses location's timezone; otherwise falls back to local
+// If timeOnly is true, only shows HH:mm (for 24hr averaged files)
+const formatDateTimeTick = (timeValue: string | number, coordinates?: { lat: number; lng: number }, timeOnly?: boolean): string => {
+  try {
+    const dateObj = typeof timeValue === 'string' ? parseISO(timeValue) : new Date(timeValue);
+    if (!isValid(dateObj)) return String(timeValue);
+
+    // If coordinates provided, format in the location's estimated timezone
+    if (coordinates) {
+      const offsetHours = getTimezoneOffsetFromLongitude(coordinates.lng);
+      const utcTime = dateObj.getTime();
+      const offsetMs = offsetHours * 60 * 60 * 1000;
+      const adjustedDate = new Date(utcTime + offsetMs);
+
+      const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+      const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+
+      if (timeOnly) {
+        return `${hours}:${minutes}`;
+      }
+
+      const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+      const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+      return `${day}/${month} ${hours}:${minutes}`;
+    }
+
+    // Fallback to local timezone
+    return format(dateObj, timeOnly ? 'HH:mm' : 'dd/MM HH:mm');
+  } catch (e) {
+    return String(timeValue);
+  }
+};
+
+// Custom tooltip that sorts items by visual position on chart (highest line first)
+// Accepts optional coordinates to display time in location's timezone
+// Accepts optional parameterDomains to normalize values for visual sorting in multi-axis mode
+const CustomChartTooltip = ({ active, payload, label, coordinates, parameterDomains }: any) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  let formattedLabel = String(label);
+  try {
+    const date = parseISO(String(label));
+    if (isValid(date)) {
+      if (coordinates) {
+        // Format in location's timezone
+        const offsetHours = getTimezoneOffsetFromLongitude(coordinates.lng);
+        const utcTime = date.getTime();
+        const offsetMs = offsetHours * 60 * 60 * 1000;
+        const adjustedDate = new Date(utcTime + offsetMs);
+
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const dayName = days[adjustedDate.getUTCDay()];
+        const monthName = months[adjustedDate.getUTCMonth()];
+        const dayNum = String(adjustedDate.getUTCDate()).padStart(2, '0');
+        const hours = String(adjustedDate.getUTCHours()).padStart(2, '0');
+        const minutes = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(adjustedDate.getUTCSeconds()).padStart(2, '0');
+        formattedLabel = `${dayName}, ${monthName} ${dayNum}, ${hours}:${minutes}:${seconds}`;
+      } else {
+        formattedLabel = format(date, 'EEE, MMM dd, HH:mm:ss');
+      }
+    }
+  } catch { /* keep raw label */ }
+
+  // Sort by visual position on chart (highest line visually = first in tooltip)
+  // In multi-axis mode, normalize each value to 0-1 based on its axis domain
+  const sorted = [...payload]
+    .filter((entry: any) => entry.value != null)
+    .sort((a: any, b: any) => {
+      const aValue = Number(a.value) || 0;
+      const bValue = Number(b.value) || 0;
+
+      // If we have parameter domains, sort by normalized visual position
+      if (parameterDomains) {
+        const aDomain = parameterDomains[a.dataKey];
+        const bDomain = parameterDomains[b.dataKey];
+
+        if (aDomain && bDomain) {
+          // Normalize to 0-1 range (where 1 = top of axis, 0 = bottom)
+          const aNormalized = (aValue - aDomain[0]) / (aDomain[1] - aDomain[0]);
+          const bNormalized = (bValue - bDomain[0]) / (bDomain[1] - bDomain[0]);
+          return bNormalized - aNormalized; // Descending (higher visual position first)
+        }
+      }
+
+      // Fallback: sort by raw value descending
+      return bValue - aValue;
+    });
+
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--background))',
+      border: '1px solid hsl(var(--border))',
+      fontSize: '0.7rem',
+      padding: '8px',
+      borderRadius: '6px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    }}>
+      <div style={{ marginBottom: 4, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{formattedLabel}</div>
+      {sorted.map((entry: any, i: number) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '1px 0', color: 'hsl(var(--foreground))' }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            backgroundColor: entry.color, display: 'inline-block', flexShrink: 0,
+          }} />
+          <span>{entry.name}:</span>
+          <span style={{ fontWeight: 500 }}>
+            {typeof entry.value === 'number'
+              ? entry.value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })
+              : 'N/A'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 // Calculate nice round numbers for Y-axis scaling
@@ -296,17 +505,18 @@ const MultiLineYAxisLabel = ({
   );
 };
 
-// Fallback color palette when CSS variables aren't loaded
+// Fallback color palette when CSS variables aren't loaded (Paul Tol colorblind-friendly)
+// Fallback colors for CSS variables (ordered to alternate cool-warm)
 const FALLBACK_COLORS: Record<string, string> = {
-  '--chart-1': '#3b82f6', // blue
-  '--chart-2': '#10b981', // green
-  '--chart-3': '#f59e0b', // amber
-  '--chart-4': '#ef4444', // red
-  '--chart-5': '#8b5cf6', // purple
-  '--chart-6': '#06b6d4', // cyan
-  '--chart-7': '#ec4899', // pink
-  '--chart-8': '#f97316', // orange
-  '--chart-9': '#14b8a6', // teal
+  '--chart-1': '#4477AA', // Blue (cool)
+  '--chart-2': '#EE6677', // Red/pink (warm)
+  '--chart-3': '#66CCEE', // Cyan (cool)
+  '--chart-4': '#CC6644', // Burnt orange (warm)
+  '--chart-5': '#228833', // Green (cool)
+  '--chart-6': '#AA3377', // Purple (warm)
+  '--chart-7': '#336688', // Steel blue (cool)
+  '--chart-8': '#CCBB44', // Olive yellow (warm)
+  '--chart-9': '#BBBBBB', // Grey (neutral)
 };
 
 // Convert HSL CSS variable to hex color
@@ -317,11 +527,11 @@ const cssVarToHex = (cssVar: string): string => {
     .getPropertyValue(cssVar.replace('--', ''))
     .trim();
 
-  if (!hslValue) return FALLBACK_COLORS[cssVar] || '#3b82f6'; // Use fallback palette
+  if (!hslValue) return FALLBACK_COLORS[cssVar] || '#4477AA'; // Use fallback palette (colorblind-friendly)
 
   // Parse HSL string like "220 100% 50%"
   const matches = hslValue.match(/(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%/);
-  if (!matches) return FALLBACK_COLORS[cssVar] || '#3b82f6';
+  if (!matches) return FALLBACK_COLORS[cssVar] || '#4477AA'; // Colorblind-friendly blue
 
   const h = parseFloat(matches[1]) / 360;
   const s = parseFloat(matches[2]) / 100;
@@ -381,6 +591,13 @@ export function PinChartDisplay({
   showYAxisLabels = false,
   fileName,
   dataSource = 'csv',
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories,
+  hideBrush,
+  showDateTimeAxis,
+  coordinates,
   timeAxisMode = 'separate',
   globalTimeRange,
   globalBrushRange,
@@ -394,7 +611,7 @@ export function PinChartDisplay({
   initialCustomYAxisLabel,
   initialCompactView,
   initialCustomParameterNames,
-  defaultAxisMode = 'single',
+  defaultAxisMode = 'multi',
   defaultParametersExpanded = false,
   currentDateFormat,
   onDateFormatChange,
@@ -406,8 +623,19 @@ export function PinChartDisplay({
   haplotypeData,
   isSubtractedPlot = false,
   includeZeroValues = false,
-  onIncludeZeroValuesChange
+  onIncludeZeroValuesChange,
+  projectId,
+  tileName
 }: PinChartDisplayProps) {
+  console.log('📊 [PinChartDisplay] Received props:', {
+    fileName,
+    fileType,
+    pinLabel,
+    startDate,
+    endDate,
+    fileCategories
+  });
+
   // 🧬 HAPL_DEBUG: Log incoming data for haplotype files
   const isHaplotypeFile = fileName?.toLowerCase().includes('hapl');
   React.useEffect(() => {
@@ -466,6 +694,7 @@ export function PinChartDisplay({
   // Unified view mode for all file types
   type ViewMode = 'chart' | 'table' | 'heatmap' | 'tree';
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
+  const [highlightedTaxon, setHighlightedTaxon] = useState<string | null>(null);
 
   // Legacy support: derive old state variables from unified viewMode
   const showTable = viewMode === 'table';
@@ -541,11 +770,16 @@ export function PinChartDisplay({
   const [hideStations, setHideStations] = useState(false);
   const [hideParameterName, setHideParameterName] = useState(false);
 
+  // Show/hide sensor parameters (accelerometer, magnetic field)
+  const [showSensorParams, setShowSensorParams] = useState(false);
+
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-  // Axis mode state - default to multi axis
-  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(initialAxisMode || defaultAxisMode || 'multi');
+// Axis mode state - default to single for SubCam and FPOD, multi for everything else
+  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
+    (fileType === 'Subcam' || fileType === 'FPOD') ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
+  );
 
   // MA update counter to force data recalculation
   const [maUpdateCounter, setMaUpdateCounter] = useState(0);
@@ -569,6 +803,9 @@ export function PinChartDisplay({
   const [unitFilter, setUnitFilter] = useState<string[]>(is24hrFile ? ['DPM'] : []);
   const [stationFilter, setStationFilter] = useState<string[]>([]);
 
+  // FPOD unit toggle - switches all parameters between Clicks and DPM
+  const [fpodUnitMode, setFpodUnitMode] = useState<'DPM' | 'Clicks'>('DPM');
+
   // Reset filters to default when file changes
   React.useEffect(() => {
     if (fileName?.endsWith('_24hr.csv')) {
@@ -580,6 +817,25 @@ export function PinChartDisplay({
     setDateFilter([]);
     setStationFilter([]);
   }, [fileName]);
+
+  // FPOD unit toggle effect - show only matching unit parameters
+  React.useEffect(() => {
+    if (fileType !== 'FPOD') return;
+    setParameterStates(prev => {
+      const updated = { ...prev };
+      for (const param of Object.keys(updated)) {
+        const isDPM = param.includes('(DPM)');
+        const isClicks = param.includes('(Clicks)');
+        if (isDPM || isClicks) {
+          updated[param] = {
+            ...updated[param],
+            visible: fpodUnitMode === 'DPM' ? isDPM : isClicks,
+          };
+        }
+      }
+      return updated;
+    });
+  }, [fpodUnitMode, fileType]);
 
   // X-axis year display toggle
   const [showYearInXAxis, setShowYearInXAxis] = useState(false);
@@ -681,15 +937,16 @@ export function PinChartDisplay({
   // }, [data, currentDateFormat]);
 
   // Apply styling rule defaults when rule changes (only watch defaultAxisMode specifically)
+  // Skip for SubCam files which always use single axis
   React.useEffect(() => {
+    if (fileType === 'Subcam') return;
     if (appliedStyleRule?.properties.defaultAxisMode) {
-      // Only update if the value is different to prevent unnecessary re-renders
       setAxisMode(prev => {
         const newMode = appliedStyleRule.properties.defaultAxisMode;
         return newMode && newMode !== prev ? newMode : prev;
       });
     }
-  }, [appliedStyleRule?.properties.defaultAxisMode]);
+  }, [appliedStyleRule?.properties.defaultAxisMode, fileType]);
 
   // Get all parameters (for table view)
   const allParameters = useMemo(() => {
@@ -762,6 +1019,9 @@ export function PinChartDisplay({
     // Show only first 4 parameters by default (unless initial values provided)
     const defaultVisibleCount = 4;
 
+    // GrowProbe priority parameters that should always be visible by default
+    const gpPriorityParams = ['temp', 'ir', 'lux', 'light'];
+
     // Check if we have initial visibility settings from a saved view
     const hasInitialSettings = initialVisibleParameters && initialVisibleParameters.length > 0;
 
@@ -773,15 +1033,38 @@ export function PinChartDisplay({
     //   initialColors: initialParameterColors ? Object.keys(initialParameterColors) : []
     // });
 
+    // Separate parameters into non-hidden and hidden for color assignment
+    // Non-hidden parameters get colors first to avoid duplicates in the default view
+    const nonHiddenParams = numericParameters.filter(p => !isHiddenSensorParam(p));
+    const hiddenParams = numericParameters.filter(p => isHiddenSensorParam(p));
+    let orderedParams = [...nonHiddenParams, ...hiddenParams];
+
+    // For FPOD files, group DPM and Click parameters together so each group
+    // gets mixed warm/cool colors from the alternating palette
+    if (fileType === 'FPOD') {
+      const dpmParams = orderedParams.filter(p => p.includes('(DPM)'));
+      const clickParams = orderedParams.filter(p => p.includes('(Clicks)'));
+      const otherParams = orderedParams.filter(p => !p.includes('(DPM)') && !p.includes('(Clicks)'));
+      orderedParams = [...dpmParams, ...clickParams, ...otherParams];
+    }
+
+    // Create a color index map based on the reordered parameters
+    const colorIndexMap = new Map<string, number>();
+    orderedParams.forEach((param, idx) => colorIndexMap.set(param, idx));
+
     numericParameters.forEach((param, index) => {
-      // Convert CSS variable to hex immediately to ensure unique colors
-      const cssVar = CHART_COLORS[index % CHART_COLORS.length];
+      // Use the reordered color index so hidden params get colors last
+      const colorIndex = colorIndexMap.get(param) ?? index;
+      const cssVar = CHART_COLORS[colorIndex % CHART_COLORS.length];
       const hexColor = cssVarToHex(cssVar);
 
-      // Determine visibility: use initial if provided, otherwise default to first N
+      // For GrowProbe files, show priority parameters by default
+      const isGPPriority = fileType === 'GP' && gpPriorityParams.includes(param.toLowerCase());
+
+      // Determine visibility: use initial if provided, otherwise default to first N (or GP priority)
       const visible = hasInitialSettings
         ? initialVisibleParameters.includes(param)
-        : index < defaultVisibleCount;
+        : (index < defaultVisibleCount || isGPPriority);
 
       // Get color: use initial if provided, otherwise generate default
       const color = (initialParameterColors && initialParameterColors[param]) || hexColor;
@@ -808,6 +1091,55 @@ export function PinChartDisplay({
     });
     return initialState;
   });
+
+  // For nmax chart view: on initial load, only show "Total Observations" and "Cumulative Observations"
+  React.useEffect(() => {
+    if (!isSubcamNmaxFile || viewMode !== 'chart') return;
+    setParameterStates(prev => {
+      const updated = { ...prev };
+      const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+      metadataParams.forEach(param => {
+        if (updated[param]) {
+          const paramLower = param.toLowerCase().trim();
+          updated[param] = {
+            ...updated[param],
+            visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+          };
+        }
+      });
+      speciesColumns.forEach(species => {
+        if (updated[species]) {
+          updated[species] = { ...updated[species], visible: false };
+        }
+      });
+      return updated;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
+
+  // Default to heatmap view for SubCam nmax files
+  React.useEffect(() => {
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      setViewMode('heatmap');
+      // Make all species visible for heatmap (same logic as handleViewModeChange('heatmap'))
+      setParameterStates(prev => {
+        const updated = { ...prev };
+        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+        metadataParams.forEach(param => {
+          if (updated[param]) {
+            updated[param] = { ...updated[param], visible: false };
+          }
+        });
+        speciesColumns.forEach(species => {
+          if (updated[species]) {
+            updated[species] = { ...updated[species], visible: true };
+          }
+        });
+        return updated;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubcamNmaxFile]);
 
   // Update parameter states when numericParameters changes (e.g., new data loaded)
   React.useEffect(() => {
@@ -842,16 +1174,41 @@ export function PinChartDisplay({
       const defaultVisibleCount = numericParameters.length <= 3 ? numericParameters.length :
                                    ((fileType === 'GP' || dataSource === 'marine') ? 4 : 5);
 
+      // GrowProbe priority parameters that should always be visible by default
+      const gpPriorityParams = ['temp', 'ir', 'lux', 'light'];
+
+      // Separate parameters into non-hidden and hidden for color assignment
+      // Non-hidden parameters get colors first to avoid duplicates in the default view
+      const nonHiddenParams = numericParameters.filter(p => !isHiddenSensorParam(p));
+      const hiddenParams = numericParameters.filter(p => isHiddenSensorParam(p));
+      let orderedParams = [...nonHiddenParams, ...hiddenParams];
+
+      // For FPOD files, group DPM and Click parameters together so each group
+      // gets mixed warm/cool colors from the alternating palette
+      if (fileType === 'FPOD') {
+        const dpmParams = orderedParams.filter(p => p.includes('(DPM)'));
+        const clickParams = orderedParams.filter(p => p.includes('(Clicks)'));
+        const otherParams = orderedParams.filter(p => !p.includes('(DPM)') && !p.includes('(Clicks)'));
+        orderedParams = [...dpmParams, ...clickParams, ...otherParams];
+      }
+
+      // Create a color index map based on the reordered parameters
+      const colorIndexMap = new Map<string, number>();
+      orderedParams.forEach((param, idx) => colorIndexMap.set(param, idx));
+
       numericParameters.forEach((param, index) => {
         // Preserve existing state if parameter already exists
         if (prev[param]) {
           newState[param] = prev[param];
         } else {
-          // Initialize new parameter with hex color and apply styling rules
-          const cssVar = CHART_COLORS[index % CHART_COLORS.length];
+          // Use the reordered color index so hidden params get colors last
+          const colorIndex = colorIndexMap.get(param) ?? index;
+          const cssVar = CHART_COLORS[colorIndex % CHART_COLORS.length];
           const hexColor = cssVarToHex(cssVar);
+          // For GrowProbe files, show priority parameters by default
+          const isGPPriority = fileType === 'GP' && gpPriorityParams.includes(param.toLowerCase());
           newState[param] = {
-            visible: index < defaultVisibleCount,
+            visible: index < defaultVisibleCount || isGPPriority,
             color: hexColor, // Store as hex, not CSS variable
             opacity: appliedStyleRule?.properties.defaultOpacity ?? 1.0,
             lineStyle: appliedStyleRule?.properties.defaultLineStyle ?? 'solid',
@@ -913,10 +1270,25 @@ export function PinChartDisplay({
   const [brushStartIndex, setBrushStartIndex] = useState<number>(0);
   const [brushEndIndex, setBrushEndIndex] = useState<number | undefined>(undefined);
 
-  // Get visible parameters
+  // Get visible parameters (also filter out hidden sensor params for GrowProbe when toggle is off)
   const visibleParameters = useMemo(() => {
-    return numericParameters.filter(param => parameterStates[param]?.visible);
-  }, [numericParameters, parameterStates]);
+    let params = numericParameters.filter(param => parameterStates[param]?.visible);
+    // Hide accelerometer/magnetic field params unless showSensorParams is enabled
+    if (!showSensorParams && fileType === 'GP') {
+      params = params.filter(param => !isHiddenSensorParam(param));
+    }
+    // For nmax chart view: put Cumulative before Daily in tooltip/render order
+    if (isSubcamNmaxFile) {
+      params.sort((a, b) => {
+        const aIsCumulative = a.toLowerCase().includes('cumulative');
+        const bIsCumulative = b.toLowerCase().includes('cumulative');
+        if (aIsCumulative && !bIsCumulative) return -1;
+        if (!aIsCumulative && bIsCumulative) return 1;
+        return 0;
+      });
+    }
+    return params;
+  }, [numericParameters, parameterStates, showSensorParams, fileType, isSubcamNmaxFile]);
 
   // Calculate dynamic chart height based on number of visible parameters
   const dynamicChartHeight = useMemo(() => {
@@ -944,38 +1316,28 @@ export function PinChartDisplay({
     const visibleCount = visibleParameters.length;
     const hasExplicitHeight = appliedStyleRule?.properties.chartHeight !== undefined;
 
-    // console.log('[CHART HEIGHT DEBUG]', {
-    //   fileName,
-    //   baseHeight,
-    //   visibleCount,
-    //   hasExplicitHeight,
-    //   appliedStyleRule: appliedStyleRule?.styleName
-    // });
+    // FPOD files: taller charts since parameter panel and info banner are hidden
+    if (fileType === 'FPOD' && !hasExplicitHeight) {
+      return 350;
+    }
 
     // If a styling rule explicitly sets chartHeight, always use it (don't cap it)
     if (hasExplicitHeight) {
-      // console.log('[CHART HEIGHT] Using explicit height from styling rule:', baseHeight);
       return baseHeight;
     }
 
-    // For plots WITHOUT explicit height styling, reduce height to minimize white space
+    // For plots WITHOUT explicit height styling, use larger heights for better visibility
+    // Extra height added to accommodate x-axis labels
     if (visibleCount === 1) {
-      const finalHeight = Math.min(baseHeight, 150);
-      // console.log('[CHART HEIGHT] Dynamic height for 1 param:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 270);
     } else if (visibleCount === 2) {
-      const finalHeight = Math.min(baseHeight, 170);
-      // console.log('[CHART HEIGHT] Dynamic height for 2 params:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 300);
     } else if (visibleCount === 3) {
-      const finalHeight = Math.min(baseHeight, 190);
-      // console.log('[CHART HEIGHT] Dynamic height for 3 params:', finalHeight);
-      return finalHeight;
+      return Math.min(baseHeight, 330);
     }
 
-    // For 4+ parameters, use the full height
-    // console.log('[CHART HEIGHT] Using full height for 4+ params:', baseHeight);
-    return baseHeight;
+    // For 4+ parameters, use larger height
+    return Math.max(baseHeight, 350);
   }, [visibleParameters.length, appliedStyleRule?.properties.chartHeight, appliedStyleRule?.properties.heatmapRowHeight, fileName, appliedStyleRule?.styleName, showHeatmap, isSubcamNmaxFile, speciesColumns, parameterStates, showHaplotypeHeatmap, isHaplotypeFile, haplotypeData, adjustableNmaxRowHeight, nmaxViewMode]);
 
   // Get moving average parameters (for display in parameter list)
@@ -1091,36 +1453,63 @@ export function PinChartDisplay({
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
 
-    // Only adjust visibility for nmax files when switching TO heatmap or tree mode
-    if ((mode === 'heatmap' || mode === 'tree') && isSubcamNmaxFile && speciesColumns.length > 0) {
-      setParameterStates(prev => {
-        const updated = { ...prev };
+    // Adjust visibility for nmax files based on view mode
+    if (isSubcamNmaxFile && speciesColumns.length > 0) {
+      if (mode === 'heatmap' || mode === 'tree') {
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Hide all aggregated metadata parameters (first 6)
-        const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
-        metadataParams.forEach(param => {
-          if (updated[param]) {
-            updated[param] = { ...updated[param], visible: false };
-          }
+          // Hide all aggregated metadata parameters (first 6)
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            if (updated[param]) {
+              updated[param] = { ...updated[param], visible: false };
+            }
+          });
+
+          // Show ALL species columns (Latin names) by default for nmax files
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: true };
+            }
+          });
+
+          console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
+            mode,
+            hiddenMetadata: metadataParams,
+            visibleSpecies: speciesColumns,
+            totalSpecies: speciesColumns.length
+          });
+
+          return updated;
         });
+      } else if (mode === 'chart') {
+        // Chart mode for nmax: show only "Total Observations" and "Cumulative Observations", hide species
+        setParameterStates(prev => {
+          const updated = { ...prev };
 
-        // Show ALL species columns (Latin names) by default for nmax files
-        const defaultVisibleSpeciesCount = speciesColumns.length;
-        speciesColumns.forEach((species, index) => {
-          if (updated[species]) {
-            updated[species] = { ...updated[species], visible: true };
-          }
+          // Show only exact "Total Observations" and "Cumulative Observations"
+          const metadataParams = allParameters.slice(0, Math.min(6, allParameters.length));
+          metadataParams.forEach(param => {
+            const paramLower = param.toLowerCase().trim();
+            if (updated[param]) {
+              updated[param] = {
+                ...updated[param],
+                visible: paramLower === 'total observations' || paramLower === 'cumulative observations'
+              };
+            }
+          });
+
+          // Hide ALL species columns in chart mode
+          speciesColumns.forEach((species) => {
+            if (updated[species]) {
+              updated[species] = { ...updated[species], visible: false };
+            }
+          });
+
+          return updated;
         });
-
-        console.log('[NMAX VIEW MODE] Updated parameter visibility:', {
-          mode,
-          hiddenMetadata: metadataParams,
-          visibleSpecies: speciesColumns,
-          totalSpecies: speciesColumns.length
-        });
-
-        return updated;
-      });
+      }
     }
   };
 
@@ -1271,7 +1660,7 @@ export function PinChartDisplay({
     if (!nmaxTaxonomicTree) {
       // Fallback: Extract rank directly from CSV species names
       speciesColumns.forEach(speciesName => {
-        const suffixMatch = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+        const suffixMatch = speciesName.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)/);
         if (suffixMatch) {
           rankMap.set(speciesName, suffixMatch[1]);
         }
@@ -1336,23 +1725,25 @@ export function PinChartDisplay({
   }, [nmaxTaxonomicTree]);
 
   // Create parent-child relationship map for visual indicators
+  // Each parent gets one color, all its direct children adopt that same color
+  // Taxa that are both children AND parents get two triangles (one for each role)
   const parentChildRelationships = useMemo(() => {
-    const relationships = new Map<string, { color: string; role: 'parent' | 'child' }>();
+    const relationships = new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
 
     if (!filteredFlattenedTree || filteredFlattenedTree.length === 0) {
       return relationships;
     }
 
-    // Define colors for parent-child pairs
+    // Define colors for parents (Paul Tol colorblind-friendly palette)
     const colors = [
-      '#ef4444', // red
-      '#3b82f6', // blue
-      '#10b981', // green
-      '#f59e0b', // amber
-      '#8b5cf6', // violet
-      '#ec4899', // pink
-      '#14b8a6', // teal
-      '#f97316', // orange
+      '#4477AA', // Blue
+      '#EE6677', // Red/pink
+      '#228833', // Green
+      '#CCBB44', // Olive yellow
+      '#66CCEE', // Cyan
+      '#AA3377', // Purple
+      '#CC6644', // Burnt orange
+      '#BBBBBB', // Grey
     ];
 
     let colorIndex = 0;
@@ -1360,25 +1751,26 @@ export function PinChartDisplay({
     // Find all parent-child relationships where both are CSV entries
     const visibleSpecies = taxonomicallyOrderedSpecies.filter(species => parameterStates[species]?.visible);
 
+    // First pass: identify all parents and their children
+    const parentChildMap = new Map<string, string[]>();
+
     filteredFlattenedTree.forEach((taxon, index) => {
       const taxonName = taxon.node.originalName || taxon.name;
 
-      // Skip if this taxon is not visible or not a CSV entry
       if (!visibleSpecies.includes(taxonName) || !taxon.node.csvEntry) {
         return;
       }
 
-      // Look for children that are also CSV entries and visible
+      const children: string[] = [];
+
       for (let i = index + 1; i < filteredFlattenedTree.length; i++) {
         const potentialChild = filteredFlattenedTree[i];
         const childName = potentialChild.node.originalName || potentialChild.name;
 
-        // Stop when we've moved past potential children
         if (potentialChild.indentLevel <= taxon.indentLevel) {
           break;
         }
 
-        // Check if this is a direct child and is a CSV entry and is visible
         const isDirectChild = (
           potentialChild.indentLevel === taxon.indentLevel + 1 &&
           potentialChild.path.includes(taxon.name) &&
@@ -1387,16 +1779,36 @@ export function PinChartDisplay({
         );
 
         if (isDirectChild) {
-          // Assign the same color to both parent and child
-          const color = colors[colorIndex % colors.length];
-
-          if (!relationships.has(taxonName)) {
-            relationships.set(taxonName, { color, role: 'parent' });
-          }
-          relationships.set(childName, { color, role: 'child' });
-
-          colorIndex++;
+          children.push(childName);
         }
+      }
+
+      if (children.length > 0) {
+        parentChildMap.set(taxonName, children);
+      }
+    });
+
+    // Second pass: assign colors and check if children are also parents (dual)
+    filteredFlattenedTree.forEach((taxon) => {
+      const taxonName = taxon.node.originalName || taxon.name;
+      const children = parentChildMap.get(taxonName);
+
+      if (children && children.length > 0) {
+        const parentColor = colors[colorIndex % colors.length];
+        colorIndex++;
+
+        // Check if any child is also a parent (will have dual arrows)
+        const childIsDual = children.some(childName => parentChildMap.has(childName));
+
+        // Mark as parent - preserve any existing child role
+        const existing = relationships.get(taxonName) || {};
+        relationships.set(taxonName, { ...existing, asParent: { color: parentColor, childIsDual } });
+
+        // Mark all children with parent's color
+        children.forEach(childName => {
+          const existingChild = relationships.get(childName) || {};
+          relationships.set(childName, { ...existingChild, asChild: { color: parentColor } });
+        });
       }
     });
 
@@ -1606,6 +2018,195 @@ export function PinChartDisplay({
     return dataWithDays;
   }, [displayData, showDaysFromStart, isSubcamNmaxFile, maxDaysToShow]);
 
+  // Calculate nighttime periods for 24hr FPOD charts based on sunrise/sunset
+  // For 24hr averaged files, we calculate AVERAGE sunrise/sunset across the file's date range
+  const nighttimePeriods = useMemo(() => {
+    // Only calculate for 24hr files with coordinates
+    if (!showDateTimeAxis || !coordinates || finalDisplayData.length === 0) {
+      return [];
+    }
+
+    const { lat, lng } = coordinates;
+
+    // Get data point times sorted
+    const dataTimestamps = finalDisplayData
+      .filter(point => point.time)
+      .map(point => ({
+        time: point.time,
+        timestamp: new Date(point.time).getTime()
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (dataTimestamps.length === 0) return [];
+
+    // Helper: find nearest data point time that is >= target hour (0-23)
+    const findDataPointNearHour = (targetHour: number): string | null => {
+      // Data points are like "2025-03-13T06:00:00.000Z" - we need to match by hour
+      for (const dp of dataTimestamps) {
+        const hour = new Date(dp.time).getUTCHours();
+        if (hour >= targetHour) return dp.time;
+      }
+      return null;
+    };
+
+    // Helper: find nearest data point time that is <= target hour
+    const findDataPointBeforeHour = (targetHour: number): string | null => {
+      for (let i = dataTimestamps.length - 1; i >= 0; i--) {
+        const hour = new Date(dataTimestamps[i].time).getUTCHours();
+        if (hour <= targetHour) return dataTimestamps[i].time;
+      }
+      return null;
+    };
+
+    // Parse date range from filename (e.g., "_2503_2506" = March 2025 to June 2025)
+    // Format: YYMM_YYMM
+    const parseDateRangeFromFilename = (name: string): { startDate: Date; endDate: Date } | null => {
+      // Look for pattern like _2503_2506 or _2406_2407
+      const match = name.match(/_(\d{2})(\d{2})_(\d{2})(\d{2})/);
+      if (match) {
+        const [, startYear, startMonth, endYear, endMonth] = match;
+        const startDate = new Date(2000 + parseInt(startYear), parseInt(startMonth) - 1, 15); // Mid-month
+        const endDate = new Date(2000 + parseInt(endYear), parseInt(endMonth) - 1, 15);
+        return { startDate, endDate };
+      }
+      return null;
+    };
+
+    const dateRange = fileName ? parseDateRangeFromFilename(fileName) : null;
+
+    // Calculate average sunrise/sunset times across the date range
+    let avgSunriseHour = 6; // Default fallback
+    let avgSunsetHour = 18; // Default fallback
+
+    if (dateRange) {
+      const { startDate, endDate } = dateRange;
+      const sunriseHours: number[] = [];
+      const sunsetHours: number[] = [];
+
+      // Sample dates across the range (every 7 days)
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const sunTimes = SunCalc.getTimes(currentDate, lat, lng);
+
+        if (sunTimes.sunrise && isValid(sunTimes.sunrise)) {
+          // Get hour in UTC (since data is in UTC)
+          sunriseHours.push(sunTimes.sunrise.getUTCHours() + sunTimes.sunrise.getUTCMinutes() / 60);
+        }
+        if (sunTimes.sunset && isValid(sunTimes.sunset)) {
+          sunsetHours.push(sunTimes.sunset.getUTCHours() + sunTimes.sunset.getUTCMinutes() / 60);
+        }
+
+        currentDate.setDate(currentDate.getDate() + 7); // Sample every 7 days
+      }
+
+      if (sunriseHours.length > 0) {
+        avgSunriseHour = sunriseHours.reduce((a, b) => a + b, 0) / sunriseHours.length;
+      }
+      if (sunsetHours.length > 0) {
+        avgSunsetHour = sunsetHours.reduce((a, b) => a + b, 0) / sunsetHours.length;
+      }
+
+      console.log('[NIGHTTIME] ═══════════════════════════════════════');
+      console.log('[NIGHTTIME] File:', fileName);
+      console.log('[NIGHTTIME] Date range:', startDate.toDateString(), 'to', endDate.toDateString());
+      console.log('[NIGHTTIME] Coordinates: lat=' + lat + ', lng=' + lng);
+      console.log('[NIGHTTIME] Sampled', sunriseHours.length, 'dates');
+      console.log('[NIGHTTIME] Avg sunrise hour (UTC):', avgSunriseHour.toFixed(2), '(' + Math.floor(avgSunriseHour) + ':' + Math.round((avgSunriseHour % 1) * 60).toString().padStart(2, '0') + ')');
+      console.log('[NIGHTTIME] Avg sunset hour (UTC):', avgSunsetHour.toFixed(2), '(' + Math.floor(avgSunsetHour) + ':' + Math.round((avgSunsetHour % 1) * 60).toString().padStart(2, '0') + ')');
+      console.log('[NIGHTTIME] ═══════════════════════════════════════');
+    } else {
+      // Fallback: use a single representative date if filename parsing fails
+      const representativeDate = new Date(dataTimestamps[0].time);
+      const sunTimes = SunCalc.getTimes(representativeDate, lat, lng);
+      if (sunTimes.sunrise && isValid(sunTimes.sunrise)) {
+        avgSunriseHour = sunTimes.sunrise.getUTCHours() + sunTimes.sunrise.getUTCMinutes() / 60;
+      }
+      if (sunTimes.sunset && isValid(sunTimes.sunset)) {
+        avgSunsetHour = sunTimes.sunset.getUTCHours() + sunTimes.sunset.getUTCMinutes() / 60;
+      }
+      console.log('[NIGHTTIME] No date range in filename, using representative date');
+    }
+
+    const periods: Array<{ start: string; end: string }> = [];
+
+    // Validate reasonable sunrise/sunset hours (sanity check)
+    // Sunrise should be between 3-10 UTC, Sunset between 15-23 UTC for most locations
+    const validSunrise = avgSunriseHour >= 3 && avgSunriseHour <= 12;
+    const validSunset = avgSunsetHour >= 15 && avgSunsetHour <= 23;
+
+    if (!validSunrise || !validSunset) {
+      console.warn('[NIGHTTIME] Invalid sunrise/sunset hours detected:', {
+        avgSunriseHour,
+        avgSunsetHour,
+        validSunrise,
+        validSunset
+      });
+      // Fall back to reasonable defaults
+      if (!validSunrise) avgSunriseHour = 6;
+      if (!validSunset) avgSunsetHour = 20;
+    }
+
+    // Find daytime boundaries (hours >= sunrise AND < sunset)
+    // This handles wrap-around when data starts late in the day (e.g., 23:00)
+    const sunriseHourRounded = Math.round(avgSunriseHour);
+    const sunsetHourRounded = Math.round(avgSunsetHour);
+
+    // Helper to check if an hour is during daytime
+    const isDaytime = (hour: number) => hour >= sunriseHourRounded && hour < sunsetHourRounded;
+
+    // Find where daytime STARTS (first hour that is daytime)
+    let daytimeStartIndex = -1;
+    for (let i = 0; i < dataTimestamps.length; i++) {
+      const hour = new Date(dataTimestamps[i].time).getUTCHours();
+      if (isDaytime(hour)) {
+        daytimeStartIndex = i;
+        break;
+      }
+    }
+
+    // Find where daytime ENDS (last hour that is daytime)
+    let daytimeEndIndex = -1;
+    for (let i = dataTimestamps.length - 1; i >= 0; i--) {
+      const hour = new Date(dataTimestamps[i].time).getUTCHours();
+      if (isDaytime(hour)) {
+        daytimeEndIndex = i;
+        break;
+      }
+    }
+
+    console.log('[NIGHTTIME] Daytime range: index', daytimeStartIndex, 'to', daytimeEndIndex,
+      '(hours ' + (daytimeStartIndex >= 0 ? new Date(dataTimestamps[daytimeStartIndex].time).getUTCHours() : 'N/A') +
+      ' to ' + (daytimeEndIndex >= 0 ? new Date(dataTimestamps[daytimeEndIndex].time).getUTCHours() : 'N/A') + ')');
+
+    // Left nighttime: from data start to just before daytime starts
+    if (daytimeStartIndex > 0) {
+      const leftStart = dataTimestamps[0].time;
+      const leftEnd = dataTimestamps[daytimeStartIndex - 1].time;
+      periods.push({ start: leftStart, end: leftEnd });
+      console.log('[NIGHTTIME] Left nighttime: index 0 to', daytimeStartIndex - 1,
+        '(hours ' + new Date(leftStart).getUTCHours() + ' to ' + new Date(leftEnd).getUTCHours() + ')');
+    }
+
+    // Right nighttime: from just after daytime ends to data end
+    if (daytimeEndIndex !== -1 && daytimeEndIndex < dataTimestamps.length - 1) {
+      const rightStart = dataTimestamps[daytimeEndIndex + 1].time;
+      const rightEnd = dataTimestamps[dataTimestamps.length - 1].time;
+      periods.push({ start: rightStart, end: rightEnd });
+      console.log('[NIGHTTIME] Right nighttime: index', daytimeEndIndex + 1, 'to', dataTimestamps.length - 1,
+        '(hours ' + new Date(rightStart).getUTCHours() + ' to ' + new Date(rightEnd).getUTCHours() + ')');
+    }
+
+    // Log all data hours for debugging
+    const dataHours = dataTimestamps.map(d => new Date(d.time).getUTCHours());
+    console.log('[NIGHTTIME] Data hours:', dataHours.join(', '));
+    console.log('[NIGHTTIME] Final periods:', periods.length, '- Sunrise ~' + sunriseHourRounded + ':00 UTC, Sunset ~' + sunsetHourRounded + ':00 UTC');
+    console.log('[NIGHTTIME] Period details:', JSON.stringify(periods.map(p => ({
+      start: new Date(p.start).getUTCHours() + ':00',
+      end: new Date(p.end).getUTCHours() + ':00'
+    }))));
+    return periods;
+  }, [showDateTimeAxis, coordinates, finalDisplayData, fileName]);
+
   // Calculate Y-axis domain based on visible parameters in finalDisplayData (for single axis mode)
   const yAxisDomain = useMemo(() => {
     if (finalDisplayData.length === 0 || visibleParameters.length === 0) {
@@ -1729,14 +2330,15 @@ export function PinChartDisplay({
   };
 
   // Calculate offset for multi-axis based on parameter domain
+  // More positive = title closer to axis scale
   const getMultiAxisLabelOffset = (domain: [number, number], dataRange: number, dataMax: number) => {
     const maxValue = Math.max(Math.abs(domain[0]), Math.abs(domain[1]));
     const formatted = formatYAxisTick(maxValue, dataRange, dataMax);
     const digitCount = formatted.length;
 
-    if (digitCount <= 2) return -10;
-    if (digitCount === 3) return -7;
-    return -3; // 4+ digits
+    if (digitCount <= 2) return 10;
+    if (digitCount === 3) return 12;
+    return 15; // 4+ digits
   };
 
   // Calculate individual Y-axis domains for each parameter (for multi-axis mode)
@@ -1814,7 +2416,7 @@ export function PinChartDisplay({
 
       // Check for taxonomic rank detection
       visibleSpecies.forEach(series => {
-        const match = series.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
+        const match = series.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)/);
         if (match) {
           validationResults.ranksDetected.add(match[1]);
         }
@@ -2876,6 +3478,11 @@ export function PinChartDisplay({
     return formatted;
   };
 
+  // Display name override for nmax chart view parameters (no-op, keep original names)
+  const getLITUDisplayName = (_parameter: string): string | null => {
+    return null;
+  };
+
   const moveParameter = (parameter: string, direction: 'up' | 'down') => {
     // This would implement parameter reordering - simplified for now
     console.log(`Move ${parameter} ${direction}`);
@@ -2930,6 +3537,12 @@ export function PinChartDisplay({
         headers={headers}
         fileName={fileName}
         diagnosticLogs={diagnosticLogs}
+        pinLabel={pinLabel}
+        startDate={startDate}
+        endDate={endDate}
+        fileCategories={fileCategories}
+        projectId={projectId}
+        tileName={tileName}
       />
     );
   }
@@ -2937,79 +3550,157 @@ export function PinChartDisplay({
   return (
     <div className="space-y-3">
       {/* Toggle Switches - at the top */}
-      <div className="flex items-center pr-12">
-        {/* File name */}
-        {fileName && (
-          <div className="text-xs text-muted-foreground font-medium">
-            {fileName}
-          </div>
-        )}
+      <div className="flex items-stretch gap-3">
+        {/* File header - location, time period, category, and filename */}
+        <div className="flex flex-col gap-0.5 flex-1">
+          {/* Main header: Location • Time Period (Categories) */}
+          {/* For 24hr avg: Location [Category] within [date range] */}
+          {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+            <div className="text-xs font-semibold text-foreground flex items-center gap-2">
+              {/* Location */}
+              {pinLabel && <span>{pinLabel}</span>}
+
+              {/* Time Period - shown with bullet for regular plots */}
+              {!showDateTimeAxis && (startDate || endDate) && (
+                <>
+                  {pinLabel && <span className="text-muted-foreground">•</span>}
+                  <span className="font-normal">
+                    {startDate && endDate
+                      ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                      : startDate
+                      ? `From ${format(startDate, 'MMM d, yyyy')}`
+                      : endDate
+                      ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                      : ''}
+                  </span>
+                </>
+              )}
+
+              {/* Categories - multiple badges */}
+              {fileCategories && fileCategories.map((category, index) => (
+                <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  {category}
+                </span>
+              ))}
+
+              {/* Date range for 24hr avg plots - "within" between badge and dates */}
+              {showDateTimeAxis && (startDate || endDate) && (
+                <>
+                  <span className="font-normal italic text-muted-foreground">within</span>
+                  <span className="font-normal">
+                    {startDate && endDate
+                      ? `${formatDateUTC(startDate, 'MMM d, yyyy')} - ${formatDateUTC(endDate, 'MMM d, yyyy')}`
+                      : startDate
+                      ? formatDateUTC(startDate, 'MMM d, yyyy')
+                      : endDate
+                      ? formatDateUTC(endDate, 'MMM d, yyyy')
+                      : ''}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Raw filename in smaller font */}
+          {fileName && (
+            <div className="text-xs text-muted-foreground font-mono">
+              {fileName}
+            </div>
+          )}
+        </div>
 
         {/* View Controls - always consistent layout */}
-        <div className="flex items-center gap-4 ml-auto">
-          {/* Unified View Mode Selector - always shows all 4 options */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-medium">View:</span>
-            <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
-              <Button
-                variant={viewMode === 'chart' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('chart')}
-                className="h-7 px-2 text-xs"
-              >
-                <BarChart3 className="h-3 w-3 mr-1" />
-                Chart
-              </Button>
-              <Button
-                variant={viewMode === 'table' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('table')}
-                className="h-7 px-2 text-xs"
-              >
-                <TableIcon className="h-3 w-3 mr-1" />
-                Table
-              </Button>
-              <Button
-                variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('heatmap')}
-                className="h-7 px-2 text-xs"
-                disabled={!isSubcamNmaxFile && !isHaplotypeFile}
-                title={!isSubcamNmaxFile && !isHaplotypeFile ? 'Heatmap view only available for nmax and hapl files' : ''}
-              >
-                <Grid3x3 className="h-3 w-3 mr-1" />
-                Heatmap
-              </Button>
-              <Button
-                variant={viewMode === 'tree' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => handleViewModeChange('tree')}
-                className="h-7 px-2 text-xs"
-                disabled={!isSubcamNmaxFile}
-                title={!isSubcamNmaxFile ? 'Tree view only available for nmax files' : ''}
-              >
-                <Network className="h-3 w-3 mr-1" />
-                Tree
-              </Button>
+        <div className="flex items-center gap-3">
+          {/* FPOD Unit Toggle - Clicks / DPM */}
+          {fileType === 'FPOD' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">Unit:</span>
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
+                <Button
+                  variant={fpodUnitMode === 'DPM' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setFpodUnitMode('DPM')}
+                  className="h-7 px-2 text-xs"
+                >
+                  DPM
+                </Button>
+                <Button
+                  variant={fpodUnitMode === 'Clicks' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setFpodUnitMode('Clicks')}
+                  className="h-7 px-2 text-xs"
+                >
+                  Clicks
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Refresh & Settings - always in same position, shown only for Chart and Heatmap views */}
-          {(viewMode === 'chart' || viewMode === 'heatmap') && (
-            <div className="flex items-center gap-1">
-              {/* Refresh Button - shown only for Heatmap view on NMAX/Hapl files */}
-              {viewMode === 'heatmap' && (isSubcamNmaxFile || (isHaplotypeFile && haplotypeData)) && (
+          {/* Unified View Mode Selector - hide for haplotype files which have their own internal view mode */}
+          {!isHaplotypeFile && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">View:</span>
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
+                <Button
+                  variant={viewMode === 'chart' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('chart')}
+                  className="h-7 px-2 text-xs"
+                >
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  Chart
+                </Button>
+                <Button
+                  variant={viewMode === 'table' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('table')}
+                  className="h-7 px-2 text-xs"
+                >
+                  <TableIcon className="h-3 w-3 mr-1" />
+                  Table
+                </Button>
+                <Button
+                  variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('heatmap')}
+                  className="h-7 px-2 text-xs"
+                  disabled={!isSubcamNmaxFile}
+                  title={!isSubcamNmaxFile ? 'Heatmap view only available for nmax files' : ''}
+                >
+                  <Grid3x3 className="h-3 w-3 mr-1" />
+                  Heatmap
+                </Button>
+                <Button
+                  variant={viewMode === 'tree' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('tree')}
+                  className="h-7 px-2 text-xs"
+                  disabled={!isSubcamNmaxFile}
+                  title={!isSubcamNmaxFile ? 'Tree view only available for nmax files' : ''}
+                >
+                  <Network className="h-3 w-3 mr-1" />
+                  Tree
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Refresh & Settings - always in same position, shown only for Chart and Heatmap views (not for haplotype files which have their own controls) */}
+          {!isHaplotypeFile && (viewMode === 'chart' || viewMode === 'heatmap') && (
+            <div className="flex items-center gap-0.5">
+              {/* Refresh Button - shown only for Heatmap view on NMAX files */}
+              {viewMode === 'heatmap' && isSubcamNmaxFile && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-6 w-6"
                   title="Refresh heatmap structure and recalculate hierarchy"
                   onClick={handleHeatmapRefresh}
                   disabled={isRefreshing}
                 >
                   <RefreshCw
                     className={cn(
-                      "h-4 w-4 text-muted-foreground",
+                      "h-3.5 w-3.5 text-muted-foreground",
                       isRefreshing && "animate-spin"
                     )}
                   />
@@ -3017,7 +3708,7 @@ export function PinChartDisplay({
               )}
 
               {/* Chart/Heatmap Settings */}
-              {viewMode === 'heatmap' && (isSubcamNmaxFile || (isHaplotypeFile && haplotypeData)) ? (
+              {viewMode === 'heatmap' && isSubcamNmaxFile ? (
                 <StylingRulesDialog
                   open={showStylingRules}
                   onOpenChange={setShowStylingRules}
@@ -3029,14 +3720,14 @@ export function PinChartDisplay({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="h-6 w-6"
                     title="Heatmap settings"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowStylingRules(true);
                     }}
                   >
-                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    <Settings className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </StylingRulesDialog>
               ) : (
@@ -3045,50 +3736,61 @@ export function PinChartDisplay({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
+                      className="h-6 w-6"
                       title="Chart settings"
                       data-testid="chart-settings-button"
                     >
-                      <Settings className="h-4 w-4 text-muted-foreground" />
+                      <Settings className="h-3.5 w-3.5 text-muted-foreground" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-3" align="end">
                     <div className="space-y-3">
-                      <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
+                      {/* Chart Settings header and axis toggle - hidden for SubCam nmax */}
+                      {!isSubcamNmaxFile && (
+                        <>
+                          <p className="text-xs font-semibold border-b pb-2">Chart Settings</p>
 
-                      {/* Compact View Toggle */}
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="compact-view" className="text-xs cursor-pointer">
-                          Compact View
-                        </Label>
-                        <Switch
-                          id="compact-view"
-                          checked={compactView}
-                          onCheckedChange={setCompactView}
-                          className="h-4 w-7"
-                        />
-                      </div>
-                      <p className="text-[0.65rem] text-muted-foreground">
-                        Show only selected parameters without borders
-                      </p>
+                          {/* Single/Multi Axis Toggle */}
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
+                              Single-Axis Mode
+                            </Label>
+                            <Switch
+                              id="axis-mode"
+                              checked={axisMode === 'single'}
+                              onCheckedChange={(checked) => setAxisMode(checked ? 'single' : 'multi')}
+                              className="shrink-0"
+                            />
+                          </div>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            Removes multiple axes for a cleaner look
+                          </p>
+                        </>
+                      )}
 
-                      {/* Single/Multi Axis Toggle */}
-                      <div className="flex items-center justify-between pt-2 border-t">
-                        <Label htmlFor="axis-mode" className="text-xs cursor-pointer">
-                          Multi-Axis Mode
-                        </Label>
-                        <Switch
-                          id="axis-mode"
-                          checked={axisMode === 'multi'}
-                          onCheckedChange={(checked) => setAxisMode(checked ? 'multi' : 'single')}
-                          className="h-4 w-7"
-                        />
-                      </div>
-                      <p className="text-[0.65rem] text-muted-foreground">
-                        {axisMode === 'multi' ? 'Separate Y-axis for each parameter' : 'Shared Y-axis for all parameters'}
-                      </p>
+                      {/* Show Sensor Parameters Toggle - only for GrowProbe files */}
+                      {fileType === 'GP' && (
+                        <>
+                          <div className="flex items-center justify-between pt-2 border-t">
+                            <Label htmlFor="show-sensors" className="text-xs cursor-pointer">
+                              Show Sensor Data
+                            </Label>
+                            <Switch
+                              id="show-sensors"
+                              checked={showSensorParams}
+                              onCheckedChange={setShowSensorParams}
+                              className="shrink-0"
+                            />
+                          </div>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            Show accelerometer and magnetic field data
+                          </p>
+                        </>
+                      )}
 
-                      {/* X-Axis Settings Section */}
+                      {/* X-Axis Settings Section - hidden for 24hr FPOD files */}
+                      {!showDateTimeAxis && (
+                        <>
                       <p className="text-xs font-semibold border-b pb-2 pt-2">X-Axis Settings</p>
                     <div className="flex items-center justify-between">
                       <Label htmlFor="show-year" className="text-xs cursor-pointer">
@@ -3098,12 +3800,14 @@ export function PinChartDisplay({
                         id="show-year"
                         checked={showYearInXAxis}
                         onCheckedChange={setShowYearInXAxis}
-                        className="h-4 w-7"
+                        className="shrink-0"
                       />
                     </div>
                     <p className="text-[0.65rem] text-muted-foreground">
                       {showYearInXAxis ? 'Format: DD/MM/YY' : 'Format: DD/MM'}
                     </p>
+                        </>
+                      )}
 
                     {/* Days from start toggle - only show for nmax files */}
                     {isSubcamNmaxFile && (
@@ -3116,7 +3820,7 @@ export function PinChartDisplay({
                             id="show-days"
                             checked={showDaysFromStart}
                             onCheckedChange={setShowDaysFromStart}
-                            className="h-4 w-7"
+                            className="shrink-0"
                           />
                         </div>
                         <p className="text-[0.65rem] text-muted-foreground">
@@ -3220,9 +3924,11 @@ export function PinChartDisplay({
                 </PopoverContent>
               </Popover>
               )}
+
             </div>
           )}
         </div>
+
       </div>
 
       {/* Chart or Table View */}
@@ -3364,6 +4070,7 @@ export function PinChartDisplay({
             <TaxonomicTreeView
               tree={nmaxTaxonomicTree}
               containerHeight={dynamicChartHeight}
+              highlightedTaxon={highlightedTaxon}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
@@ -3373,9 +4080,9 @@ export function PinChartDisplay({
         </div>
       ) : showHeatmap && isSubcamNmaxFile ? (
         // Heatmap View for Subcam nmax files
-        <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
+        <div className="flex overflow-hidden" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Heatmap - Takes up most space */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <HeatmapDisplay
               key={refreshKey}
               data={finalDisplayData}
@@ -3387,25 +4094,30 @@ export function PinChartDisplay({
               containerHeight={dynamicChartHeight}
               brushStartIndex={activeBrushStart}
               brushEndIndex={activeBrushEnd}
-              onBrushChange={timeAxisMode === 'separate' ? handleBrushChange : undefined}
+              onBrushChange={timeAxisMode === 'separate' && !isSubcamNmaxFile ? handleBrushChange : undefined}
               timeFormat={showYearInXAxis ? 'full' : 'short'}
               customColor={heatmapColor}
               customMaxValue={appliedStyleRule?.properties.heatmapMaxValue}
               cellWidth={appliedStyleRule?.properties.heatmapCellWidth ?? 10}
               rowHeight={appliedStyleRule?.properties.heatmapRowHeight ?? 35}
+              onShowInTree={(species) => {
+                setHighlightedTaxon(species);
+                handleViewModeChange('tree');
+                setTimeout(() => setHighlightedTaxon(null), 4000);
+              }}
             />
           </div>
 
-          {/* Species Selection Panel - Right sidebar - Collapsible */}
+          {/* Taxa Selection Panel - Right sidebar - Collapsible */}
           <div className={cn(
-            "border rounded-md bg-card transition-all duration-300 ease-in-out",
+            "border rounded-md bg-card transition-all duration-300 ease-in-out shrink-0",
             isSpeciesPanelExpanded ? "w-64" : "w-12"
           )}>
             {isSpeciesPanelExpanded ? (
               <>
                 <div className="p-3 border-b flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="text-sm font-semibold">Species Selection</h3>
+                    <h3 className="text-sm font-semibold">Taxa</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       {taxonomicallyOrderedSpecies.filter(s => parameterStates[s]?.visible).length} of {taxonomicallyOrderedSpecies.length} visible
                     </p>
@@ -3470,8 +4182,6 @@ export function PinChartDisplay({
           <HaplotypeHeatmap
             haplotypeData={haplotypeData}
             containerHeight={dynamicChartHeight}
-            rowHeight={appliedStyleRule?.properties.heatmapRowHeight ?? 20}
-            cellWidth={appliedStyleRule?.properties.heatmapCellWidth ?? 30}
             spotSampleStyles={appliedStyleRule?.properties.spotSample}
             onStyleRuleUpdate={handleStyleRuleUpdate}
             rawFileId={rawFileInfo?.id}
@@ -3483,6 +4193,10 @@ export function PinChartDisplay({
               setShowRawViewer(true);
               console.log('[OPEN RAW EDITOR] State updated, showRawViewer should be true');
             }}
+            pinLabel={pinLabel}
+            startDate={startDate}
+            endDate={endDate}
+            fileCategories={fileCategories}
           />
         </div>
       ) : (
@@ -3490,26 +4204,94 @@ export function PinChartDisplay({
         <div className="flex" style={{ gap: `${appliedStyleRule?.properties.plotToParametersGap ?? 12}px` }}>
           {/* Main Chart - Takes up most space */}
           <div className="flex-1 space-y-3">
+      {/* Color Key - for nmax and FPOD chart view */}
+      {(isSubcamNmaxFile || fileType === 'FPOD') && viewMode === 'chart' && visibleParameters.length > 0 && (
+        <div className="flex items-center gap-4 px-3 py-2 bg-card border rounded-md flex-wrap">
+          {visibleParameters.map(param => {
+            const state = parameterStates[param];
+            if (!state) return null;
+            const colorValue = getColorValue(state.color, state.opacity ?? 1.0);
+            // For FPOD, strip unit suffix like "(DPM)" or "(Clicks)" for cleaner display
+            let displayName = getLITUDisplayName(param) || param;
+            if (fileType === 'FPOD') {
+              displayName = displayName.replace(/\s*\((DPM|Clicks)\)\s*$/, '');
+            }
+            return (
+              <div key={param} className="flex items-center gap-1.5">
+                <div className="w-4 h-1 rounded-full" style={{ backgroundColor: colorValue }} />
+                <span className="text-xs text-muted-foreground">{displayName}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {visibleParameters.length > 0 && (
         <div
-          className={cn("w-full bg-card p-2", !compactView && "border rounded-md")}
-          style={{ height: `${dynamicChartHeight}px` }}
+          className={cn(
+            "w-full p-2",
+            "bg-card",
+            !compactView && "border rounded-md"
+          )}
+          style={{
+            height: `${dynamicChartHeight + (
+// Add extra height for single-axis info banner (not for nmax or FPOD)
+              (!compactView && axisMode === 'single' && !isSubcamNmaxFile && fileType !== 'FPOD') ? 40 : 0
+            )}px`
+          }}
         >
+
+{/* Single Axis Mode Info Banner - hidden for nmax and FPOD (FPOD shows hint in parent header) */}
+          {axisMode === 'single' && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD' && (
+            <div className="bg-muted/50 border rounded px-3 py-1.5 mb-2 flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium">Single-Axis Mode:</span> Mouse-over graph area for actual values
+              </p>
+            </div>
+          )}
           {/* Single Axis Mode */}
           {axisMode === 'single' && (
+<div style={{
+              width: '100%',
+              height: (visibleParameters.length > 1 && !compactView && !isSubcamNmaxFile && fileType !== 'FPOD') ? 'calc(100% - 40px)' : '100%',
+            }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
                 margin={{
                   top: 5,
-                  right: axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled
-                    ? (appliedStyleRule?.properties.chartRightMargin || 80)
-                    : 12,
-                  left: 5,
+                  right: 12,
+                  left: 0,
                   bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
                 }}
               >
-                <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
+                <CartesianGrid
+                  strokeDasharray="2 2"
+                  stroke="hsl(var(--border))"
+                  vertical={false}
+                  fill={showDateTimeAxis ? '#ffffff' : undefined}
+                />
+
+                {/* Nighttime shading for 24hr FPOD files */}
+                {nighttimePeriods.map((period, index) => {
+                  // Validate that period times exist in the data
+                  const startExists = finalDisplayData.some(d => d.time === period.start);
+                  const endExists = finalDisplayData.some(d => d.time === period.end);
+                  if (!startExists || !endExists) {
+                    console.warn('[NIGHTTIME] Skipping period - times not found in data:', { period, startExists, endExists });
+                    return null;
+                  }
+                  return (
+                    <ReferenceArea
+                      key={`night-${index}`}
+                      x1={period.start}
+                      x2={period.end}
+                      fill="#1e293b"
+                      fillOpacity={0.15}
+                      strokeOpacity={0}
+                      ifOverflow="hidden"
+                    />
+                  );
+                })}
 
                 <XAxis
                   dataKey={showDaysFromStart ? "dayNumber" : "time"}
@@ -3518,13 +4300,15 @@ export function PinChartDisplay({
                   tickFormatter={(value) =>
                     showDaysFromStart
                       ? `Day ${Math.round(value)}`
+                      : showDateTimeAxis
+                      ? formatDateTimeTick(value, coordinates, true)
                       : appliedStyleRule?.properties.xAxisRange
                       ? format24HourTick(value)
                       : formatDateTick(value, dataSource, showYearInXAxis)
                   }
                   height={appliedStyleRule?.properties.xAxisTitle
                     ? 45 + (appliedStyleRule.properties.xAxisTitlePosition || 20)
-                    : 45
+                    : showDateTimeAxis ? 60 : 45
                   }
                   label={appliedStyleRule?.properties.xAxisTitle ? {
                     value: appliedStyleRule.properties.xAxisTitle,
@@ -3534,85 +4318,23 @@ export function PinChartDisplay({
                   } : undefined}
                 />
 
-                {/* Primary Y-Axis (Left) */}
+                {/* Primary Y-Axis (Left) - shown with labels for FPOD, hidden for others in single-axis mode, fully hidden for nmax */}
                 <YAxis
-                  {...(axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? { yAxisId: "left" } : {})}
-                  tick={{ fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }}
-                  stroke="hsl(var(--border))"
-                  width={(showYAxisLabels || appliedStyleRule?.properties.yAxisTitle) ? (appliedStyleRule?.properties.yAxisWidth || 80) : 50}
+                  tick={fileType === 'FPOD' ? { fontSize: '0.6rem', fill: 'hsl(var(--muted-foreground))' } : false}
+                  stroke={isSubcamNmaxFile ? 'transparent' : 'hsl(var(--border))'}
+                  width={isSubcamNmaxFile ? 1 : fileType === 'FPOD' ? 50 : 10}
                   domain={yAxisDomain}
                   allowDataOverflow={true}
-                  ticks={yAxisTickInterval ? (() => {
-                    const ticks = [];
-                    for (let i = yAxisDomain[0]; i <= yAxisDomain[1]; i += yAxisTickInterval) {
-                      ticks.push(i);
-                    }
-                    return ticks;
-                  })() : undefined}
-                  tickFormatter={(value) => formatYAxisTick(value, dataRange, dataMax)}
-                  label={(showYAxisLabels || appliedStyleRule?.properties.yAxisTitle || customYAxisLabel) ? (() => {
-                    const labelText = customYAxisLabel || appliedStyleRule?.properties.yAxisTitle || (visibleParameters.length === 1
-                      ? formatParameterWithSource(visibleParameters[0])
-                      : 'Value');
-                    const labelOffset = axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? 5 : getLabelOffset(maxTickDigits);
-                    const baseStyle = { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' };
-
-                    // Check if multi-line is enabled
-                    if (appliedStyleRule?.properties.yAxisMultiLine) {
-                      const threshold = appliedStyleRule.properties.yAxisMultiLineWordThreshold || 3;
-                      const lines = splitYAxisTitle(labelText, threshold);
-
-                      // If split into multiple lines, use custom component
-                      if (lines.length > 1) {
-                        return {
-                          content: <MultiLineYAxisLabel value={lines} angle={-90} offset={labelOffset} style={baseStyle} />,
-                          position: 'insideLeft'
-                        };
-                      }
-                    }
-
-                    // Default single-line label
-                    return {
-                      value: labelText,
-                      angle: -90,
-                      position: 'insideLeft',
-                      offset: labelOffset,
-                      style: baseStyle
-                    };
-                  })() : undefined}
+                  hide={isSubcamNmaxFile}
+                  tickFormatter={fileType === 'FPOD' ? (value) => formatYAxisTick(value, dataRange, dataMax) : undefined}
+                  label={fileType === 'FPOD' ? {
+                    value: fpodUnitMode === 'DPM' ? 'DPM' : 'Clicks',
+                    angle: -90,
+                    position: 'insideLeft',
+                    offset: 10,
+                    style: { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))', fontWeight: 500 }
+                  } : undefined}
                 />
-
-                {/* Secondary Y-Axis (Right) - Calculated */}
-                {axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled && (
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tick={{ fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }}
-                    stroke="hsl(var(--border))"
-                    width={appliedStyleRule.properties.secondaryYAxis.width || 80}
-                    domain={[
-                      (yAxisDomain[0] / appliedStyleRule.properties.secondaryYAxis.divideBy) * 100,
-                      (yAxisDomain[1] / appliedStyleRule.properties.secondaryYAxis.divideBy) * 100
-                    ]}
-                    allowDataOverflow={true}
-                    ticks={yAxisTickInterval ? (() => {
-                      const ticks = [];
-                      const divideBy = appliedStyleRule.properties.secondaryYAxis.divideBy;
-                      for (let i = yAxisDomain[0]; i <= yAxisDomain[1]; i += yAxisTickInterval) {
-                        ticks.push((i / divideBy) * 100);
-                      }
-                      return ticks;
-                    })() : undefined}
-                    tickFormatter={(value) => Math.round(value).toString()}
-                    label={{
-                      value: appliedStyleRule.properties.secondaryYAxis.title,
-                      angle: 90,
-                      position: 'insideRight',
-                      offset: 5,
-                      style: { textAnchor: 'middle', fontSize: '0.65rem', fill: 'hsl(var(--muted-foreground))' }
-                    }}
-                  />
-                )}
 
                 {/* Frame lines - top and right edges */}
                 <ReferenceLine {...(axisMode === 'single' && appliedStyleRule?.properties.secondaryYAxis?.enabled ? { yAxisId: "left" } : {})} y={yAxisDomain[1]} stroke="hsl(var(--border))" strokeWidth={1} strokeOpacity={0.3} />
@@ -3621,27 +4343,7 @@ export function PinChartDisplay({
                 )}
 
                 <RechartsTooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    fontSize: '0.7rem',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number, name: string) => [
-                    typeof value === 'number' ? value.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:3}) : 'N/A',
-                    name
-                  ]}
-                  labelFormatter={(label) => {
-                    try {
-                      const date = parseISO(String(label));
-                      return isValid(date) ? format(date, 'EEE, MMM dd, HH:mm:ss') : String(label);
-                    } catch {
-                      return String(label);
-                    }
-                  }}
+                  content={<CustomChartTooltip coordinates={coordinates} />}
                   isAnimationActive={false}
                 />
 
@@ -3686,7 +4388,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }}
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -3697,18 +4399,20 @@ export function PinChartDisplay({
                 })()}
               </LineChart>
             </ResponsiveContainer>
+            </div>
           )}
 
           {/* Multi Axis Mode */}
           {axisMode === 'multi' && (
+            <div style={{ width: '100%', height: '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={finalDisplayData}
                 margin={{
                   top: 5,
-                  right: Math.ceil(visibleParameters.length / 2) * 50,
-                  left: 50,
-                  bottom: appliedStyleRule?.properties.chartBottomMargin ?? 10
+                  right: Math.ceil(visibleParameters.length / 2) * 10,
+                  left: 10,
+                  bottom: (appliedStyleRule?.properties.chartBottomMargin ?? 10)
                 }}
               >
                 <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
@@ -3720,13 +4424,15 @@ export function PinChartDisplay({
                   tickFormatter={(value) =>
                     showDaysFromStart
                       ? `Day ${Math.round(value)}`
+                      : showDateTimeAxis
+                      ? formatDateTimeTick(value, coordinates, true)
                       : appliedStyleRule?.properties.xAxisRange
                       ? format24HourTick(value)
                       : formatDateTick(value, dataSource, showYearInXAxis)
                   }
                   height={appliedStyleRule?.properties.xAxisTitle
                     ? 45 + (appliedStyleRule.properties.xAxisTitlePosition || 20)
-                    : 45
+                    : showDateTimeAxis ? 60 : 45
                   }
                   label={appliedStyleRule?.properties.xAxisTitle ? {
                     value: appliedStyleRule.properties.xAxisTitle,
@@ -3744,9 +4450,12 @@ export function PinChartDisplay({
                   const paramRange = Math.abs(domain[1] - domain[0]);
                   const paramMax = Math.max(Math.abs(domain[0]), Math.abs(domain[1]));
                   const paramColor = getColorValue(parameterStates[parameter].color);
-                  // Add gap between left axes: 3rd axis (index 2) gets +10px width
-                  const axisWidth = (index === 2) ? 42 : 32;
-                  const labelText = formatParameterWithSource(parameter);
+                  // Add gap between axes: increase width for better spacing
+                  const axisWidth = (index === 2) ? 65 : 55;
+                  // Use GrowProbe common name if available, LITU name for nmax, otherwise formatted parameter name
+                  const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
+                  const lituName = getLITUDisplayName(parameter);
+                  const labelText = lituName || gpCommonName || formatParameterWithSource(parameter, false);
 
                   // Calculate base offset and apply custom offsets from style rules
                   let labelOffset = getMultiAxisLabelOffset(domain, paramRange, paramMax);
@@ -3834,27 +4543,7 @@ export function PinChartDisplay({
                 )}
 
                 <RechartsTooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    fontSize: '0.7rem',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number, name: string) => [
-                    typeof value === 'number' ? value.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:3}) : 'N/A',
-                    name
-                  ]}
-                  labelFormatter={(label) => {
-                    try {
-                      const date = parseISO(String(label));
-                      return isValid(date) ? format(date, 'EEE, MMM dd, HH:mm:ss') : String(label);
-                    } catch {
-                      return String(label);
-                    }
-                  }}
+                  content={<CustomChartTooltip coordinates={coordinates} parameterDomains={parameterDomains} />}
                   isAnimationActive={false}
                 />
 
@@ -3904,7 +4593,7 @@ export function PinChartDisplay({
                         strokeDasharray={state.lineStyle === 'dashed' ? '5 5' : undefined}
                         dot={false}
                         connectNulls={false}
-                        name={parameter}
+                        name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }} // Smaller dots for MA
                         onClick={() => toggleParameterVisibility(parameter)}
@@ -3915,12 +4604,13 @@ export function PinChartDisplay({
                 })()}
               </LineChart>
             </ResponsiveContainer>
+            </div>
           )}
         </div>
       )}
 
-      {/* Time Range Brush - only show in separate mode OR if last plot in common mode */}
-      {data.length > 10 && (timeAxisMode === 'separate' || isLastPlot) && (
+      {/* Time Range Brush - only show in separate mode OR if last plot in common mode; hidden for 24hr avg plots */}
+      {data.length > 10 && !hideBrush && (timeAxisMode === 'separate' || isLastPlot) && (
         <div className="relative h-16 w-full border rounded-md bg-card p-1">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 2, right: 15, left: 15, bottom: 0 }}>
@@ -3958,25 +4648,52 @@ export function PinChartDisplay({
         </div>
       )}
 
+      {/* Observations info note - below chart, only for nmax chart view */}
+      {isSubcamNmaxFile && viewMode === 'chart' && (
+        <div className="bg-muted/40 border rounded-md px-3 py-2 flex items-center gap-2">
+          <svg className="w-4 h-4 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+          </svg>
+          <p className="text-xs text-muted-foreground">
+            Data is being displayed as Observations, this does not include any species identification information. Please consult Methodology for more details.
+          </p>
+        </div>
+      )}
+
           </div>
 
-          {/* Parameter Controls - On the right side */}
-          <div className={cn("space-y-2 transition-all duration-300", isParameterPanelExpanded ? "w-72" : "w-40")}>
-            {/* Header with expand button and label - hidden in compact view */}
-            {!compactView && (
+{/* Parameter Controls - On the right side (hidden for nmax chart view and FPOD files) */}
+          {!(isSubcamNmaxFile && viewMode === 'chart') && fileType !== 'FPOD' && (
+          <div className={cn(
+            "transition-all duration-300 ease-in-out flex-shrink-0 flex flex-col",
+            isParameterPanelExpanded ? "w-72 space-y-2" : "w-8 overflow-hidden"
+          )}>
+            {/* Collapsed state - just show expand button */}
+            {!isParameterPanelExpanded && !compactView && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-full min-h-[200px] w-8 p-0 flex flex-col items-center justify-center gap-1 hover:bg-accent/50 border-l-0 rounded-l-none"
+                onClick={() => setIsParameterPanelExpanded(true)}
+                title="Expand parameters panel"
+              >
+                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground writing-mode-vertical" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+                  Parameters
+                </span>
+              </Button>
+            )}
+            {/* Header with collapse button and label - shown when expanded, hidden in compact view */}
+            {isParameterPanelExpanded && !compactView && (
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-4 w-4 hover:bg-accent/50"
-                  onClick={() => setIsParameterPanelExpanded(!isParameterPanelExpanded)}
-                  title={isParameterPanelExpanded ? "Collapse panel" : "Expand panel"}
+                  onClick={() => setIsParameterPanelExpanded(false)}
+                  title="Collapse panel"
                 >
-                  {isParameterPanelExpanded ? (
-                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <ChevronLeft className="h-3 w-3 text-muted-foreground" />
-                  )}
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 </Button>
 
                 <p className="text-xs font-medium">
@@ -4009,12 +4726,20 @@ export function PinChartDisplay({
               />
             )}
 
-            <div className="space-y-1 h-[210px] overflow-y-auto">
+            {isParameterPanelExpanded && (
+            <div className="space-y-1 flex-1 overflow-y-auto">
               {(() => {
                 // Apply filters to parameters - now supports multiple selections
                 // Use ALL numeric parameters + MA parameters, regardless of visibility
                 // Visibility only controls plot rendering, not parameter list display
                 let filteredParameters = [...numericParameters, ...movingAverageParameters];
+
+                // Hide sensor parameters (accelerometer, magnetic field) unless enabled
+                if (!showSensorParams && fileType === 'GP') {
+                  filteredParameters = filteredParameters.filter(param =>
+                    !isHiddenSensorParam(param)
+                  );
+                }
 
                 // console.log('[PARAM LIST RENDER] Starting with ALL parameters (numeric + MA):', filteredParameters.length, filteredParameters);
                 // console.log('[PARAM LIST RENDER] visibleParameters:', visibleParameters.length, visibleParameters);
@@ -4352,19 +5077,49 @@ export function PinChartDisplay({
                         onClick={() => toggleParameterVisibility(parameter)}
                         title="Click to toggle visibility"
                       >
-                        <Label
-                          htmlFor={`param-${parameter}`}
-                          className={cn(
-                            "text-[11px] font-normal cursor-pointer",
-                            !compactView && !isParameterPanelExpanded && "truncate",
-                            isMA && "italic text-muted-foreground" // Style MA parameters differently
-                          )}
-                        >
-                          {isMA
-                            ? (compactView ? formatParameterName(displayName) : displayName) // Apply compact view formatting to MA parameters too
-                            : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter))
+                        {/* Parameter name with tooltip for GrowProbe common names */}
+                        {(() => {
+                          const gpCommonName = fileType === 'GP' ? getGrowProbeCommonName(parameter) : null;
+                          const labelContent = isMA
+                            ? (compactView ? formatParameterName(displayName) : displayName)
+                            : (compactView ? formatParameterName(parameter) : getParameterLabelWithUnit(parameter));
+
+                          if (gpCommonName) {
+                            return (
+                              <TooltipProvider delayDuration={300}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Label
+                                      htmlFor={`param-${parameter}`}
+                                      className={cn(
+                                        "text-[11px] font-normal cursor-pointer",
+                                        !compactView && !isParameterPanelExpanded && "truncate",
+                                        isMA && "italic text-muted-foreground"
+                                      )}
+                                    >
+                                      {labelContent}
+                                    </Label>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    {gpCommonName}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            );
                           }
-                        </Label>
+                          return (
+                            <Label
+                              htmlFor={`param-${parameter}`}
+                              className={cn(
+                                "text-[11px] font-normal cursor-pointer",
+                                !compactView && !isParameterPanelExpanded && "truncate",
+                                isMA && "italic text-muted-foreground"
+                              )}
+                            >
+                              {labelContent}
+                            </Label>
+                          );
+                        })()}
 
                         {/* Filter indicator */}
                         {state.timeFilter?.enabled && (
@@ -5120,7 +5875,9 @@ export function PinChartDisplay({
                 );
               })})()}
             </div>
+            )}
           </div>
+          )}
         </div>
       )}
 
@@ -5437,6 +6194,7 @@ export function PinChartDisplay({
           }}
         />
       )}
+
     </div>
   );
 }

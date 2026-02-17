@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Save, TableIcon, TrendingUp, Settings } from "lucide-react";
+import { TableIcon, TrendingUp, Settings } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { HaplotypeCellData, HaplotypeParseResult, HaplotypeMetadata } from './csvParser';
@@ -22,8 +22,6 @@ import { Network, ArrowUpDown } from 'lucide-react';
 interface HaplotypeHeatmapProps {
   haplotypeData: HaplotypeParseResult;
   containerHeight: number;
-  rowHeight?: number; // Height of each species row (default: 15)
-  cellWidth?: number; // Width of each cell/column (default: 12)
   spotSampleStyles?: {
     xAxisLabelRotation?: number;
     xAxisLabelFontSize?: number;
@@ -38,6 +36,11 @@ interface HaplotypeHeatmapProps {
   rawFileName?: string;
   pinId?: string;
   onOpenRawEditor?: (fileId: string, fileName: string, speciesName?: string) => void;
+  // Header metadata
+  pinLabel?: string;
+  startDate?: Date;
+  endDate?: Date;
+  fileCategories?: string[];
 }
 
 interface ProcessedCell extends HaplotypeCellData {
@@ -64,19 +67,36 @@ function getRankAbbreviation(rank: string): string {
   return abbrevMap[rank.toLowerCase()] || '?';
 }
 
+/**
+ * Clean species name by removing trailing rank annotations
+ * Matches the same logic used in taxonomic-tree-builder.ts
+ * e.g., "Gadus sp." → "Gadus", "Actinopterygii (class)" → "Actinopterygii"
+ * Also handles double periods like "(sp.)." from SubCam data
+ */
+function cleanSpeciesName(name: string): string {
+  return name
+    .replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?\s*$/i, '')  // (sp.). or (sp.)
+    .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\.?\s*$/i, '')  // (species). or (species)
+    .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '')  // trailing sp. or sp
+    .trim();
+}
+
 export function HaplotypeHeatmap({
   haplotypeData,
   containerHeight,
-  rowHeight = 15,
-  cellWidth = 12,
   spotSampleStyles,
   onStyleRuleUpdate,
   rawFileId,
   rawFileName,
   pinId,
-  onOpenRawEditor
+  onOpenRawEditor,
+  pinLabel,
+  startDate,
+  endDate,
+  fileCategories
 }: HaplotypeHeatmapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
   const { toast } = useToast();
 
@@ -93,6 +113,9 @@ export function HaplotypeHeatmap({
   // View mode state
   const [viewMode, setViewMode] = useState<HaplotypeViewMode>('heatmap');
 
+  // Highlighted taxon for tree view linking
+  const [highlightedTaxon, setHighlightedTaxon] = useState<string | null>(null);
+
   // Sort mode state (hierarchical by default)
   const [sortMode, setSortMode] = useState<SortMode>('hierarchical');
 
@@ -100,7 +123,7 @@ export function HaplotypeHeatmap({
   const curveFitModel: CurveFitModel = 'logarithmic';
   const showFittedCurve = true;
   const [showRarefactionSettings, setShowRarefactionSettings] = useState(false);
-  const [rarefactionChartSize, setRarefactionChartSize] = useState(300);
+  const [rarefactionChartSize, setRarefactionChartSize] = useState(500);
   const [rarefactionLegendXOffset, setRarefactionLegendXOffset] = useState(25);
   const [rarefactionLegendYOffset, setRarefactionLegendYOffset] = useState(100);
   const [rarefactionYAxisTitleOffset, setRarefactionYAxisTitleOffset] = useState(20);
@@ -126,23 +149,7 @@ export function HaplotypeHeatmap({
   const [isFetchingTaxonomy, setIsFetchingTaxonomy] = useState(false);
   const [taxonomyFetchProgress, setTaxonomyFetchProgress] = useState({ current: 0, total: 0 });
 
-  // Adjustable cell width and height
-  const [adjustableCellWidth, setAdjustableCellWidth] = useState(cellWidth);
-  const [adjustableRowHeight, setAdjustableRowHeight] = useState(rowHeight);
-
-  // Handler to save current settings as style rule
-  const handleSaveSettings = () => {
-    if (onStyleRuleUpdate) {
-      onStyleRuleUpdate("_Hapl.csv", {
-        heatmapCellWidth: adjustableCellWidth,
-        heatmapRowHeight: adjustableRowHeight
-      });
-      toast({
-        title: "Settings Saved",
-        description: `Cell dimensions saved: ${adjustableCellWidth}px × ${adjustableRowHeight}px for _Hapl files`,
-      });
-    }
-  };
+  // Fixed row height for heatmap (responsive width is calculated dynamically)
 
   // Sync enrichedData when haplotypeData changes (file edits detected)
   useEffect(() => {
@@ -161,14 +168,15 @@ export function HaplotypeHeatmap({
         return;
       }
 
-      console.log('🔬 No taxonomy data found, fetching from GBIF/WoRMS APIs...');
+      console.log('🔬 No taxonomy data found, fetching from GBIF API...');
       setIsFetchingTaxonomy(true);
 
       try {
         const taxonomyMap = await lookupSpeciesBatch(
           enrichedData.species,
           15, // maxConcurrent - increased from 5 for faster parallel processing
-          (current, total) => setTaxonomyFetchProgress({ current, total })
+          (current, total) => setTaxonomyFetchProgress({ current, total }),
+          false // useWormsFallback - disabled for eDNA (GBIF provides georeferenced sightings)
         );
 
         // Create enriched data with taxonomy information
@@ -221,22 +229,37 @@ export function HaplotypeHeatmap({
   const heatmapHeight = containerHeight - FILTER_PANEL_HEIGHT;
   const treeViewHeight = containerHeight - TREE_VIEW_FILTER_HEIGHT;
 
+  // Set up ResizeObserver for container width tracking
   useEffect(() => {
-    const resizeObserver = new ResizeObserver(entries => {
+    resizeObserverRef.current = new ResizeObserver(entries => {
       if (!entries || entries.length === 0) return;
       const { width } = entries[0].contentRect;
       setSvgDimensions({ width, height: heatmapHeight });
     });
 
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
+    return () => {
+      resizeObserverRef.current?.disconnect();
+    };
+  }, [heatmapHeight]);
+
+  // Callback ref to measure container when it mounts/unmounts
+  const setContainerRef = React.useCallback((node: HTMLDivElement | null) => {
+    // Disconnect from previous element
+    if (containerRef.current && resizeObserverRef.current) {
+      resizeObserverRef.current.unobserve(containerRef.current);
     }
 
-    return () => {
-      if (containerRef.current) {
-        resizeObserver.unobserve(containerRef.current);
+    containerRef.current = node;
+
+    // Connect to new element and measure immediately
+    if (node && resizeObserverRef.current) {
+      resizeObserverRef.current.observe(node);
+      // Immediate measurement for when switching back to heatmap view
+      const rect = node.getBoundingClientRect();
+      if (rect.width > 0) {
+        setSvgDimensions({ width: rect.width, height: heatmapHeight });
       }
-    };
+    }
   }, [heatmapHeight]);
 
   // Build taxonomic tree from enriched data
@@ -267,8 +290,8 @@ export function HaplotypeHeatmap({
       credibilityFilter(cell.metadata.credibility)
     );
 
-    // Get unique filtered species
-    const filteredSpeciesSet = new Set(filtered.map(c => c.species));
+    // Get unique filtered species (using cleaned names for matching with tree nodes)
+    const filteredSpeciesSet = new Set(filtered.map(c => cleanSpeciesName(c.species)));
 
     // Filter out empty rows if hideEmptyRows is enabled
     let finalFilteredSet = filteredSpeciesSet;
@@ -276,7 +299,8 @@ export function HaplotypeHeatmap({
       finalFilteredSet = new Set(
         Array.from(filteredSpeciesSet).filter(speciesName => {
           // Check if this species has at least one non-zero value across all sites
-          const speciesCells = filtered.filter(c => c.species === speciesName);
+          // Match using cleaned names
+          const speciesCells = filtered.filter(c => cleanSpeciesName(c.species) === speciesName);
           return speciesCells.some(c => c.count > 0);
         })
       );
@@ -334,6 +358,86 @@ export function HaplotypeHeatmap({
     return 200; // Default for alphabetical mode
   }, [sortMode, filteredTaxa]);
 
+  // Calculate parent-child relationships between visible taxa
+  // Only shows relationships when BOTH parent and child have data (are visible)
+  // Each parent gets one color, all its children adopt that same color
+  // Taxa that are both children AND parents get two triangles (one for each role)
+  const parentChildRelationships = useMemo(() => {
+    if (sortMode !== 'hierarchical' || filteredTaxa.length === 0) {
+      return new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
+    }
+
+    const relationships = new Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>();
+    const visibleNames = new Set(filteredTaxa.map(t => t.name));
+
+    // Color palette for parents (Paul Tol colorblind-friendly)
+    const colors = [
+      '#4477AA', // Blue
+      '#EE6677', // Red/pink
+      '#228833', // Green
+      '#CCBB44', // Olive yellow
+      '#66CCEE', // Cyan
+      '#AA3377', // Purple
+      '#CC6644', // Burnt orange
+      '#BBBBBB', // Grey
+    ];
+    let colorIndex = 0;
+
+    // First pass: identify all parents and their children
+    const parentChildMap = new Map<string, string[]>(); // parent name -> child names
+
+    filteredTaxa.forEach((taxon, index) => {
+      const children: string[] = [];
+
+      for (let i = index + 1; i < filteredTaxa.length; i++) {
+        const potentialChild = filteredTaxa[i];
+
+        if (potentialChild.indentLevel <= taxon.indentLevel) {
+          break;
+        }
+
+        const isDirectChild = (
+          potentialChild.indentLevel === taxon.indentLevel + 1 &&
+          potentialChild.path.includes(taxon.name) &&
+          visibleNames.has(potentialChild.name)
+        );
+
+        if (isDirectChild) {
+          children.push(potentialChild.name);
+        }
+      }
+
+      if (children.length > 0) {
+        parentChildMap.set(taxon.name, children);
+      }
+    });
+
+    // Second pass: assign colors and check if children are also parents (dual)
+    filteredTaxa.forEach((taxon) => {
+      const children = parentChildMap.get(taxon.name);
+
+      if (children && children.length > 0) {
+        const parentColor = colors[colorIndex % colors.length];
+        colorIndex++;
+
+        // Check if any child is also a parent (will have dual arrows)
+        const childIsDual = children.some(childName => parentChildMap.has(childName));
+
+        // Mark as parent - preserve any existing child role
+        const existing = relationships.get(taxon.name) || {};
+        relationships.set(taxon.name, { ...existing, asParent: { color: parentColor, childIsDual } });
+
+        // Mark all children with parent's color
+        children.forEach(childName => {
+          const existingChild = relationships.get(childName) || {};
+          relationships.set(childName, { ...existingChild, asChild: { color: parentColor } });
+        });
+      }
+    });
+
+    return relationships;
+  }, [sortMode, filteredTaxa]);
+
   const leftMargin = useMemo(() => {
     let margin = SPECIES_NAME_WIDTH + 20;
     if (showRedListColumn) margin += RED_LIST_COLUMN_WIDTH;
@@ -355,7 +459,8 @@ export function HaplotypeHeatmap({
   const cellMap = useMemo(() => {
     const map = new Map<string, ProcessedCell>();
     filteredCells.forEach(cell => {
-      const key = `${cell.species}__${cell.site}`;
+      // Use cleaned species name as key to match tree node names
+      const key = `${cleanSpeciesName(cell.species)}__${cell.site}`;
       map.set(key, {
         ...cell,
         displayValue: cell.count > 0 ? cell.count.toString() : '0'
@@ -366,7 +471,7 @@ export function HaplotypeHeatmap({
 
   if (!haplotypeData || haplotypeData.species.length === 0) {
     return (
-      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
+      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
         No haplotype data available
       </div>
     );
@@ -399,51 +504,10 @@ export function HaplotypeHeatmap({
               <Checkbox id="showRedList-empty" checked={showRedListColumn} onCheckedChange={setShowRedListColumn} />
               <Label htmlFor="showRedList-empty" className="text-sm cursor-pointer">Show RedList Status</Label>
             </div>
-            <div className="flex items-center gap-2 pl-6 border-l">
-              <Checkbox id="showGBIF-empty" checked={showGBIFColumn} onCheckedChange={setShowGBIFColumn} />
-              <Label htmlFor="showGBIF-empty" className="text-sm cursor-pointer">Show Taxonomy</Label>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <Label htmlFor="cellHeight-empty" className="text-sm font-medium whitespace-nowrap">Cell Height:</Label>
-            <input
-              id="cellHeight-empty"
-              type="range"
-              min="10"
-              max="100"
-              value={adjustableRowHeight}
-              onChange={(e) => setAdjustableRowHeight(Number(e.target.value))}
-              className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-            />
-            <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableRowHeight}px</span>
-
-            <Label htmlFor="cellWidth-empty" className="text-sm font-medium whitespace-nowrap ml-6">Cell Width:</Label>
-            <input
-              id="cellWidth-empty"
-              type="range"
-              min="5"
-              max="150"
-              value={adjustableCellWidth}
-              onChange={(e) => setAdjustableCellWidth(Number(e.target.value))}
-              className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-            />
-            <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableCellWidth}px</span>
-
-            {onStyleRuleUpdate && (
-              <Button
-                onClick={handleSaveSettings}
-                size="sm"
-                className="ml-4 h-8 gap-2"
-                variant="outline"
-              >
-                <Save className="h-4 w-4" />
-                Save as _hapl Style
-              </Button>
-            )}
           </div>
         </div>
 
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
           No species match the selected filters
         </div>
       </div>
@@ -452,11 +516,22 @@ export function HaplotypeHeatmap({
 
   const { width } = svgDimensions;
 
-  // Calculate plot dimensions based on adjustable cell width and row height
-  const plotWidth = sites.length * adjustableCellWidth;
-  const plotHeight = filteredSpecies.length * adjustableRowHeight;
+  // Calculate plot dimensions responsively based on container width
+  // Minimum cell width of 30px to ensure readability, but expand to fill space
+  const MIN_CELL_WIDTH = 30;
+  const ROW_HEIGHT = 20;
 
-  // Use fixed bandwidth for xScale based on adjustable cellWidth
+  // Available width for the heatmap plot area
+  const availableWidth = Math.max(0, width - margin.left - margin.right);
+
+  // Calculate cell width: use available width divided by number of sites, with minimum
+  const calculatedCellWidth = sites.length > 0 ? Math.max(MIN_CELL_WIDTH, availableWidth / sites.length) : MIN_CELL_WIDTH;
+
+  // Plot dimensions
+  const plotWidth = sites.length * calculatedCellWidth;
+  const plotHeight = filteredSpecies.length * ROW_HEIGHT;
+
+  // Use scaleBand for responsive cell sizing
   const xScale = scaleBand<string>()
     .domain(sites)
     .range([0, plotWidth])
@@ -470,8 +545,9 @@ export function HaplotypeHeatmap({
     .paddingOuter(0.05);
 
   // Get Red List Status for a species from the first available cell
+  // Match using cleaned names since species param comes from tree (cleaned)
   const getRedListStatus = (species: string): string => {
-    const cell = filteredCells.find(c => c.species === species);
+    const cell = filteredCells.find(c => cleanSpeciesName(c.species) === species);
     return cell?.metadata?.redListStatus || 'Not Evaluated';
   };
 
@@ -490,8 +566,9 @@ export function HaplotypeHeatmap({
   };
 
   // Get GBIF/WoRMS data for a species
+  // Match using cleaned names since species param comes from tree (cleaned)
   const getGBIFData = (species: string): HaplotypeMetadata | null => {
-    const cell = filteredCells.find(c => c.species === species);
+    const cell = filteredCells.find(c => cleanSpeciesName(c.species) === species);
     return cell?.metadata || null;
   };
 
@@ -508,13 +585,13 @@ export function HaplotypeHeatmap({
 
   // Get color based on taxonomy confidence
   const getGBIFColor = (metadata: HaplotypeMetadata | null): string => {
-    if (!metadata?.taxonomyConfidence) return '#d1d5db'; // gray
+    if (!metadata?.taxonomyConfidence) return '#BBBBBB'; // grey (colorblind-friendly)
 
     switch (metadata.taxonomyConfidence) {
-      case 'high': return '#10b981'; // green
-      case 'medium': return '#f59e0b'; // amber
-      case 'low': return '#ef4444'; // red
-      default: return '#d1d5db'; // gray
+      case 'high': return '#228833'; // green (Paul Tol)
+      case 'medium': return '#CCBB44'; // olive yellow (Paul Tol)
+      case 'low': return '#EE6677'; // red/pink (Paul Tol)
+      default: return '#BBBBBB'; // grey
     }
   };
 
@@ -525,7 +602,7 @@ export function HaplotypeHeatmap({
         {/* View Mode Selector */}
         <div className="flex items-center gap-4 pb-3 border-b">
           <span className="text-sm font-medium">View Mode:</span>
-          <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+          <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
             <Button
               variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
               size="sm"
@@ -572,7 +649,7 @@ export function HaplotypeHeatmap({
           {viewMode === 'heatmap' && (
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-sm font-medium">Sort:</span>
-              <div className="flex items-center gap-1 border rounded-md p-1 bg-gray-50">
+              <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
                 <Button
                   variant={sortMode === 'hierarchical' ? 'default' : 'ghost'}
                   size="sm"
@@ -623,10 +700,6 @@ export function HaplotypeHeatmap({
             <Checkbox id="showRedList" checked={showRedListColumn} onCheckedChange={setShowRedListColumn} />
             <Label htmlFor="showRedList" className="text-sm cursor-pointer">Show RedList Status</Label>
           </div>
-          <div className="flex items-center gap-2 pl-6 border-l">
-            <Checkbox id="showGBIF" checked={showGBIFColumn} onCheckedChange={setShowGBIFColumn} />
-            <Label htmlFor="showGBIF" className="text-sm cursor-pointer">Show Taxonomy</Label>
-          </div>
           <div className="ml-auto flex items-center gap-4">
             {isFetchingTaxonomy && (
               <div className="text-xs text-blue-600 font-medium flex items-center gap-2">
@@ -639,43 +712,6 @@ export function HaplotypeHeatmap({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <Label htmlFor="cellHeight" className="text-sm font-medium whitespace-nowrap">Cell Height:</Label>
-          <input
-            id="cellHeight"
-            type="range"
-            min="10"
-            max="100"
-            value={adjustableRowHeight}
-            onChange={(e) => setAdjustableRowHeight(Number(e.target.value))}
-            className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-          />
-          <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableRowHeight}px</span>
-
-          <Label htmlFor="cellWidth" className="text-sm font-medium whitespace-nowrap ml-6">Cell Width:</Label>
-          <input
-            id="cellWidth"
-            type="range"
-            min="5"
-            max="150"
-            value={adjustableCellWidth}
-            onChange={(e) => setAdjustableCellWidth(Number(e.target.value))}
-            className="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-          />
-          <span className="text-sm text-muted-foreground min-w-[40px]">{adjustableCellWidth}px</span>
-
-          {onStyleRuleUpdate && (
-            <Button
-              onClick={handleSaveSettings}
-              size="sm"
-              className="ml-4 h-8 gap-2"
-              variant="outline"
-            >
-              <Save className="h-4 w-4" />
-              Save as _hapl Style
-            </Button>
-          )}
-        </div>
           </>
         )}
       </div>
@@ -685,7 +721,7 @@ export function HaplotypeHeatmap({
         /* Rarefaction View */
         <div
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-4 bg-white overflow-auto"
+          className="flex-1 w-full border rounded-md p-4 bg-card overflow-auto flex items-center justify-center"
         >
           <RarefactionChart
             haplotypeData={enrichedData}
@@ -705,6 +741,8 @@ export function HaplotypeHeatmap({
         <TaxonomicTreeView
           tree={taxonomicTree}
           containerHeight={treeViewHeight}
+          highlightedTaxon={highlightedTaxon}
+          showHaplotypeBadges={true}
           onSpeciesClick={(speciesName) => {
             console.log('[HAPLOTYPE HEATMAP] Species clicked:', speciesName);
             console.log('[HAPLOTYPE HEATMAP] Callback available:', {
@@ -723,10 +761,52 @@ export function HaplotypeHeatmap({
       ) : (
         /* Heatmap View */
         <div
-          ref={containerRef}
+          ref={setContainerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-2 bg-white overflow-auto"
+          className="flex-1 w-full border rounded-md p-2 bg-card overflow-auto"
         >
+          {/* Taxonomic Rank Legend (only in hierarchical mode) */}
+          {sortMode === 'hierarchical' && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs mb-2 pb-2 pr-4 border-b border-border">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
+                <span className="text-muted-foreground">Kingdom</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
+                <span className="text-muted-foreground">Phylum</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
+                <span className="text-muted-foreground">Class</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
+                <span className="text-muted-foreground">Order</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
+                <span className="text-muted-foreground">Family</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
+                <span className="text-muted-foreground">Genus</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
+                <span className="text-muted-foreground">Species</span>
+              </div>
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
+                <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
+                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
+                </svg>
+                <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
+                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
+                </svg>
+                <span className="text-muted-foreground">Parent-Child</span>
+              </div>
+            </div>
+          )}
         <TooltipProvider>
           <svg width="100%" height={Math.max(plotHeight + margin.top + margin.bottom, 400)}>
             {plotWidth > 0 && plotHeight > 0 && (
@@ -744,10 +824,10 @@ export function HaplotypeHeatmap({
                     y={-10}
                     textAnchor="start"
                     dominantBaseline="middle"
-                    className="font-bold"
+                    className="font-semibold"
                     style={{
-                      fontSize: `${styles.yAxisLabelFontSize}px`,
-                      fill: '#4b5563'
+                      fontSize: `${styles.yAxisTitleFontSize}px`,
+                      fill: 'hsl(var(--foreground))'
                     }}
                   >
                     Species Name
@@ -792,24 +872,69 @@ export function HaplotypeHeatmap({
                   )}
 
                   {/* Sample names (site headers) - 90 degree rotated (vertical) */}
-                  {sites.map(site => (
-                    <g key={site} transform={`translate(${(xScale(site) ?? 0) + xScale.bandwidth() / 2}, -15)`}>
-                      <text
-                        transform="rotate(-90)"
-                        x={0}
-                        y={5}
-                        textAnchor="start"
-                        dominantBaseline="middle"
-                        className="font-bold"
-                        style={{
-                          fontSize: `${styles.yAxisLabelFontSize}px`,
-                          fill: '#4b5563'
-                        }}
-                      >
-                        {site}
-                      </text>
-                    </g>
-                  ))}
+                  {sites.map(site => {
+                    // Wrap long site names onto two lines
+                    const maxCharsPerLine = 10;
+                    let lines: string[] = [site];
+
+                    if (site.length > maxCharsPerLine) {
+                      // Try to split at a space near the middle
+                      const midPoint = Math.floor(site.length / 2);
+                      const spaceIndex = site.lastIndexOf(' ', midPoint + 3);
+                      const altSpaceIndex = site.indexOf(' ', midPoint - 3);
+
+                      if (spaceIndex > 2 && spaceIndex < site.length - 2) {
+                        lines = [site.slice(0, spaceIndex), site.slice(spaceIndex + 1)];
+                      } else if (altSpaceIndex > 2 && altSpaceIndex < site.length - 2) {
+                        lines = [site.slice(0, altSpaceIndex), site.slice(altSpaceIndex + 1)];
+                      } else if (site.length > maxCharsPerLine) {
+                        // No good space found, split at maxCharsPerLine
+                        lines = [site.slice(0, maxCharsPerLine), site.slice(maxCharsPerLine)];
+                      }
+                    }
+
+                    return (
+                      <g key={site} transform={`translate(${(xScale(site) ?? 0) + xScale.bandwidth() / 2}, -15)`}>
+                        <text
+                          transform="rotate(-90)"
+                          x={0}
+                          y={0}
+                          textAnchor="start"
+                          dominantBaseline="middle"
+                          className="font-bold"
+                          style={{
+                            fontSize: `${styles.yAxisLabelFontSize}px`,
+                            fill: '#4b5563'
+                          }}
+                        >
+                          {lines.map((line, i) => (
+                            <tspan
+                              key={i}
+                              x={0}
+                              dy={i === 0 ? 0 : 14}
+                            >
+                              {line}
+                            </tspan>
+                          ))}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* X-axis title - positioned to the left of site labels */}
+                  <text
+                    x={-25}
+                    y={-50}
+                    textAnchor="end"
+                    dominantBaseline="middle"
+                    className="font-semibold"
+                    style={{
+                      fontSize: `${styles.yAxisTitleFontSize}px`,
+                      fill: 'hsl(var(--foreground))'
+                    }}
+                  >
+                    Site
+                  </text>
                 </g>
 
                 {/* Y-axis (Species names on left) */}
@@ -848,7 +973,7 @@ export function HaplotypeHeatmap({
                         y1={parentY + yScale.bandwidth() / 2}
                         x2={lineX}
                         y2={childY - yScale.bandwidth() / 2}
-                        stroke="#9ca3af"
+                        stroke="hsl(var(--muted-foreground))"
                         strokeWidth={2}
                         strokeDasharray="3,3"
                         opacity={0.6}
@@ -883,8 +1008,31 @@ export function HaplotypeHeatmap({
 
                     const y = (yScale(speciesName) ?? 0) + yScale.bandwidth() / 2;
 
+                    // Check if this taxon has a parent-child relationship with another visible taxon
+                    const relationship = parentChildRelationships.get(speciesName);
+
                     return (
                       <g key={speciesName}>
+                        {/* Parent-child relationship indicator triangles (right side, next to heatmap) */}
+                        {/* Child triangle (upward) - shows this taxon has a parent above */}
+                        {sortMode === 'hierarchical' && relationship?.asChild && (
+                          <path
+                            d="M -2.4,0 L 0,-2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent ? -12 : -5}, ${y})`}
+                            fill={relationship.asChild.color}
+                            opacity={0.9}
+                          />
+                        )}
+                        {/* Parent triangle (downward) - shows this taxon has children below */}
+                        {/* Position aligns with child's upward arrow: -12 if child has dual arrows, -5 if child is single */}
+                        {sortMode === 'hierarchical' && relationship?.asParent && (
+                          <path
+                            d="M -2.4,0 L 0,2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent.childIsDual ? -12 : -5}, ${y})`}
+                            fill={relationship.asParent.color}
+                            opacity={0.9}
+                          />
+                        )}
                         {/* Rank badge (colored box with letter) */}
                         {sortMode === 'hierarchical' && taxonInfo && (
                           <>
@@ -922,7 +1070,7 @@ export function HaplotypeHeatmap({
                             fontSize: `${styles.yAxisLabelFontSize}px`,
                             fontWeight: taxonInfo && !taxonInfo.node.isLeaf ? 600 : styles.yAxisTitleFontWeight,
                             fontStyle: taxonInfo && !taxonInfo.node.isLeaf ? 'italic' : 'normal',
-                            fill: taxonInfo && !taxonInfo.node.isLeaf ? '#374151' : '#1f2937'
+                            fill: taxonInfo && !taxonInfo.node.isLeaf ? 'hsl(var(--foreground))' : 'hsl(var(--foreground))'
                           }}
                           title={`${speciesName}${taxonInfo ? ` (${taxonInfo.rank})` : ''}`}
                         >
@@ -949,7 +1097,7 @@ export function HaplotypeHeatmap({
                           dominantBaseline="middle"
                           style={{
                             fontSize: `${styles.yAxisLabelFontSize}px`,
-                            fill: isNotEvaluated ? '#d1d5db' : '#4b5563'
+                            fill: isNotEvaluated ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))'
                           }}
                         >
                           {shortStatus}
@@ -1007,7 +1155,7 @@ export function HaplotypeHeatmap({
                                   width={xScale.bandwidth()}
                                   height={yScale.bandwidth()}
                                   fill="transparent"
-                                  stroke="#e5e7eb"
+                                  stroke="hsl(var(--border))"
                                   strokeWidth={0.5}
                                 />
                               </g>
@@ -1025,13 +1173,21 @@ export function HaplotypeHeatmap({
                           return (
                             <Tooltip key={`${species}-${site}`} delayDuration={100}>
                               <TooltipTrigger asChild>
-                                <g transform={`translate(${xScale(site)}, ${yScale(species)})`}>
+                                <g
+                                  transform={`translate(${xScale(site)}, ${yScale(species)})`}
+                                  className="cursor-pointer"
+                                  onClick={() => {
+                                    setHighlightedTaxon(species);
+                                    setViewMode('tree');
+                                    setTimeout(() => setHighlightedTaxon(null), 4000);
+                                  }}
+                                >
                                   {/* Cell background */}
                                   <rect
                                     width={xScale.bandwidth()}
                                     height={yScale.bandwidth()}
                                     fill={fillColor}
-                                    className="stroke-background/50"
+                                    className="stroke-background/50 hover:stroke-primary hover:stroke-2"
                                     strokeWidth={1}
                                   />
 
@@ -1068,7 +1224,7 @@ export function HaplotypeHeatmap({
                                   )}
                                   {metadata.taxonomySource && (
                                     <>
-                                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-gray-200">
+                                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                                         <span className="font-semibold">Taxonomy:</span> {metadata.taxonomySource.toUpperCase()}
                                         {metadata.taxonId && ` (ID: ${metadata.taxonId})`}
                                       </p>
@@ -1100,6 +1256,9 @@ export function HaplotypeHeatmap({
                                   )}
                                 </>
                               )}
+                              <p className="text-xs text-blue-600 mt-2 pt-2 border-t border-border cursor-pointer hover:underline">
+                                Click to show in Tree view
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         );

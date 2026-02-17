@@ -90,9 +90,10 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
     }
   }, [theme])
 
-  // Check if user is admin
+  // Check if user is admin (pebl role or is_admin flag)
   useEffect(() => {
     async function checkAdminStatus() {
+      // Query is_admin first (always exists), account_role may not exist yet before migration
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('is_admin')
@@ -100,6 +101,18 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
         .single()
 
       if (profile?.is_admin) {
+        setIsAdmin(true)
+        return
+      }
+
+      // Try account_role (exists after RBAC migration)
+      const { data: roleProfile } = await supabase
+        .from('user_profiles')
+        .select('account_role')
+        .eq('id', user.id)
+        .single()
+
+      if (roleProfile?.account_role === 'pebl') {
         setIsAdmin(true)
       }
     }
@@ -391,15 +404,24 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
           <span>Account Settings</span>
         </DropdownMenuItem>
 
-        {/* Analytics Dashboard - Admin Only */}
+        {/* Admin Tools - Admin Only */}
         {isAdmin && (
-          <DropdownMenuItem
-            className="cursor-pointer"
-            onClick={() => router.push('/usage-dashboard')}
-          >
-            <LineChart className="mr-2 h-4 w-4" />
-            <span>Analytics Dashboard</span>
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => router.push('/admin/partners')}
+            >
+              <Shield className="mr-2 h-4 w-4" />
+              <span>Partner Management</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => router.push('/usage-dashboard')}
+            >
+              <LineChart className="mr-2 h-4 w-4" />
+              <span>Analytics Dashboard</span>
+            </DropdownMenuItem>
+          </>
         )}
 
         <DropdownMenuSeparator />

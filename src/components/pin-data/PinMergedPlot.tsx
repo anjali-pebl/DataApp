@@ -147,18 +147,63 @@ const getColorValue = (colorString: string): string => {
   return `hsl(var(${colorString}))`;
 };
 
-// CSS var to hex converter
+// CSS var to hex converter (Paul Tol colorblind-friendly palette)
 const cssVarToHex = (cssVar: string): string => {
   if (cssVar.startsWith('#')) return cssVar;
-  // Default colors for common chart variables
+  // Default colors for common chart variables (colorblind-friendly)
   const colorMap: Record<string, string> = {
-    '--chart-1': '#3b82f6',
-    '--chart-2': '#10b981',
-    '--chart-3': '#f59e0b',
-    '--chart-4': '#ef4444',
-    '--chart-5': '#8b5cf6',
+    '--chart-1': '#4477AA', // Blue
+    '--chart-2': '#EE6677', // Red/pink
+    '--chart-3': '#228833', // Green
+    '--chart-4': '#CCBB44', // Olive yellow
+    '--chart-5': '#66CCEE', // Cyan
   };
-  return colorMap[cssVar] || '#3b82f6';
+  return colorMap[cssVar] || '#4477AA';
+};
+
+// Custom tooltip that sorts items by value (highest first) and shows color dots
+const CustomChartTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  let formattedLabel = String(label);
+  try {
+    const date = parseISO(String(label));
+    if (isValid(date)) {
+      formattedLabel = format(date, 'EEE, MMM dd, HH:mm:ss');
+    }
+  } catch { /* keep raw label */ }
+
+  // Sort by value descending so the highest line appears first (matches visual chart order)
+  const sorted = [...payload]
+    .filter((entry: any) => entry.value != null)
+    .sort((a: any, b: any) => (Number(b.value) || 0) - (Number(a.value) || 0));
+
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--background))',
+      border: '1px solid hsl(var(--border))',
+      fontSize: '0.7rem',
+      padding: '8px',
+      borderRadius: '6px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    }}>
+      <div style={{ marginBottom: 4, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{formattedLabel}</div>
+      {sorted.map((entry: any, i: number) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '1px 0', color: 'hsl(var(--foreground))' }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            backgroundColor: entry.color, display: 'inline-block', flexShrink: 0,
+          }} />
+          <span>{entry.name}:</span>
+          <span style={{ fontWeight: 500 }}>
+            {typeof entry.value === 'number'
+              ? entry.value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })
+              : 'N/A'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 // Helper to extract time range from parsed data
@@ -800,13 +845,8 @@ export function PinMergedPlot({
               )}
 
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '6px',
-                  fontSize: '0.75rem'
-                }}
-                labelFormatter={formatDateTick}
+                content={<CustomChartTooltip />}
+                isAnimationActive={false}
               />
 
               <Legend

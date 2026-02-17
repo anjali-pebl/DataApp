@@ -14,7 +14,7 @@ export const FEATURE_FLAGS = {
    *
    * Always enabled in production.
    */
-  DATA_EXPLORER_PANEL: true,
+  DATA_EXPLORER_PANEL: false,
 } as const;
 
 /**

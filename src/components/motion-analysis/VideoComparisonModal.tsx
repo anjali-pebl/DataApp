@@ -1582,17 +1582,17 @@ export default function VideoComparisonModal({
 
       <div className="bg-white rounded-lg shadow-2xl w-[98vw] max-w-[2000px] max-h-[95vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+        <div className="flex items-center justify-between p-4 border-b bg-muted">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Video Comparison</h2>
-            <p className="text-sm text-gray-600">
+            <h2 className="text-xl font-bold text-foreground">Video Comparison</h2>
+            <p className="text-sm text-muted-foreground">
               {originalFilename} • Score: {activityScore.toFixed(1)} • Organisms: {organisms}
               {yolov8Detections.length > 0 && ` • YOLOv8 Detections: ${yolov8Detections.reduce((sum, d) => sum + d.count, 0)}`}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+            className="p-2 hover:bg-muted rounded-full transition-colors"
             aria-label="Close modal"
           >
             <X size={24} />
@@ -1991,13 +1991,13 @@ export default function VideoComparisonModal({
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis
                       dataKey="time"
                       type="number"
                       domain={[0, Math.max(duration, 1)]}
                       tickFormatter={(value) => `${Math.floor(value)}s`}
-                      stroke="#9ca3af"
+                      stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '10px' }}
                       allowDataOverflow={false}
                       padding={{ left: 0, right: 0 }}

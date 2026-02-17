@@ -4,7 +4,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { parseISO, startOfDay, format, isValid, eachDayOfInterval } from 'date-fns';
 import { scaleLinear, scaleBand } from 'd3-scale';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { reorganizeTaxonomicData } from '@/lib/taxonomic-reorganizer';
 import { ResponsiveContainer, LineChart, Line, XAxis, Brush } from 'recharts';
@@ -22,7 +21,7 @@ interface HeatmapDisplayProps {
   speciesIndentMap?: Map<string, number>; // Taxonomic indentation levels from tree view
   speciesRankMap?: Map<string, string>; // Taxonomic ranks from tree view
   filteredFlattenedTree?: FlattenedTaxon[]; // Flattened tree with parent-child relationships
-  parentChildRelationships?: Map<string, { color: string; role: 'parent' | 'child' }>; // Parent-child relationship indicators
+  parentChildRelationships?: Map<string, { asParent?: { color: string; childIsDual?: boolean }; asChild?: { color: string } }>; // Parent-child relationship indicators
   containerHeight: number;
   brushStartIndex?: number;
   brushEndIndex?: number;
@@ -32,6 +31,7 @@ interface HeatmapDisplayProps {
   customMaxValue?: number; // Custom max value for color scale saturation
   cellWidth?: number; // Width of each cell/column (default: 10)
   rowHeight?: number; // Height of each row (default: 35)
+  onShowInTree?: (speciesName: string) => void;
 }
 
 interface ProcessedCell {
@@ -61,13 +61,49 @@ const HeatmapDisplayComponent = ({
     customColor,
     customMaxValue,
     cellWidth = 10,
-    rowHeight = 35
+    rowHeight = 35,
+    onShowInTree
 }: HeatmapDisplayProps) => {
   // Debug: Check if filteredFlattenedTree is being passed
   console.log('[HEATMAP DISPLAY] filteredFlattenedTree prop:', filteredFlattenedTree ? `${filteredFlattenedTree.length} items` : 'undefined/null');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
+  const [selectedCell, setSelectedCell] = useState<{
+    day: string;
+    species: string;
+    value: number;
+    count: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Click handler for heatmap cells via event delegation
+  const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const target = e.target as SVGElement;
+    const cellData = target.getAttribute('data-cell');
+    if (!cellData) return;
+    try {
+      const parsed = JSON.parse(cellData);
+      setSelectedCell({ ...parsed, x: e.clientX, y: e.clientY });
+    } catch { /* ignore */ }
+  };
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    if (!selectedCell) return;
+    const handleClick = (e: MouseEvent) => {
+      const popup = document.getElementById('heatmap-cell-popup');
+      if (popup && !popup.contains(e.target as Node)) {
+        setSelectedCell(null);
+      }
+    };
+    const timer = setTimeout(() => document.addEventListener('mousedown', handleClick), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [selectedCell]);
 
   const BRUSH_CHART_HEIGHT = 60;
   const heatmapHeight = onBrushChange ? containerHeight - BRUSH_CHART_HEIGHT : containerHeight;
@@ -80,41 +116,63 @@ const HeatmapDisplayComponent = ({
       return speciesRankMap.get(speciesName)!;
     }
     // Fallback to extracting from species name string
-    const match = speciesName.match(/\((phyl|infraclass|class|ord|fam|gen|sp)\.\)/);
-    return match ? match[1] : null;
+    // Match abbreviated ranks with dot: (phyl.), (ord.), etc. - also handles trailing period (sp.).
+    const matchAbbrev = speciesName.match(/\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?/);
+    if (matchAbbrev) return matchAbbrev[1];
+    // Match full rank names without dot: (kingdom), (phylum), etc. - also handles trailing period
+    const matchFull = speciesName.match(/\((kingdom|phylum|order|family|genus|species)\)\.?/);
+    return matchFull ? matchFull[1] : null;
   };
 
   // Get single-letter abbreviation for taxonomic rank
   const getRankAbbreviation = (rank: string | null): string => {
     const abbrevMap: Record<string, string> = {
-      'phyl': 'P',       // Phylum
+      'kingdom': 'K',    // Kingdom
+      'phylum': 'P',     // Phylum (full name)
+      'phyl': 'P',       // Phylum (abbreviated)
+      'gigaclass': 'C',  // Gigaclass (treated as class)
       'infraclass': 'I', // Infraclass
       'class': 'C',      // Class
-      'ord': 'O',        // Order
-      'fam': 'F',        // Family
-      'gen': 'G',        // Genus
-      'sp': 'S'          // Species
+      'order': 'O',      // Order (full name)
+      'ord': 'O',        // Order (abbreviated)
+      'family': 'F',     // Family (full name)
+      'fam': 'F',        // Family (abbreviated)
+      'genus': 'G',      // Genus (full name)
+      'gen': 'G',        // Genus (abbreviated)
+      'species': 'S',    // Species (full name)
+      'sp': 'S'          // Species (abbreviated)
     };
     return rank ? (abbrevMap[rank] ?? '?') : '?';
   };
 
-// Get color for taxonomic rank (matching tree view colors)
+// Get color for taxonomic rank (colorblind-friendly Paul Tol palette)
   const getRankColor = (rank: string | null): string => {
     const rankColors: Record<string, string> = {
-      'phyl': '#8B5CF6',      // Phylum - purple
-      'infraclass': '#A78BFA', // Infraclass - lighter purple
-      'class': '#EF4444',     // Class - red
-      'ord': '#F59E0B',       // Order - amber/orange
-      'fam': '#84CC16',       // Family - lime green
-      'gen': '#10B981',       // Genus - emerald green
-      'sp': '#14B8A6'         // Species - teal
+      'kingdom': '#882255',    // Kingdom - wine
+      'phylum': '#AA3377',     // Phylum - purple (full name)
+      'phyl': '#AA3377',       // Phylum - purple (abbreviated)
+      'gigaclass': '#EE6677',  // Gigaclass - red/pink (same as class)
+      'infraclass': '#CC6677', // Infraclass - rose
+      'class': '#EE6677',      // Class - red/pink
+      'order': '#CCBB44',      // Order - olive yellow (full name)
+      'ord': '#CCBB44',        // Order - olive yellow (abbreviated)
+      'family': '#228833',     // Family - green (full name)
+      'fam': '#228833',        // Family - green (abbreviated)
+      'genus': '#66CCEE',      // Genus - cyan (full name)
+      'gen': '#66CCEE',        // Genus - cyan (abbreviated)
+      'species': '#4477AA',    // Species - blue (full name)
+      'sp': '#4477AA'          // Species - blue (abbreviated)
     };
-    return rank ? (rankColors[rank] ?? '#94A3B8') : '#94A3B8';
+    return rank ? (rankColors[rank] ?? '#BBBBBB') : '#BBBBBB';
   };
 
-  // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua")
+  // Remove rank suffix from name (e.g., "Gadus morhua (sp.)" → "Gadus morhua", "Animalia (kingdom)" → "Animalia")
+  // Also handles double period "(sp.)." and trailing "sp." style
   const stripRankSuffix = (name: string): string => {
-    return name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
+    return name
+      .replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\.?\s*$/, '')  // (sp.). or (sp.)
+      .replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\.?\s*$/, '')  // (species). or (species)
+      .replace(/\s+(sp\.?|spp\.?|gen\.?|fam\.?|ord\.?|class\.?)$/i, '');  // trailing sp. or sp
   };
 
   // Map rank to indent level (hierarchical ordering)
@@ -122,6 +180,7 @@ const HeatmapDisplayComponent = ({
   const getRankIndentLevel = (rank: string | null): number => {
     const rankLevels: Record<string, number> = {
       'phyl': 0,       // Phylum - no indentation (highest level)
+      'gigaclass': 1,  // Gigaclass - 1 level indent (same as infraclass)
       'infraclass': 1, // Infraclass - 1 level indent
       'class': 2,      // Class - 2 level indent
       'ord': 3,        // Order - 3 level indent
@@ -154,29 +213,28 @@ const HeatmapDisplayComponent = ({
   // Indent pixels per level
   const INDENT_PX_PER_LEVEL = 20;
 
-  // Calculate maximum label width needed based on longest taxa name
+  // Calculate maximum label width needed based on actually displayed taxa names
   const maxLabelWidth = useMemo(() => {
     // Estimate ~6.5 pixels per character for text-xs font
     const CHAR_WIDTH = 6.5;
     const BASE_PADDING = 20; // Base padding for the label area
 
-    const longestName = series.reduce((max, name) => {
-      const cleanName = name.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-      const maxClean = max.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-      return cleanName.length > maxClean.length ? name : max;
-    }, '');
-
-    const cleanLongestName = longestName.replace(/\s*\((phyl|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '');
-
-    // Calculate width needed: character width + indentation space + square + base padding
-    const estimatedWidth = (cleanLongestName.length * CHAR_WIDTH) +
-                          (maxIndentLevel * INDENT_PX_PER_LEVEL) +
-                          16 + // Colored square (12px) + gap (4px)
-                          BASE_PADDING;
+    // Calculate the effective width needed for each visible taxon (name + its indentation)
+    let maxEffectiveWidth = 0;
+    series.forEach(name => {
+      const cleanName = name.replace(/\s*\((phyl|gigaclass|infraclass|class|ord|fam|gen|sp)\.\)\s*$/, '').replace(/\s*\((kingdom|phylum|order|family|genus|species)\)\s*$/, '');
+      const indentLevel = getIndentLevel(name);
+      // Width = text width + indent offset from right edge (maxIndent - thisIndent) * px
+      const effectiveWidth = (cleanName.length * CHAR_WIDTH) +
+                            (maxIndentLevel - indentLevel) * INDENT_PX_PER_LEVEL +
+                            16 + // Colored square (12px) + gap (4px)
+                            BASE_PADDING;
+      maxEffectiveWidth = Math.max(maxEffectiveWidth, effectiveWidth);
+    });
 
     // Ensure minimum width of 150px
-    return Math.max(150, Math.ceil(estimatedWidth));
-  }, [series]);
+    return Math.max(150, Math.ceil(maxEffectiveWidth));
+  }, [series, speciesIndentMap]);
 
   // Dynamic left margin to accommodate all labels without truncation
   const leftMargin = maxLabelWidth;
@@ -300,37 +358,7 @@ const HeatmapDisplayComponent = ({
     return days.filter((_, i) => i % tickInterval === 0);
   }, [processedData.uniqueDays]);
 
-  if (!data || data.length === 0 || series.length === 0 || processedData.uniqueDays.length === 0) {
-    return (
-      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-white">
-        No data available for heatmap view. Check selected range.
-      </div>
-    );
-  }
-
-  const { cells, uniqueDays, series: visibleSeries } = processedData;
-  const cellMap = new Map<string, ProcessedCell>(cells.map(c => [`${c.date}__${c.series}`, c]));
-
-  const { width, height } = svgDimensions;
-
-  // Calculate plot dimensions based on fixed cell width and row height
-  // This ensures consistent cell sizes across different data volumes
-  const plotWidth = uniqueDays.length * cellWidth;
-  const plotHeight = visibleSeries.length * rowHeight;
-
-  const xScale = scaleBand<string>().domain(uniqueDays).range([0, plotWidth]).padding(0.05);
-  const yScale = scaleBand<string>().domain(visibleSeries).range([0, plotHeight]).padding(0.05);
-  
-  const formatDateTickBrush = (timeValue: string | number): string => {
-    try {
-      const dateObj = parseISO(String(timeValue));
-      if (!isValid(dateObj)) return String(timeValue);
-      return format(dateObj, 'dd MMM'); 
-    } catch (e) {
-      return String(timeValue);
-    }
-  };
-
+  // FIX: These hooks must be BEFORE the early return to maintain hook order
   // Pre-compute taxon info map for performance (avoid repeated finds in render loop)
   const taxonInfoMap = useMemo(() => {
     if (!filteredFlattenedTree) return new Map();
@@ -346,16 +374,59 @@ const HeatmapDisplayComponent = ({
   const ranksPresent = useMemo(() => {
     const ranks = new Set(series.map(s => getTaxonomicRank(s)).filter(r => r !== null));
     return Array.from(ranks).sort((a, b) => {
-      const order = { 'ord': 0, 'fam': 1, 'gen': 2, 'sp': 3 };
-      return (order[a as keyof typeof order] || 999) - (order[b as keyof typeof order] || 999);
+      const order: Record<string, number> = { 'kingdom': 0, 'phylum': 1, 'phyl': 1, 'gigaclass': 2, 'class': 2, 'infraclass': 2, 'order': 3, 'ord': 3, 'family': 4, 'fam': 4, 'genus': 5, 'gen': 5, 'species': 6, 'sp': 6 };
+      return (order[a] ?? 999) - (order[b] ?? 999);
     });
   }, [series]);
 
+  // Debug: log why early return might trigger
+  console.log('[HEATMAP] Data check:', {
+    hasData: !!data,
+    dataLength: data?.length,
+    seriesLength: series?.length,
+    uniqueDaysLength: processedData.uniqueDays.length
+  });
+
+  if (!data || data.length === 0 || series.length === 0 || processedData.uniqueDays.length === 0) {
+    return (
+      <div style={{ height: `${containerHeight}px` }} className="flex items-center justify-center text-muted-foreground text-sm p-2 border rounded-md bg-card">
+        No data available for heatmap view. Check selected range.
+      </div>
+    );
+  }
+
+  const { cells, uniqueDays, series: visibleSeries } = processedData;
+  const cellMap = new Map<string, ProcessedCell>(cells.map(c => [`${c.date}__${c.series}`, c]));
+
+  const { width, height } = svgDimensions;
+
+  // Calculate plot dimensions - fill container width dynamically, use fixed row height
+  const minPlotWidth = uniqueDays.length * cellWidth;
+  const availablePlotWidth = Math.max(minPlotWidth, width - margin.left - margin.right);
+  const plotWidth = availablePlotWidth;
+  const plotHeight = visibleSeries.length * rowHeight;
+
+  const xScale = scaleBand<string>().domain(uniqueDays).range([0, plotWidth]).padding(0.05);
+  const yScale = scaleBand<string>().domain(visibleSeries).range([0, plotHeight]).padding(0.05);
+  
+  const formatDateTickBrush = (timeValue: string | number): string => {
+    try {
+      const dateObj = parseISO(String(timeValue));
+      if (!isValid(dateObj)) return String(timeValue);
+      return format(dateObj, 'dd MMM'); 
+    } catch (e) {
+      return String(timeValue);
+    }
+  };
+
   const rankLabels: Record<string, string> = {
-    'ord': 'Order',
-    'fam': 'Family',
-    'gen': 'Genus',
-    'sp': 'Species'
+    'kingdom': 'Kingdom',
+    'phylum': 'Phylum', 'phyl': 'Phylum',
+    'class': 'Class', 'gigaclass': 'Gigaclass', 'infraclass': 'Infraclass',
+    'order': 'Order', 'ord': 'Order',
+    'family': 'Family', 'fam': 'Family',
+    'genus': 'Genus', 'gen': 'Genus',
+    'species': 'Species', 'sp': 'Species'
   };
 
   return (
@@ -363,53 +434,52 @@ const HeatmapDisplayComponent = ({
         <div
           ref={containerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="relative w-full h-full border rounded-md p-2 bg-white overflow-x-auto overflow-y-visible"
+          className="relative w-full h-full border rounded-md p-2 bg-card overflow-x-auto overflow-y-visible"
         >
           {/* Taxonomic Rank Legend - Top Right */}
-          <div className="absolute top-[6px] right-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-md shadow-sm z-10">
+          <div className="absolute top-[6px] right-2 px-3 py-2 bg-card/95 backdrop-blur-sm rounded-md shadow-sm z-10 border border-border">
             <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-gray-700">Taxonomic Ranks:</span>
+              <span className="font-semibold text-foreground">Taxonomic Ranks:</span>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#8B5CF6' }}></div>
-                <span className="text-gray-600">Phylum</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
+                <span className="text-muted-foreground">Kingdom</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#A78BFA' }}></div>
-                <span className="text-gray-600">Infraclass</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#AA3377' }}></div>
+                <span className="text-muted-foreground">Phylum</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EF4444' }}></div>
-                <span className="text-gray-600">Class</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#EE6677' }}></div>
+                <span className="text-muted-foreground">Class</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#F59E0B' }}></div>
-                <span className="text-gray-600">Order</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#CCBB44' }}></div>
+                <span className="text-muted-foreground">Order</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#84CC16' }}></div>
-                <span className="text-gray-600">Family</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#228833' }}></div>
+                <span className="text-muted-foreground">Family</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10B981' }}></div>
-                <span className="text-gray-600">Genus</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#66CCEE' }}></div>
+                <span className="text-muted-foreground">Genus</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#14B8A6' }}></div>
-                <span className="text-gray-600">Species</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#4477AA' }}></div>
+                <span className="text-muted-foreground">Species</span>
               </div>
-              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-300">
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
-                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#3b82f6" opacity="0.9" />
+                  <path d="M -2.4,0 L 0,2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
                 <svg width="14" height="14" viewBox="-7 -7 14 14" className="inline-block">
-                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#3b82f6" opacity="0.9" />
+                  <path d="M -2.4,0 L 0,-2.4 L 2.4,0 Z" fill="#4477AA" opacity="0.9" />
                 </svg>
-                <span className="text-gray-600">Parent-Child</span>
+                <span className="text-muted-foreground">Parent-Child</span>
               </div>
             </div>
           </div>
-          <TooltipProvider>
-            <svg width={Math.max(width, plotWidth + margin.left + margin.right)} height={plotHeight + margin.top + margin.bottom}>
+            <svg onClick={handleSvgClick} width={Math.max(width, plotWidth + margin.left + margin.right)} height={plotHeight + margin.top + margin.bottom}>
               {plotWidth > 0 && plotHeight > 0 && (
               <g transform={`translate(${margin.left},${margin.top})`}>
                 {/* Y-axis */}
@@ -444,15 +514,23 @@ const HeatmapDisplayComponent = ({
 
                     return (
                       <g key={seriesName}>
-                        {/* Parent-child relationship indicator triangle */}
-                        {relationship && (
+                        {/* Parent-child relationship indicator triangles */}
+                        {/* Child triangle (upward) - shows this taxon has a parent above */}
+                        {relationship?.asChild && (
                           <path
-                            d={relationship.role === 'parent'
-                              ? 'M -2.4,0 L 0,2.4 L 2.4,0 Z'  // Downward triangle
-                              : 'M -2.4,0 L 0,-2.4 L 2.4,0 Z' // Upward triangle
-                            }
-                            transform={`translate(-3, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
-                            fill={relationship.color}
+                            d="M -2.4,0 L 0,-2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent ? -10 : -3}, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
+                            fill={relationship.asChild.color}
+                            opacity={0.9}
+                          />
+                        )}
+                        {/* Parent triangle (downward) - shows this taxon has children below */}
+                        {/* Position aligns with child's upward arrow: -10 if child has dual arrows, -3 if child is single */}
+                        {relationship?.asParent && (
+                          <path
+                            d="M -2.4,0 L 0,2.4 L 2.4,0 Z"
+                            transform={`translate(${relationship.asParent.childIsDual ? -10 : -3}, ${(yScale(seriesName) ?? 0) + yScale.bandwidth() / 2})`}
+                            fill={relationship.asParent.color}
                             opacity={0.9}
                           />
                         )}
@@ -491,7 +569,7 @@ const HeatmapDisplayComponent = ({
                           style={{
                             fontWeight: isParentNode ? 600 : 'normal',
                             fontStyle: isParentNode ? 'italic' : 'normal',
-                            fill: isParentNode ? '#374151' : '#9ca3af'
+                            fill: isParentNode ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))'
                           }}
                         >
                           {cleanName}
@@ -555,7 +633,7 @@ const HeatmapDisplayComponent = ({
                           y1={parentY + yScale.bandwidth() / 2}
                           x2={lineX}
                           y2={childY + yScale.bandwidth() / 2}
-                          stroke="#9ca3af"
+                          stroke="hsl(var(--muted-foreground))"
                           strokeWidth={2}
                           strokeDasharray="3,3"
                           opacity={0.6}
@@ -604,7 +682,7 @@ const HeatmapDisplayComponent = ({
                                   width={xScale.bandwidth()}
                                   height={yScale.bandwidth()}
                                   fill="transparent"
-                                  stroke="#e5e7eb"
+                                  stroke="hsl(var(--border))"
                                   strokeWidth={0.5}
                                 />
                               </g>
@@ -626,49 +704,44 @@ const HeatmapDisplayComponent = ({
                           const showText = cell && cell.value > 0 && cellHeight > 8;
 
                           return (
-                            <Tooltip key={`${s}-${day}`} delayDuration={200}>
-                              <TooltipTrigger asChild>
-                                <g
-                                  transform={`translate(${xScale(day)}, ${yScale(s)})`}
-                                  style={{ cursor: 'pointer' }}
+                            <g
+                              key={`${s}-${day}`}
+                              transform={`translate(${xScale(day)}, ${yScale(s)})`}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <rect
+                                width={xScale.bandwidth()}
+                                height={yScale.bandwidth()}
+                                fill={fillColor}
+                                className="stroke-background/50 hover:stroke-foreground"
+                                strokeWidth={1}
+                                data-cell={JSON.stringify({
+                                  day,
+                                  species: s,
+                                  value: cell?.value ?? 0,
+                                  count: cell?.count ?? 0,
+                                })}
+                              />
+                              {showText && (
+                                <text
+                                  x={xScale.bandwidth() / 2}
+                                  y={yScale.bandwidth() / 2}
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                  className="pointer-events-none font-bold select-none"
+                                  style={{
+                                    fontSize: `${fontSize}px`,
+                                    fill: 'white',
+                                    paintOrder: 'stroke',
+                                    stroke: 'rgba(200,200,200,0.7)',
+                                    strokeWidth: '1.2px',
+                                    strokeLinejoin: 'round'
+                                  }}
                                 >
-                                  <rect
-                                    width={xScale.bandwidth()}
-                                    height={yScale.bandwidth()}
-                                    fill={fillColor}
-                                    className="stroke-background/50 hover:stroke-foreground"
-                                    strokeWidth={1}
-                                    style={{ pointerEvents: 'all' }}
-                                  />
-                                  {showText && (
-                                    <text
-                                      x={xScale.bandwidth() / 2}
-                                      y={yScale.bandwidth() / 2}
-                                      textAnchor="middle"
-                                      dominantBaseline="middle"
-                                      className="pointer-events-none font-bold select-none"
-                                      style={{
-                                        fontSize: `${fontSize}px`,
-                                        fill: 'white',
-                                        paintOrder: 'stroke',
-                                        stroke: 'rgba(200,200,200,0.7)',
-                                        strokeWidth: '1.2px',
-                                        strokeLinejoin: 'round'
-                                      }}
-                                    >
-                                      {Math.min(99, cell.value).toFixed(0)}
-                                    </text>
-                                  )}
-                                </g>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                              <div className="space-y-1">
-                                <p className="font-bold text-sm">{format(parseISO(day), 'PPP')}</p>
-                                <p className="text-sm">{s}: <span className="font-semibold">{cell ? cell.value.toFixed(2) : 'No data'}</span></p>
-                                {cell && <p className="text-muted-foreground text-xs">({cell.count} {cell.count === 1 ? 'record' : 'records'})</p>}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
+                                  {Math.min(99, cell.value).toFixed(0)}
+                                </text>
+                              )}
+                            </g>
                           );
                         })}
                       </React.Fragment>
@@ -678,8 +751,62 @@ const HeatmapDisplayComponent = ({
               </g>
               )}
             </svg>
-          </TooltipProvider>
         </div>
+        {/* Click popup for heatmap cells - rendered outside scrollable container */}
+        {selectedCell && (
+          <div
+            id="heatmap-cell-popup"
+            className="fixed z-[9999]"
+            style={{
+              left: `${Math.min(selectedCell.x + 12, typeof window !== 'undefined' ? window.innerWidth - 280 : 500)}px`,
+              top: `${selectedCell.y > 200 ? selectedCell.y - 12 : selectedCell.y + 12}px`,
+              transform: selectedCell.y > 200 ? 'translateY(-100%)' : 'none',
+            }}
+          >
+            <div className="bg-card border border-border rounded-lg shadow-xl p-3 max-w-xs">
+              <p className="font-bold text-sm text-foreground">{format(parseISO(selectedCell.day), 'PPP')}</p>
+              <div className="flex items-center gap-1.5 mt-1">
+                {(() => {
+                  const rank = getTaxonomicRank(selectedCell.species);
+                  const rankColor = getRankColor(rank);
+                  const rankAbbrev = getRankAbbreviation(rank);
+                  const rankLabel = rank ? ({
+                    'phyl': 'Phylum', 'gigaclass': 'Gigaclass', 'infraclass': 'Infraclass', 'class': 'Class',
+                    'ord': 'Order', 'fam': 'Family', 'gen': 'Genus', 'sp': 'Species'
+                  }[rank] ?? rank) : 'Unknown';
+                  return (
+                    <>
+                      <span className="text-[9px] font-bold px-1 py-0 rounded uppercase leading-tight"
+                        style={{ backgroundColor: rankColor, color: 'white', minWidth: '14px', textAlign: 'center' }}>
+                        {rankAbbrev}
+                      </span>
+                      <span className="text-xs font-medium" style={{ color: rankColor }}>{rankLabel}</span>
+                    </>
+                  );
+                })()}
+              </div>
+              <p className="text-sm mt-1">
+                <span className="text-muted-foreground">{stripRankSuffix(selectedCell.species)}:</span>{' '}
+                <span className="font-semibold">{selectedCell.value > 0 ? selectedCell.value.toFixed(2) : 'No data'}</span>
+              </p>
+              {selectedCell.count > 0 && (
+                <p className="text-muted-foreground text-xs">({selectedCell.count} {selectedCell.count === 1 ? 'record' : 'records'})</p>
+              )}
+              <div className="flex gap-2 mt-2">
+                {onShowInTree && (
+                  <button className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium px-2 py-1 rounded border border-blue-200 transition-colors cursor-pointer"
+                    onClick={() => { onShowInTree(selectedCell.species); setSelectedCell(null); }}>
+                    Show in Tree
+                  </button>
+                )}
+                <button className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground font-medium px-2 py-1 rounded border border-border transition-colors cursor-pointer"
+                  onClick={() => setSelectedCell(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {onBrushChange && data.length > 0 && (
              <div style={{ height: `${BRUSH_CHART_HEIGHT}px`}} className="w-full mt-1 border rounded-md p-1 shadow-sm bg-card">
                  <ResponsiveContainer width="100%" height="100%">

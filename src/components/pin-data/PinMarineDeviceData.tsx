@@ -6,7 +6,7 @@ import { CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, LayoutGrid, Minus, AlignHorizontalJustifyCenter, Save, FolderOpen } from "lucide-react";
+import { PlusCircle, LayoutGrid, Minus, AlignHorizontalJustifyCenter, Save, FolderOpen, BookOpen } from "lucide-react";
 
 import { PinPlotInstance } from "./PinPlotInstance";
 import { PinMarineMeteoPlot } from "./PinMarineMeteoPlot";
@@ -17,12 +17,14 @@ import { SavePlotViewDialog } from "./SavePlotViewDialog";
 import { LoadPlotViewDialog } from "./LoadPlotViewDialog";
 import { PresenceAbsenceDialog, type PresenceAbsenceResult } from "./PresenceAbsenceDialog";
 import { PresenceAbsenceTable } from "./PresenceAbsenceTable";
+import { MethodologyModal } from "@/components/methodology";
 import { parseISO, isValid, formatISO, format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { parseHaplotypeCsv, type ParseResult, type HaplotypeParseResult } from "./csvParser";
 import type { CombinedDataPoint } from "@/app/om-marine-explorer/shared";
 import type { SavedPlotViewConfig, SavedPlotView, PlotViewValidationResult } from "@/lib/supabase/plot-view-types";
 import type { PinFile } from "@/lib/supabase/file-storage-service";
+import { getFpodSuffix, getFpodBaseName } from "@/lib/fpod-file-pairing";
 
 interface ParameterSettings {
   timeFilter?: {
@@ -70,6 +72,11 @@ interface PlotConfig {
   fileName?: string; // Display name of the file(s)
   fileId?: string; // Database ID of the file for restoration
   pinId?: string; // Pin ID for saving corrected files to database
+  // File metadata for header display
+  pinLabel?: string; // Location name (e.g., "Control_S", "Farm_AS")
+  startDate?: Date; // Start date of data
+  endDate?: Date; // End date of data
+  fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
   // For marine/meteo plots
   location?: { lat: number; lon: number };
   locationName?: string;
@@ -81,6 +88,11 @@ interface PlotConfig {
   // For computed plots (subtraction/merge operations)
   computationType?: 'subtract' | 'merge';
   sourcePlotIds?: string[]; // IDs of source plots used in computation
+  // Display overrides for paired FPOD plots
+  hideBrush?: boolean;
+  showDateTimeAxis?: boolean;
+  // Location coordinates for sunrise/sunset shading
+  coordinates?: { lat: number; lng: number };
   computationParams?: {
     param1: string;
     param2: string;
@@ -117,8 +129,15 @@ interface FileOption {
 }
 
 interface PinMarineDeviceDataProps {
-  fileType: 'GP' | 'FPOD' | 'Subcam';
+  fileType: 'GP' | 'FPOD' | 'Subcam' | 'CROP' | 'CHEM' | 'CHEMSW' | 'CHEMWQ' | 'WQ' | 'EDNA';
   files: File[];
+  selectedFileMetadata?: {
+    pinLabel?: string;
+    startDate?: Date;
+    endDate?: Date;
+    fileCategories?: string[];
+    coordinates?: { lat: number; lng: number };
+  } | null;
   onRequestFileSelection?: () => void; // Callback to open file selector
   // Props for multi-file support
   availableFiles?: FileOption[];
@@ -144,8 +163,33 @@ interface PinMarineDeviceDataProps {
   initialViewToLoad?: string; // Plot view ID to auto-load on mount
 }
 
-function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availableFiles, onDownloadFile, multiFileMergeMode = 'sequential', objectLocation, objectName, allProjectFilesForTimeline, getFileDateRange, projectId, onRefreshFiles, availableProjects, initialViewToLoad }: PinMarineDeviceDataProps) {
+// Helper function to map fileType to tileName for methodology modal
+function getTileNameFromFileType(fileType: PinMarineDeviceDataProps['fileType']): 'SubCam' | 'GrowProbe' | 'FPOD' | 'Water and Crop Samples' | 'eDNA' {
+  switch (fileType) {
+    case 'GP':
+      return 'GrowProbe';
+    case 'FPOD':
+      return 'FPOD';
+    case 'Subcam':
+      return 'SubCam';
+    case 'CROP':
+    case 'CHEM':
+    case 'CHEMSW':
+    case 'CHEMWQ':
+    case 'WQ':
+      return 'Water and Crop Samples';
+    case 'EDNA':
+      return 'eDNA';
+    default:
+      return 'Water and Crop Samples'; // Default fallback
+  }
+}
+
+function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestFileSelection, availableFiles, onDownloadFile, multiFileMergeMode = 'sequential', objectLocation, objectName, allProjectFilesForTimeline, getFileDateRange, projectId, onRefreshFiles, availableProjects, initialViewToLoad }: PinMarineDeviceDataProps) {
   const { toast } = useToast();
+
+  // Derive tileName from fileType for methodology modal
+  const tileName = getTileNameFromFileType(fileType);
 
   // State for managing plots with file data
   const [plots, setPlots] = useState<PlotConfig[]>([]);
@@ -218,6 +262,7 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
   const [showSavePlotViewDialog, setShowSavePlotViewDialog] = useState(false);
   const [showLoadPlotViewDialog, setShowLoadPlotViewDialog] = useState(false);
   const [serializedViewConfig, setSerializedViewConfig] = useState<SavedPlotViewConfig | null>(null);
+  const [showMethodologyModal, setShowMethodologyModal] = useState(false);
 
   // Presence-Absence dialog state
   const [showPresenceAbsenceDialog, setShowPresenceAbsenceDialog] = useState(false);
@@ -1269,6 +1314,13 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
       timeRange?: { startDate: string; endDate: string };
       pinId?: string;
       fileId?: string; // Database ID of the file for restoration
+      pinLabel?: string; // Location name for header display
+      startDate?: Date; // Start date of data
+      endDate?: Date; // End date of data
+      fileCategories?: string[]; // Categories (e.g., ["Sediment", "Haplotypes"])
+      hideBrush?: boolean;
+      showDateTimeAxis?: boolean;
+      coordinates?: { lat: number; lng: number };
     }
   ) => {
     setPlots((prevPlots) => [
@@ -1283,6 +1335,13 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
         fileName: type === 'device' ? getFileName(files) : undefined,
         fileId: options?.fileId, // Store the database file ID
         pinId: options?.pinId,
+        pinLabel: options?.pinLabel,
+        startDate: options?.startDate,
+        endDate: options?.endDate,
+        fileCategories: options?.fileCategories,
+        hideBrush: options?.hideBrush,
+        showDateTimeAxis: options?.showDateTimeAxis,
+        coordinates: options?.coordinates,
         // Marine/meteo plot properties
         location: options?.location,
         locationName: options?.locationName,
@@ -2292,7 +2351,7 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
         [subtractedPlot.id]: {
           params: [resultParamName], // Make the difference parameter visible by default
           colors: {
-            [resultParamName]: '#3b82f6' // Default blue color
+            [resultParamName]: '#4477AA' // Colorblind-friendly blue
           },
           settings: {
             [resultParamName]: {
@@ -2508,8 +2567,63 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
       }
 
       if (files.length > 0) {
-        // If files are provided, add a plot with those files
-        addPlot('device', files, { fileType, customTitle: getFileName(files) });
+        // Check for paired FPOD files (2 files: one _std, one _24hr)
+        if (files.length === 2 && fileType === 'FPOD') {
+          const suffixes = files.map(f => getFpodSuffix(f.name));
+          const stdIdx = suffixes.indexOf('std');
+          const avgIdx = suffixes.indexOf('24hr');
+
+          if (stdIdx !== -1 && avgIdx !== -1) {
+            const baseName = getFpodBaseName(files[stdIdx].name) || 'FPOD';
+            console.log('📋 [PAIRED FPOD] Adding 2 stacked plots for paired files:', baseName);
+
+            // Add _std plot first (top)
+            addPlot('device', [files[stdIdx]], {
+              fileType,
+              customTitle: `${baseName} (Std)`,
+              pinLabel: selectedFileMetadata?.pinLabel,
+              startDate: selectedFileMetadata?.startDate,
+              endDate: selectedFileMetadata?.endDate,
+              fileCategories: selectedFileMetadata?.fileCategories,
+              coordinates: selectedFileMetadata?.coordinates,
+            });
+
+            // Add _24hr plot second (bottom)
+            addPlot('device', [files[avgIdx]], {
+              fileType,
+              customTitle: `${baseName} (Avg 24hr)`,
+              pinLabel: selectedFileMetadata?.pinLabel,
+              startDate: selectedFileMetadata?.startDate,
+              endDate: selectedFileMetadata?.endDate,
+              fileCategories: ['Avg 24hrs'],
+              hideBrush: true,
+              showDateTimeAxis: true,
+              coordinates: selectedFileMetadata?.coordinates,
+            });
+
+            plotsInitialized.current = true;
+            return;
+          }
+        }
+
+        // Default: add a single plot with all files
+        // Check if this is a 24hr FPOD file and apply special settings
+        const is24hrFile = files.length === 1 &&
+          fileType === 'FPOD' &&
+          getFpodSuffix(files[0].name) === '24hr';
+
+        console.log('📋 [INITIAL PLOT] Adding plot with metadata:', selectedFileMetadata, 'is24hr:', is24hrFile);
+        addPlot('device', files, {
+          fileType,
+          customTitle: getFileName(files),
+          pinLabel: selectedFileMetadata?.pinLabel,
+          startDate: selectedFileMetadata?.startDate,
+          endDate: selectedFileMetadata?.endDate,
+          fileCategories: is24hrFile ? ['Avg 24hrs'] : selectedFileMetadata?.fileCategories,
+          hideBrush: is24hrFile ? true : undefined,
+          showDateTimeAxis: is24hrFile ? true : undefined,
+          coordinates: selectedFileMetadata?.coordinates,
+        });
       } else {
         // TESTING: Add an empty plot by default for quick testing of load functionality
         console.log('📊 [TESTING] Adding empty default plot for testing');
@@ -2545,8 +2659,8 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
             {plots.length > 0 && (
               <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b pb-2">
                 <div className="flex items-center justify-between gap-4">
-                  {/* Left side: Time Axis Mode (only show when multiple plots) */}
-                  {plots.length > 1 ? (
+                  {/* Left side: Time Axis Mode toggle (multi-plot, non-paired) or mouse-over hint for FPOD */}
+                  {plots.length > 1 && !plots.some(p => p.hideBrush) && !plots.some(p => p.fileType === 'FPOD') ? (
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">Time Axis Mode:</span>
                       <Minus className="h-4 w-4 text-muted-foreground" />
@@ -2563,8 +2677,19 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                     <div className="flex-1" />
                   )}
 
-                  {/* Right side: Save/Load Plot View buttons - Always visible */}
-                  <div className="flex items-center gap-2">
+                  {/* Right side: Methodology + Save/Load Plot View buttons - Always visible */}
+                  {/* Added mr-10 to leave space for modal close X button */}
+                  <div className="flex items-center gap-2 mr-10">
+                    {projectId && tileName && (
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs text-white font-medium bg-teal-700 hover:bg-teal-800"
+                        onClick={() => setShowMethodologyModal(true)}
+                      >
+                        <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+                        Methodology
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -2602,10 +2727,17 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                       key={plot.id}
                       instanceId={plot.id}
                       initialPlotTitle={plot.fileName!}
-                      onRemovePlot={plots.length > 1 ? removePlot : undefined}
+                      onRemovePlot={plots.length > 1 && !plots.some(p => p.hideBrush) ? removePlot : undefined}
                       fileType={plot.fileType!}
                       files={plot.files!}
                       preParsedData={plot.mergedData} // Pass merged data for merged plots
+                      pinLabel={plot.pinLabel}
+                      startDate={plot.startDate}
+                      endDate={plot.endDate}
+                      fileCategories={plot.fileCategories}
+                      hideBrush={plot.hideBrush}
+                      showDateTimeAxis={plot.showDateTimeAxis}
+                      coordinates={plot.coordinates}
                       timeAxisMode={timeAxisMode}
                       globalTimeRange={timeAxisMode === 'common' ? globalTimeRange : undefined}
                       globalBrushRange={timeAxisMode === 'common' ? globalBrushRange : undefined}
@@ -2626,6 +2758,9 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                       isSubtractedPlot={plot.computationType === 'subtract'}
                       includeZeroValues={plot.computationConfig?.includeZeroValues ?? false}
                       onIncludeZeroValuesChange={(include) => handleIncludeZeroValuesChange(plot.id, include)}
+                      // Methodology modal props
+                      projectId={projectId}
+                      tileName={tileName}
                     />
                   );
                 }
@@ -2757,11 +2892,27 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
                 // Add plot with downloaded file AND its database ID
                 // Use pinId if available, otherwise use areaId for tracking
                 const objectId = fileOption.pinId || fileOption.areaId;
+
+                // Extract metadata for header display
+                const metadata = fileOption.metadata;
+                const pinLabel = (metadata as any)?.pinLabel || fileOption.pinName;
+                const startDate = metadata?.startDate;
+                const endDate = metadata?.endDate;
+
+                // Extract category from filename using categorization
+                const { categorizeFile } = await import('@/lib/file-categorization-config');
+                const categories = categorizeFile(fileOption.fileName);
+                const fileCategory = categories[0]?.category;
+
                 addPlot('device', [downloadedFile], {
                   fileType: fileOption.fileType,
                   customTitle: fileOption.fileName,
                   pinId: objectId,
-                  fileId: file.id // Store the database file ID for restoration
+                  fileId: file.id, // Store the database file ID for restoration
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategory
                 });
               } else {
                 console.error('Failed to download file:', fileOption.fileName);
@@ -2775,11 +2926,27 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
               // Files already loaded, add plot directly
               if (fileOption.files.length > 0) {
                 const objectId = fileOption.pinId || fileOption.areaId;
+
+                // Extract metadata for header display
+                const metadata = fileOption.metadata;
+                const pinLabel = (metadata as any)?.pinLabel || fileOption.pinName;
+                const startDate = metadata?.startDate;
+                const endDate = metadata?.endDate;
+
+                // Extract category from filename using categorization
+                const { categorizeFile } = await import('@/lib/file-categorization-config');
+                const categories = categorizeFile(fileOption.fileName);
+                const fileCategory = categories[0]?.category;
+
                 addPlot('device', fileOption.files, {
                   fileType: fileOption.fileType,
                   customTitle: fileOption.fileName,
                   pinId: objectId,
-                  fileId: file.id // Store the database file ID for restoration
+                  fileId: file.id, // Store the database file ID for restoration
+                  pinLabel,
+                  startDate,
+                  endDate,
+                  fileCategory
                 });
               } else {
                 console.error('❌ No files to add and no download function provided');
@@ -3231,6 +3398,16 @@ function PinMarineDeviceData({ fileType, files, onRequestFileSelection, availabl
           onOpenChange={setShowLoadPlotViewDialog}
           projectId={projectId}
           onLoad={restorePlotViewState}
+        />
+      )}
+
+      {/* Methodology Modal */}
+      {projectId && tileName && (
+        <MethodologyModal
+          open={showMethodologyModal}
+          onOpenChange={setShowMethodologyModal}
+          projectId={projectId}
+          tileName={tileName}
         />
       )}
 

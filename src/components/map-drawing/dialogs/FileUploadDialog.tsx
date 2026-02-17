@@ -19,7 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MapPin, Square, Upload } from 'lucide-react';
+import { Loader2, MapPin, Square, Upload, Image, FileText, FileSpreadsheet } from 'lucide-react';
+import { isPhotoFile, isPdfFile } from '@/lib/file-categorization-config';
 import type { Pin, Area } from '@/lib/supabase/types';
 
 export interface FileUploadDialogProps {
@@ -107,7 +108,14 @@ export function FileUploadDialog({
             <label className="text-sm font-medium">Selected Files:</label>
             <div className="bg-muted/30 rounded-md p-3 max-h-32 overflow-y-auto">
               {pendingUploadFiles.map((file, index) => (
-                <div key={index} className="text-xs font-mono text-muted-foreground py-0.5">
+                <div key={index} className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground py-0.5">
+                  {isPhotoFile(file.name) ? (
+                    <Image className="h-3 w-3 flex-shrink-0 text-blue-500" />
+                  ) : isPdfFile(file.name) ? (
+                    <FileText className="h-3 w-3 flex-shrink-0 text-red-500" />
+                  ) : (
+                    <FileSpreadsheet className="h-3 w-3 flex-shrink-0 text-green-500" />
+                  )}
                   {file.name}
                 </div>
               ))}

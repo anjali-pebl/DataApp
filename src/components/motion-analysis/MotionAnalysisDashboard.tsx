@@ -1250,7 +1250,7 @@ export default function MotionAnalysisDashboard({ data, pendingVideos = [], onDe
       )}
 
       {/* Comparison Table */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-card rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900">Uploads</h2>
         </div>

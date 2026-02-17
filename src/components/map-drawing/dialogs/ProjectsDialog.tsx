@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
-import { FolderOpen, Eye, EyeOff, Crosshair, Database, Settings } from 'lucide-react';
+import { FolderOpen, Crosshair, Database, Settings } from 'lucide-react';
 import type { Pin, Line as LineType, Area, Project } from '@/lib/supabase/types';
 import type { PinFile } from '@/lib/supabase/file-storage-service';
 
@@ -122,19 +122,15 @@ export function ProjectsDialog({
                           </Button>
                         )}
 
-                        {/* Visibility Toggle */}
+                        {/* Zoom to Project */}
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => onToggleProjectVisibility(key)}
+                          onClick={() => onGoToProjectLocation(key)}
                           className="h-8 w-8"
-                          title={projectVisibility[key] ? "Hide project" : "Show project"}
+                          title="Zoom to project"
                         >
-                          {projectVisibility[key] ? (
-                            <Eye className="h-4 w-4 text-primary" />
-                          ) : (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          )}
+                          <Crosshair className="h-4 w-4 text-accent" />
                         </Button>
 
                         {/* Activate Button */}
