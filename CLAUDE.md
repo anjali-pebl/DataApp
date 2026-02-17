@@ -45,6 +45,29 @@ ALTER TABLE areas ADD COLUMN color TEXT;
 
 ---
 
+### Motion Analysis Processing Rules
+**CRITICAL RULE:** The processing system must ONLY run the analysis jobs that the user has explicitly selected in the settings panel.
+
+**Implementation:**
+- UI checkboxes control which jobs run:
+  - "Benthic Activity Detection" → `enableBenthicActivityV4`
+  - "YOLO Detection" → `enableYolo`
+- Settings are passed from `ProcessingEstimationModal.tsx` → API route → Python batch script
+- Python script checks `settings.get('enableBenthicActivityV4')` and `settings.get('enableYolo')` before running each job
+- If a checkbox is unchecked, that analysis type MUST NOT run
+
+**Files:**
+- Frontend: `src/components/motion-analysis/ProcessingEstimationModal.tsx:449-472`
+- API: `src/app/api/motion-analysis/process/start/route.ts:38-65`
+- Python: `cv_scripts/batch_process_videos.py:492, 529`
+
+**Validation:**
+- At least one analysis type must be selected to enable processing
+- Processing button is disabled if both checkboxes are unchecked
+- Error message: "Select at least one analysis type"
+
+---
+
 ## Active Projects
 
 ### 🌊 Underwater Video CV/ML Platform (NEW - 2025-01-21)

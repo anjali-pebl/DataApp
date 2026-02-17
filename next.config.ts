@@ -166,6 +166,19 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true, // TODO: Fix linting errors and set to false
   },
 
+  // Reduce hot reload logging noise
+  logging: {
+    fetches: {
+      fullUrl: false, // Don't log full URLs for fetches
+    },
+  },
+
+  // Disable Turbopack telemetry and verbose logging
+  devIndicators: {
+    buildActivity: false, // Hide build activity indicator
+    buildActivityPosition: 'bottom-right',
+  },
+
   // Security headers
   async headers() {
     const isDev = process.env.NODE_ENV === 'development';
@@ -266,8 +279,33 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // Ignore files that trigger unnecessary rebuilds
+  onDemandEntries: {
+    // Period (in ms) where the server will keep pages in the buffer
+    maxInactiveAge: 60 * 1000,
+    // Number of pages that should be kept simultaneously without being disposed
+    pagesBufferLength: 5,
+  },
+
   // Webpack optimizations
   webpack: (config, { isServer, dev }) => {
+    // Ignore log files and temp files from file watching to reduce HMR noise
+    if (dev) {
+      config.watchOptions = {
+        ...config.watchOptions,
+        ignored: [
+          '**/node_modules/**',
+          '**/.git/**',
+          '**/.next/**',
+          '**/public/videos/**',
+          '**/*.log',
+          '**/processing-*.log',
+          '**/nul',
+          '**/*.ipynb_checkpoints/**',
+        ],
+      };
+    }
+
     // Only apply optimizations in production builds
     if (!dev && !isServer) {
       // Optimize chunk splitting for better caching

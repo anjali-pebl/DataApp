@@ -8,6 +8,7 @@ import TopNavigation from '@/components/layout/TopNavigation';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { NavigationErrorBoundary } from '@/components/layout/NavigationErrorBoundary';
 import { PageTracker } from '@/components/analytics/PageTracker';
+import SetupGuard from '@/components/setup/SetupGuard';
 
 // PEBL Brand Typography: Roboto for body text
 const roboto = Roboto({
@@ -69,6 +70,30 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        {/* Suppress noisy hot reload logs in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                (function() {
+                  const originalLog = console.log;
+                  console.log = function(...args) {
+                    const message = args.join(' ');
+                    // Filter out Fast Refresh logs
+                    if (message.includes('[Fast Refresh]') ||
+                        message.includes('fast-refresh') ||
+                        message.includes('hot-reloader')) {
+                      return;
+                    }
+                    originalLog.apply(console, args);
+                  };
+                })();
+              `,
+            }}
+          />
+        )}
+      </head>
       <body className={`${roboto.variable} font-roboto antialiased`}>
         <ErrorBoundary>
           {/* Wrap TopNavigation with its own error boundary for extra protection */}
@@ -77,7 +102,10 @@ export default async function RootLayout({
           </NavigationErrorBoundary>
           {/* Analytics page tracking */}
           <PageTracker />
-          {children}
+          {/* Setup guard checks if user needs to complete initial setup */}
+          <SetupGuard user={user}>
+            {children}
+          </SetupGuard>
           <Toaster />
         </ErrorBoundary>
       </body>

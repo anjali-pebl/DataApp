@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Batch Processing Script for Underwater Video Analysis
 =====================================================
@@ -16,12 +17,56 @@ Usage:
 import os
 import sys
 import json
+
+# Set UTF-8 encoding for Windows console to handle emoji/unicode characters
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 import glob
 import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
 import numpy as np
+import time
+import requests
+
+# Import logging utilities
+from logging_utils import (
+    set_verbosity, get_verbosity,
+    VERBOSITY_MINIMAL, VERBOSITY_NORMAL, VERBOSITY_DETAILED,
+    print_batch_header, print_batch_summary,
+    print_video_header, print_output_location,
+    print_minimal_progress,
+    STATUS_SUCCESS, STATUS_ERROR, STATUS_WARNING
+)
+
+# Import heartbeat for crash resilience
+from heartbeat import Heartbeat
+
+def notify_api_complete(api_url, run_id, video_id, motion_analysis_path, success=True, error=None):
+    """Notify the API that a video has completed processing."""
+    try:
+        response = requests.post(
+            f"{api_url}/api/motion-analysis/process/complete",
+            json={
+                "runId": run_id,
+                "videoId": video_id,
+                "motionAnalysisPath": motion_analysis_path,
+                "success": success,
+                "error": error
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            return True
+        else:
+            print(f"  [WARNING] API update failed: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print(f"  [WARNING] API update exception: {e}")
+        return False
 
 def find_videos(input_dir, pattern="*.mp4"):
     """Find all video files in the input directory."""
@@ -31,10 +76,6 @@ def find_videos(input_dir, pattern="*.mp4"):
 
 def run_background_subtraction(video_path, output_dir, duration=30, subsample=6):
     """Run background subtraction script on a single video."""
-    print(f"\n{'='*80}")
-    print(f"Processing Background Subtraction: {os.path.basename(video_path)}")
-    print(f"{'='*80}")
-
     cmd = [
         "python", "cv_scripts/background_subtraction.py",
         "--input", video_path,
@@ -44,12 +85,16 @@ def run_background_subtraction(video_path, output_dir, duration=30, subsample=6)
     ]
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print(result.stdout)
+        # Suppress output for cleaner logs
+        # Use UTF-8 encoding with error handling to avoid UnicodeDecodeError on Windows
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace')
         return True
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: Background subtraction failed for {video_path}")
-        print(e.stderr)
+        print(f"  ERROR: Background subtraction script failed")
+        print(f"  Command: {' '.join(cmd)}")
+        if e.stderr:
+            print(f"  Error details:\n{e.stderr}")
         return False
 
 def run_motion_analysis(bg_subtracted_video, output_dir):
@@ -66,13 +111,104 @@ def run_motion_analysis(bg_subtracted_video, output_dir):
     ]
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # Use UTF-8 encoding with error handling to avoid UnicodeDecodeError on Windows
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace')
         print(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Motion analysis failed for {bg_subtracted_video}")
         print(e.stderr)
         return False
+
+def run_benthic_activity_v4(bg_subtracted_video, output_dir, params=None, video_id=None, run_id=None):
+    """Run Benthic Activity Detection V4 on a background-subtracted video."""
+    cmd = [
+        "python", "cv_scripts/benthic_activity_detection_v4.py",
+        "--input", bg_subtracted_video,
+        "--output", output_dir,
+    ]
+
+    # Add optional parameter overrides
+    if params:
+        if 'dark_threshold' in params:
+            cmd.extend(["--dark-threshold", str(params['dark_threshold'])])
+        if 'bright_threshold' in params:
+            cmd.extend(["--bright-threshold", str(params['bright_threshold'])])
+        if 'min_area' in params:
+            cmd.extend(["--min-area", str(params['min_area'])])
+        if 'max_area' in params:
+            cmd.extend(["--max-area", str(params['max_area'])])
+        if 'coupling_distance' in params:
+            cmd.extend(["--coupling-distance", str(params['coupling_distance'])])
+        if 'max_distance' in params:
+            cmd.extend(["--max-distance", str(params['max_distance'])])
+        if 'max_skip_frames' in params:
+            cmd.extend(["--max-skip-frames", str(params['max_skip_frames'])])
+        if 'rest_zone_radius' in params:
+            cmd.extend(["--rest-zone-radius", str(params['rest_zone_radius'])])
+        if 'min_track_length' in params:
+            cmd.extend(["--min-track-length", str(params['min_track_length'])])
+        if 'min_displacement' in params:
+            cmd.extend(["--min-displacement", str(params['min_displacement'])])
+        if 'max_speed' in params:
+            cmd.extend(["--max-speed", str(params['max_speed'])])
+        if 'min_speed' in params:
+            cmd.extend(["--min-speed", str(params['min_speed'])])
+
+    try:
+        # Suppress output for cleaner logs
+        # Use UTF-8 encoding with error handling to avoid UnicodeDecodeError on Windows
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace')
+        return True
+    except subprocess.CalledProcessError as e:
+        return False
+
+def run_yolo_detection(video_path, output_dir, model_name='yolov8m'):
+    """Run YOLOv8 detection on a video."""
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+
+    # Determine model path based on model name
+    model_path_map = {
+        'yolov8n': 'yolov8n.pt',
+        'yolov8m': 'Labeled_Datasets/05_Models/Y12_11kL_12k(brackish)_E100_Augmented_best.pt',
+        'yolov8l': 'yolov8l.pt'
+    }
+    model_path = model_path_map.get(model_name, model_path_map['yolov8m'])
+
+    # Use the standalone YOLOv8 processing script
+    # It will save outputs in public/videos/ and public/motion-analysis-results/
+    cmd = [
+        "python", "process_videos_yolov8.py",
+        "--input", os.path.basename(video_path),
+        "--model", model_path
+    ]
+
+    try:
+        # Suppress output for cleaner logs
+        # Use UTF-8 encoding with error handling to avoid UnicodeDecodeError on Windows
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace')
+
+        # The script outputs to public/motion-analysis-results/{base_name}/{base_name}_yolov8.json
+        output_json = os.path.join(output_dir, f"{base_name}_yolov8.json")
+
+        # Check if output files were created
+        if os.path.exists(output_json):
+            # Count detections from JSON
+            try:
+                with open(output_json, 'r') as f:
+                    data = json.load(f)
+                    total_detections = sum(len(frame_data.get('detections', []))
+                                          for frame_data in data.get('detections', []))
+                    return True, total_detections
+            except:
+                pass
+
+        return True, 0
+    except subprocess.CalledProcessError as e:
+        return False, 0
 
 def load_motion_analysis_results(results_dir):
     """Load all motion analysis JSON files from results directory."""
@@ -239,7 +375,7 @@ def generate_comparison_report(results, output_file):
 
 def main():
     parser = argparse.ArgumentParser(description='Batch process underwater videos for motion analysis')
-    parser.add_argument('--input', type=str, required=True, help='Directory containing input videos')
+    parser.add_argument('--input', type=str, help='Directory containing input videos')
     parser.add_argument('--output', type=str, default='results', help='Output directory for results')
     parser.add_argument('--duration', type=int, default=30, help='Duration in seconds to process from each video')
     parser.add_argument('--subsample', type=int, default=6, help='Process every Nth frame')
@@ -247,7 +383,267 @@ def main():
     parser.add_argument('--skip-motion', action='store_true', help='Skip motion analysis')
     parser.add_argument('--report-only', action='store_true', help='Only generate comparison report from existing results')
 
+    # Verbosity control
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument('--quiet', '-q', action='store_true', help='Minimal output (results only)')
+    verbosity_group.add_argument('--verbose', '-v', action='store_true', help='Detailed output (all technical details)')
+
+    # API-based processing arguments
+    parser.add_argument('--run-id', type=str, help='Processing run ID for API-based processing')
+    parser.add_argument('--run-type', type=str, choices=['local', 'modal-t4', 'modal-a10g'], help='Run type for API processing')
+    parser.add_argument('--videos', type=str, help='JSON string of video info for API processing')
+    parser.add_argument('--api-url', type=str, help='API URL for status updates')
+    parser.add_argument('--settings', type=str, help='JSON string of processing settings')
+
     args = parser.parse_args()
+
+    # Set verbosity level
+    if args.quiet:
+        set_verbosity(VERBOSITY_MINIMAL)
+    elif args.verbose:
+        set_verbosity(VERBOSITY_DETAILED)
+    else:
+        set_verbosity(VERBOSITY_NORMAL)
+
+    # API-based processing mode
+    if args.run_id and args.videos and args.settings:
+        import json
+
+        videos_info = json.loads(args.videos)
+        settings = json.loads(args.settings)
+
+        output_dir = os.path.join('public', 'motion-analysis-results')
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Print simple start message
+        print(f"\n{'='*70}")
+        print(f"STARTING VIDEO PROCESSING")
+        print(f"{'='*70}")
+        print(f"Videos to process: {len(videos_info)}")
+        print(f"Run ID: {args.run_id[:8]}...")
+        print(f"{'='*70}\n")
+
+        # Start heartbeat for crash resilience
+        heartbeat = None
+        if args.api_url and args.run_id:
+            heartbeat = Heartbeat(args.api_url, args.run_id, interval_seconds=10)
+            heartbeat.start()
+
+        # Track statistics
+        batch_start_time = time.time()
+        successful_videos = 0
+        total_organisms = 0
+
+        try:
+            for i, video in enumerate(videos_info, 1):
+                try:
+                    video_filepath = video['filepath']
+                    video_filename = video['filename']
+                    video_id = video.get('video_id', None)
+                    base_name = os.path.splitext(video_filename)[0]
+
+                    # Create subdirectory for this video's results
+                    video_output_dir = os.path.join(output_dir, base_name)
+                    os.makedirs(video_output_dir, exist_ok=True)
+
+                    # Print simple video header
+                    print(f"\n[Video {i}/{len(videos_info)}] {video_filename}")
+                    print("-" * 70)
+
+                    video_start_time = time.time()
+                    video_organisms = 0
+                    video_success = False
+                    video_error = None
+                except Exception as video_exception:
+                    # Handle unexpected errors in video setup
+                    import traceback
+                    error_msg = f"Unexpected error in video setup: {str(video_exception)}"
+                    print(f"\n[ERROR] {error_msg}")
+                    traceback.print_exc()
+
+                    # Try to notify API if we have video_id
+                    try:
+                        if args.api_url and 'video_id' in video:
+                            notify_api_complete(args.api_url, args.run_id, video['video_id'], None, success=False, error=error_msg)
+                    except:
+                        pass
+                    continue
+
+                # Phase 1: Background Subtraction
+                if os.path.exists(video_filepath):
+                    print("  Step 1: Removing background...", end=" ", flush=True)
+                    bg_success = run_background_subtraction(
+                        video_filepath,
+                        video_output_dir,
+                        duration=settings.get('duration', 30),
+                        subsample=settings.get('subsample', 6)
+                    )
+
+                    if not bg_success:
+                        print("FAILED")
+                        print(f"  Error: Could not remove background from video")
+                        video_error = "Background subtraction failed"
+                        # Notify API of failure
+                        if args.api_url and video_id:
+                            notify_api_complete(args.api_url, args.run_id, video_id, None, success=False, error=video_error)
+                        continue
+
+                    print("Done")
+
+                    bg_video = os.path.join(video_output_dir, f"{base_name}_background_subtracted.mp4")
+
+                    # Phase 2: Benthic Activity V4 or Motion Analysis
+                    if settings.get('enableBenthicActivityV4', True):
+                        print("  Step 2: Detecting organisms...", end=" ", flush=True)
+                        bav4_params = settings.get('benthicActivityParams', None)
+                        bav4_success = run_benthic_activity_v4(
+                            bg_video,
+                            video_output_dir,
+                            params=bav4_params,
+                            video_id=video_id,
+                            run_id=args.run_id
+                        )
+                        if not bav4_success:
+                            print("FAILED")
+                        else:
+                            # Try to read the results to get organism count
+                            results_file = os.path.join(video_output_dir, f"{base_name}_background_subtracted_benthic_activity_v4.json")
+                            if os.path.exists(results_file):
+                                try:
+                                    with open(results_file, 'r') as f:
+                                        results = json.load(f)
+                                        video_organisms = len(results.get('tracks', []))
+                                        total_organisms += video_organisms
+                                        print(f"Done (found {video_organisms} organisms)")
+                                except:
+                                    print("Done")
+                            else:
+                                print("Done")
+
+                    elif settings.get('enableMotionAnalysis', False):
+                        print("  Step 2: Analyzing motion...", end=" ", flush=True)
+                        motion_success = run_motion_analysis(bg_video, video_output_dir)
+                        if not motion_success:
+                            print("FAILED")
+                        else:
+                            print("Done")
+
+                    # Phase 3: YOLOv8 Detection (if enabled)
+                    video_yolo_detections = 0
+                    if settings.get('enableYolo', True):
+                        print("  Step 3: Running AI detection...", end=" ", flush=True)
+                        yolo_model = settings.get('yoloModel', 'yolov8m')
+                        yolo_success, yolo_detections = run_yolo_detection(
+                            video_filepath,
+                            video_output_dir,
+                            model_name=yolo_model
+                        )
+                        if yolo_success:
+                            video_yolo_detections = yolo_detections
+                            print(f"Done (found {yolo_detections} detections)")
+                        else:
+                            print("FAILED")
+
+                    successful_videos += 1
+                    video_success = True
+
+                    # Determine motion analysis path for database
+                    # Use the BAv4 results file as the primary motion analysis
+                    motion_analysis_path = None
+                    if os.path.exists(os.path.join(video_output_dir, f"{base_name}_background_subtracted_benthic_activity_v4.json")):
+                        motion_analysis_path = f"motion-analysis-results/{base_name}/{base_name}_background_subtracted_benthic_activity_v4.json"
+
+                    # Notify API of success
+                    if args.api_url and video_id:
+                        notify_api_complete(args.api_url, args.run_id, video_id, motion_analysis_path, success=True)
+
+                    # Print completion summary
+                    video_time = time.time() - video_start_time
+                    mins = int(video_time // 60)
+                    secs = int(video_time % 60)
+                    time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+
+                    print(f"\n  ✓ Video complete in {time_str}")
+                    if video_organisms > 0 or video_yolo_detections > 0:
+                        summary_parts = []
+                        if video_organisms > 0:
+                            summary_parts.append(f"{video_organisms} organisms tracked")
+                        if video_yolo_detections > 0:
+                            summary_parts.append(f"{video_yolo_detections} AI detections")
+                        print(f"  Results: {', '.join(summary_parts)}")
+
+                else:
+                    print(f"\n  ✗ Error: Video file not found")
+                    # Notify API of failure
+                    if args.api_url and video_id:
+                        notify_api_complete(args.api_url, args.run_id, video_id, None, success=False, error="Video file not found")
+
+            # Print final summary
+            batch_time = time.time() - batch_start_time
+            mins = int(batch_time // 60)
+            secs = int(batch_time % 60)
+            time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+
+            print(f"\n{'='*70}")
+            print(f"ALL VIDEOS COMPLETE")
+            print(f"{'='*70}")
+            print(f"Total time: {time_str}")
+            print(f"Videos processed: {successful_videos}/{len(videos_info)}")
+            print(f"Organisms found: {total_organisms}")
+            print(f"Results saved to: {os.path.abspath(output_dir)}")
+            print(f"{'='*70}\n")
+
+            # Save processing logs to database for successful completion
+            if args.api_url and args.run_id:
+                try:
+                    print("[SUCCESS] Saving processing logs to database...")
+                    response = requests.post(
+                        f"{args.api_url}/api/motion-analysis/process/save-logs",
+                        json={"runId": args.run_id},
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        print("[SUCCESS] ✓ Processing logs saved to database")
+                    else:
+                        print(f"[WARNING] ✗ Failed to save logs: {response.status_code}")
+                except Exception as save_error:
+                    print(f"[WARNING] ✗ Could not save logs: {str(save_error)}")
+
+        except Exception as batch_exception:
+            # Handle catastrophic batch processing failure
+            import traceback
+            print(f"\n{'='*70}")
+            print(f"[ERROR] BATCH PROCESSING FAILED")
+            print(f"{'='*70}")
+            print(f"Error: {str(batch_exception)}")
+            print(f"\nTraceback:")
+            traceback.print_exc()
+            print(f"{'='*70}\n")
+
+            # Mark the run as failed in the database
+            if args.api_url and args.run_id:
+                try:
+                    print("[ERROR] Saving error logs to database...")
+                    response = requests.post(
+                        f"{args.api_url}/api/motion-analysis/process/save-logs",
+                        json={"runId": args.run_id},
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        print("[ERROR] ✓ Error logs saved to database")
+                    else:
+                        print(f"[ERROR] ✗ Failed to save logs: {response.status_code}")
+                except Exception as save_error:
+                    print(f"[ERROR] ✗ Could not save error logs: {str(save_error)}")
+
+            return 1
+
+        finally:
+            # Stop heartbeat (ensures it stops even if processing crashes)
+            if heartbeat:
+                heartbeat.stop()
+
+        return 0
 
     # Create output directory
     os.makedirs(args.output, exist_ok=True)

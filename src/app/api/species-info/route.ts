@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { logger } from '@/lib/logger';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+export const dynamic = 'force-dynamic';
 
 export interface SpeciesInfoRequest {
   speciesName: string;
@@ -19,6 +17,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { speciesName } = body as SpeciesInfoRequest;
+
+    // Initialize OpenAI client only when route is called (not at module load time)
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     if (!speciesName || typeof speciesName !== 'string') {
       return NextResponse.json(

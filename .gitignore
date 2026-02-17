@@ -70,3 +70,30 @@ public/worker-*.js
 public/worker-*.js.map
 public/fallback-*.js
 public/fallback-*.js.map
+.claude-inputs/
+
+# Processing logs
+processing-*.log
+test-output.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+cv_scripts/__pycache__/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Motion analysis results (generated at runtime)
+public/motion-analysis-results/
+public/videos/
+
+# Windows files
+desktop.ini
+nul
+Thumbs.db
+
+# Misc artifacts
+*.log
