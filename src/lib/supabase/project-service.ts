@@ -4,34 +4,17 @@ import { Project } from './types'
 class ProjectService {
   private supabase = createClient()
 
-  // Check if current user has PEBL admin role (can see all data)
-  private async isPeblAdmin(userId: string): Promise<boolean> {
-    const { data } = await this.supabase
-      .from('user_profiles')
-      .select('account_role')
-      .eq('id', userId)
-      .single()
-
-    return data?.account_role === 'pebl'
-  }
-
+  // Note: RLS policies handle access control - users see their own projects,
+  // PEBL admins see all projects, partners see shared projects
   async getProjects(): Promise<Project[]> {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    // Check if user is PEBL admin (can see all projects)
-    const isPebl = await this.isPeblAdmin(user.id)
-
-    let query = this.supabase
+    // Let RLS handle access control - no user_id filter needed
+    const { data, error } = await this.supabase
       .from('projects')
       .select('*')
-
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (error) throw error
 

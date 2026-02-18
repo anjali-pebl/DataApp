@@ -12,36 +12,19 @@ export class MapDataService {
     this.supabase = createClient()
   }
 
-  // Check if current user has PEBL admin role (can see all data)
-  private async isPeblAdmin(userId: string): Promise<boolean> {
-    const { data } = await this.supabase
-      .from('user_profiles')
-      .select('account_role')
-      .eq('id', userId)
-      .single()
-
-    return data?.account_role === 'pebl'
-  }
-
   // Project operations
+  // Note: RLS policies handle access control - users see their own projects,
+  // PEBL admins see all projects, partners see shared projects
   async getProjects(): Promise<Project[]> {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    // Check if user is PEBL admin (can see all projects)
-    const isPebl = await this.isPeblAdmin(user.id)
-
-    let query = this.supabase
+    // Let RLS handle access control - no user_id filter needed
+    const { data, error } = await this.supabase
       .from('projects')
       .select('*')
-
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (error) throw error
 
@@ -129,25 +112,19 @@ export class MapDataService {
   }
 
   // Tag operations
+  // Note: RLS policies handle access control
   async getTags(projectId?: string): Promise<Tag[]> {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    // Check if user is PEBL admin (can see all tags)
-    const isPebl = await this.isPeblAdmin(user.id)
-
+    // Let RLS handle access control - no user_id filter needed
     let query = this.supabase.from('tags').select('*')
-
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
 
     if (projectId) {
       query = query.eq('project_id', projectId)
     }
-    
+
     const { data, error } = await query.order('name')
 
     if (error) throw error
@@ -204,20 +181,14 @@ export class MapDataService {
     }
     const user = session.user
 
-    // Check if user is PEBL admin (can see all pins)
-    const isPebl = await this.isPeblAdmin(user.id)
-
+    // Let RLS handle access control - no user_id filter needed
+    // Users see their own pins, PEBL admins see all, partners see shared project pins
     let query = this.supabase
       .from('pins')
       .select(`
         *,
         pin_tags!left(tag_id)
       `)
-
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
 
     if (projectId) {
       query = query.eq('project_id', projectId)
@@ -627,25 +598,19 @@ export class MapDataService {
   }
 
   // Line operations
+  // Note: RLS policies handle access control
   async getLines(projectId?: string): Promise<Line[]> {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    // Check if user is PEBL admin (can see all lines)
-    const isPebl = await this.isPeblAdmin(user.id)
-
+    // Let RLS handle access control - no user_id filter needed
     let query = this.supabase
       .from('lines')
       .select(`
         *,
         line_tags!left(tag_id)
       `)
-
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
 
     if (projectId) {
       query = query.eq('project_id', projectId)
@@ -945,14 +910,13 @@ export class MapDataService {
   }
 
   // Area operations
+  // Note: RLS policies handle access control
   async getAreas(projectId?: string): Promise<Area[]> {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    // Check if user is PEBL admin (can see all areas)
-    const isPebl = await this.isPeblAdmin(user.id)
-
+    // Let RLS handle access control - no user_id filter needed
     let query = this.supabase
       .from('areas')
       .select(`
@@ -960,15 +924,10 @@ export class MapDataService {
         area_tags!left(tag_id)
       `)
 
-    // Only filter by user_id if not a PEBL admin
-    if (!isPebl) {
-      query = query.eq('user_id', user.id)
-    }
-
     if (projectId) {
       query = query.eq('project_id', projectId)
     }
-    
+
     const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) throw error
