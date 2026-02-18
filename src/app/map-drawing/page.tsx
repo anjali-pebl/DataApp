@@ -792,18 +792,12 @@ function MapDrawingPageContent() {
   const [tempLinePath, setTempLinePath] = useState<{ lat: number; lng: number }[] | null>(null);
   const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null);
   
-  // Dynamic projects state (combines hardcoded + database projects)
-  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }>>(PROJECT_LOCATIONS);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  // Dynamic projects state (loaded from database - owned + shared projects only)
+  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }>>({});
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true); // Start true since we load on mount
 
   // Project management state
-  const [projectVisibility, setProjectVisibility] = useState<Record<string, boolean>>(() => {
-    // Initialize all projects as visible
-    return Object.keys(PROJECT_LOCATIONS).reduce((acc, key) => {
-      acc[key] = true;
-      return acc;
-    }, {} as Record<string, boolean>);
-  });
+  const [projectVisibility, setProjectVisibility] = useState<Record<string, boolean>>({});
   // User role state
   const [userRole, setUserRole] = useState<AccountRole | null>(null);
   useEffect(() => {
@@ -813,8 +807,8 @@ function MapDrawingPageContent() {
   // Use persistent active project hook
   const { activeProject: persistentActiveProject, setActiveProject: setPersistentActiveProject, isLoading: isLoadingActiveProject } = useActiveProject();
 
-  // Manage active project with fallback to default
-  const activeProjectId = persistentActiveProject || Object.keys(dynamicProjects)[0] || 'milfordhaven';
+  // Manage active project with fallback to first available project
+  const activeProjectId = persistentActiveProject || Object.keys(dynamicProjects)[0] || '';
   const setActiveProjectId = (projectId: string) => {
     setPersistentActiveProject(projectId);
   };
@@ -849,9 +843,10 @@ function MapDrawingPageContent() {
         projectService.getSharedProjects().catch(() => []),
       ]);
 
-      // Combine hardcoded projects with database projects
-      const combinedProjects = { ...PROJECT_LOCATIONS };
+      // Start with empty projects - only show database projects, not hardcoded locations
+      const combinedProjects: Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }> = {};
 
+      // Add owned projects from database
       databaseProjects.forEach(project => {
         combinedProjects[project.id] = {
           name: project.name,

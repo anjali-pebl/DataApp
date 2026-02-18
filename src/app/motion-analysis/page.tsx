@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import MotionAnalysisDashboard from '@/components/motion-analysis/MotionAnalysisDashboard';
 import ProcessingStatusPanel from '@/components/motion-analysis/ProcessingStatusPanel';
-import { Loader2, AlertTriangle, RefreshCw, CheckCircle, X, Trash2 } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, CheckCircle, X, Trash2, ShieldAlert } from 'lucide-react';
+import { getUserRole } from '@/lib/supabase/role-service';
 
 // Helper function to add timeout to fetch requests
 async function fetchWithTimeout(url: string, timeoutMs: number = 15000) {
@@ -102,6 +104,8 @@ interface CleanupNotification {
 }
 
 export default function MotionAnalysisPage() {
+  const router = useRouter();
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +116,19 @@ export default function MotionAnalysisPage() {
   const [isResetting, setIsResetting] = useState(false);
   const [cleanupNotification, setCleanupNotification] = useState<CleanupNotification | null>(null);
   const hasCheckedDuplicates = useRef(false);
+
+  // Check if user is PEBL admin
+  useEffect(() => {
+    async function checkAccess() {
+      const role = await getUserRole();
+      if (role !== 'pebl') {
+        setIsAuthorized(false);
+      } else {
+        setIsAuthorized(true);
+      }
+    }
+    checkAccess();
+  }, []);
 
   // Check for active runs on mount (handles page refresh)
   useEffect(() => {
@@ -414,6 +431,34 @@ export default function MotionAnalysisPage() {
       prescreen_error: v.prescreen_error,
     };
   });
+
+  // Show loading while checking authorization
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+
+  // Show access denied for non-admins
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <ShieldAlert className="h-16 w-16 mx-auto text-gray-400" />
+          <h1 className="text-2xl font-semibold text-gray-900">Access Restricted</h1>
+          <p className="text-gray-600">This page is only available to PEBL administrators.</p>
+          <button
+            onClick={() => router.push('/map-drawing')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Return to Map
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">

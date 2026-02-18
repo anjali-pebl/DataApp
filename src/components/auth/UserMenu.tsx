@@ -357,22 +357,27 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
         <DropdownMenuSeparator />
 
         {/* Navigation Items */}
-        {/* Data Processing - Integrated Ocean-ML */}
-        <Link href="/data-processing">
-          <DropdownMenuItem className="cursor-pointer">
-            <Database className="mr-2 h-4 w-4" />
-            <span>Data Processing</span>
-            {pathname === '/data-processing' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
-          </DropdownMenuItem>
-        </Link>
+        {/* Data Processing - Admin Only */}
+        {isAdmin && (
+          <Link href="/data-processing">
+            <DropdownMenuItem className="cursor-pointer">
+              <Database className="mr-2 h-4 w-4" />
+              <span>Data Processing</span>
+              {pathname === '/data-processing' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
+            </DropdownMenuItem>
+          </Link>
+        )}
 
-        <Link href="/motion-analysis">
-          <DropdownMenuItem className="cursor-pointer">
-            <Video className="mr-2 h-4 w-4" />
-            <span>Motion Analysis</span>
-            {pathname === '/motion-analysis' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
-          </DropdownMenuItem>
-        </Link>
+        {/* Motion Analysis - Admin Only */}
+        {isAdmin && (
+          <Link href="/motion-analysis">
+            <DropdownMenuItem className="cursor-pointer">
+              <Video className="mr-2 h-4 w-4" />
+              <span>Motion Analysis</span>
+              {pathname === '/motion-analysis' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
+            </DropdownMenuItem>
+          </Link>
+        )}
 
         <Link href="/map-drawing">
           <DropdownMenuItem className="cursor-pointer">
