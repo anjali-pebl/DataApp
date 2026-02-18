@@ -4,6 +4,17 @@ import { Pin, Area } from './types';
 class PinAreaService {
   private supabase = createClient();
 
+  // Check if current user has PEBL admin role (can see all data)
+  private async isPeblAdmin(userId: string): Promise<boolean> {
+    const { data } = await this.supabase
+      .from('user_profiles')
+      .select('account_role')
+      .eq('id', userId)
+      .single();
+
+    return data?.account_role === 'pebl';
+  }
+
   /**
    * Get all pins for a specific project
    */
@@ -14,11 +25,20 @@ class PinAreaService {
       return [];
     }
 
-    const { data, error } = await this.supabase
+    // Check if user is PEBL admin (can see all pins)
+    const isPebl = await this.isPeblAdmin(user.id);
+
+    let query = this.supabase
       .from('pins')
       .select('*')
-      .eq('project_id', projectId)
-      .eq('user_id', user.id);
+      .eq('project_id', projectId);
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[PinAreaService] Error fetching project pins:', error);
@@ -47,11 +67,20 @@ class PinAreaService {
       return [];
     }
 
-    const { data, error } = await this.supabase
+    // Check if user is PEBL admin (can see all areas)
+    const isPebl = await this.isPeblAdmin(user.id);
+
+    let query = this.supabase
       .from('areas')
       .select('*')
-      .eq('project_id', projectId)
-      .eq('user_id', user.id);
+      .eq('project_id', projectId);
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[PinAreaService] Error fetching project areas:', error);
