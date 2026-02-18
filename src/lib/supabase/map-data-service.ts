@@ -12,17 +12,36 @@ export class MapDataService {
     this.supabase = createClient()
   }
 
+  // Check if current user has PEBL admin role (can see all data)
+  private async isPeblAdmin(userId: string): Promise<boolean> {
+    const { data } = await this.supabase
+      .from('user_profiles')
+      .select('account_role')
+      .eq('id', userId)
+      .single()
+
+    return data?.account_role === 'pebl'
+  }
+
   // Project operations
   async getProjects(): Promise<Project[]> {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    const { data, error } = await this.supabase
+    // Check if user is PEBL admin (can see all projects)
+    const isPebl = await this.isPeblAdmin(user.id)
+
+    let query = this.supabase
       .from('projects')
       .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) throw error
 
@@ -115,8 +134,16 @@ export class MapDataService {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    let query = this.supabase.from('tags').select('*').eq('user_id', user.id)
-    
+    // Check if user is PEBL admin (can see all tags)
+    const isPebl = await this.isPeblAdmin(user.id)
+
+    let query = this.supabase.from('tags').select('*')
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
     if (projectId) {
       query = query.eq('project_id', projectId)
     }
@@ -176,15 +203,22 @@ export class MapDataService {
       return []
     }
     const user = session.user
-    
+
+    // Check if user is PEBL admin (can see all pins)
+    const isPebl = await this.isPeblAdmin(user.id)
+
     let query = this.supabase
       .from('pins')
       .select(`
         *,
         pin_tags!left(tag_id)
       `)
-      .eq('user_id', user.id) // Filter by current user
-    
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
     if (projectId) {
       query = query.eq('project_id', projectId)
     }
@@ -598,14 +632,21 @@ export class MapDataService {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
+    // Check if user is PEBL admin (can see all lines)
+    const isPebl = await this.isPeblAdmin(user.id)
+
     let query = this.supabase
       .from('lines')
       .select(`
         *,
         line_tags!left(tag_id)
       `)
-      .eq('user_id', user.id)
-    
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
     if (projectId) {
       query = query.eq('project_id', projectId)
     }
@@ -909,14 +950,21 @@ export class MapDataService {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
+    // Check if user is PEBL admin (can see all areas)
+    const isPebl = await this.isPeblAdmin(user.id)
+
     let query = this.supabase
       .from('areas')
       .select(`
         *,
         area_tags!left(tag_id)
       `)
-      .eq('user_id', user.id)
-    
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
     if (projectId) {
       query = query.eq('project_id', projectId)
     }

@@ -4,15 +4,34 @@ import { Project } from './types'
 class ProjectService {
   private supabase = createClient()
 
+  // Check if current user has PEBL admin role (can see all data)
+  private async isPeblAdmin(userId: string): Promise<boolean> {
+    const { data } = await this.supabase
+      .from('user_profiles')
+      .select('account_role')
+      .eq('id', userId)
+      .single()
+
+    return data?.account_role === 'pebl'
+  }
+
   async getProjects(): Promise<Project[]> {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    const { data, error } = await this.supabase
+    // Check if user is PEBL admin (can see all projects)
+    const isPebl = await this.isPeblAdmin(user.id)
+
+    let query = this.supabase
       .from('projects')
       .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+
+    // Only filter by user_id if not a PEBL admin
+    if (!isPebl) {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) throw error
 
