@@ -2,6 +2,7 @@ import { createClient } from './client'
 import { Database, Project, Tag, Pin, Line, Area } from './types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { analyticsService } from '@/lib/analytics/analytics-service'
+import { isPeblAdminEmail } from './role-service'
 
 type SupabaseClientType = SupabaseClient<Database>
 
@@ -383,18 +384,25 @@ export class MapDataService {
     console.log('MapDataService: About to update pin with data:', updateData)
     console.log('MapDataService: Label being saved:', updateData.label)
 
+    const isAdmin = isPeblAdminEmail(user.email)
+
     // First, verify the pin exists and the user has access to it
-    console.log('MapDataService: Checking pin access for:', { id, userId: user.id })
-    
-    const { data: existingPin, error: selectError } = await this.supabase
+    console.log('MapDataService: Checking pin access for:', { id, userId: user.id, isAdmin })
+
+    let accessQuery = this.supabase
       .from('pins')
       .select('*')
       .eq('id', id)
-      .eq('user_id', user.id)
-      .single()
 
-    console.log('MapDataService: Pin access check result:', { 
-      existingPin, 
+    // Only filter by user_id for non-admin users
+    if (!isAdmin) {
+      accessQuery = accessQuery.eq('user_id', user.id)
+    }
+
+    const { data: existingPin, error: selectError } = await accessQuery.single()
+
+    console.log('MapDataService: Pin access check result:', {
+      existingPin,
       selectError,
       hasData: !!existingPin,
       errorCode: selectError?.code,
@@ -408,12 +416,17 @@ export class MapDataService {
     }
 
     // Now perform the update without .single() to avoid PGRST116
-    const { data, error, count } = await this.supabase
+    let updateQuery = this.supabase
       .from('pins')
       .update(updateData)
       .eq('id', id)
-      .eq('user_id', user.id)
-      .select()
+
+    // Only filter by user_id for non-admin users
+    if (!isAdmin) {
+      updateQuery = updateQuery.eq('user_id', user.id)
+    }
+
+    const { data, error, count } = await updateQuery.select()
 
     console.log('MapDataService: Pin update operation completed:', {
       hasError: !!error,
@@ -734,11 +747,19 @@ export class MapDataService {
 
     console.log('🔄 MapDataService.updateLine - Payload being sent:', updatePayload);
 
-    const { data, error } = await this.supabase
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    let lineUpdateQuery = this.supabase
       .from('lines')
       .update(updatePayload)
       .eq('id', id)
-      .eq('user_id', user.id)
+
+    // Only filter by user_id for non-admin users
+    if (!isAdmin) {
+      lineUpdateQuery = lineUpdateQuery.eq('user_id', user.id)
+    }
+
+    const { data, error } = await lineUpdateQuery
       .select()
 
     // Check if no rows were updated (PGRST116 error or empty result)

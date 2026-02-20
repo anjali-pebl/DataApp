@@ -2,6 +2,7 @@ import { createClient } from './client'
 import { v4 as uuidv4 } from 'uuid'
 import { perfLogger } from '../perf-logger'
 import { analyticsService } from '@/lib/analytics/analytics-service'
+import { isPeblAdminEmail } from './role-service'
 
 // Upload target: either a pin or an area
 export type UploadTarget =
@@ -50,15 +51,21 @@ class FileStorageService {
       }
       console.log(`✅ Authenticated as user: ${user.id}`);
 
-      // Verify ownership based on target type
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify ownership based on target type (admins can upload to any target)
       if (target.type === 'pin') {
-        console.log(`🔍 Verifying ownership of pin ${target.id}...`);
-        const { data: pinData, error: pinError } = await this.supabase
+        console.log(`🔍 Verifying access to pin ${target.id}...`);
+        let pinQuery = this.supabase
           .from('pins')
           .select('id, user_id')
           .eq('id', target.id)
-          .eq('user_id', user.id)
-          .single()
+
+        if (!isAdmin) {
+          pinQuery = pinQuery.eq('user_id', user.id)
+        }
+
+        const { data: pinData, error: pinError } = await pinQuery.single()
 
         if (pinError || !pinData) {
           console.log('⚠️ Pin not accessible for upload:', {
@@ -68,15 +75,19 @@ class FileStorageService {
           })
           return null
         }
-        console.log('✅ Pin ownership verified');
+        console.log('✅ Pin access verified');
       } else {
-        console.log(`🔍 Verifying ownership of area ${target.id}...`);
-        const { data: areaData, error: areaError } = await this.supabase
+        console.log(`🔍 Verifying access to area ${target.id}...`);
+        let areaQuery = this.supabase
           .from('areas')
           .select('id, user_id')
           .eq('id', target.id)
-          .eq('user_id', user.id)
-          .single()
+
+        if (!isAdmin) {
+          areaQuery = areaQuery.eq('user_id', user.id)
+        }
+
+        const { data: areaData, error: areaError } = await areaQuery.single()
 
         if (areaError || !areaData) {
           console.log('⚠️ Area not accessible for upload:', {
@@ -86,7 +97,7 @@ class FileStorageService {
           })
           return null
         }
-        console.log('✅ Area ownership verified');
+        console.log('✅ Area access verified');
       }
 
       // Generate unique file path based on target type
@@ -240,13 +251,19 @@ class FileStorageService {
         return []
       }
 
-      // First verify that the user owns the pin
-      const { data: pinData, error: pinError } = await this.supabase
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify that the user has access to the pin (admins can access any pin)
+      let pinAccessQuery = this.supabase
         .from('pins')
         .select('id, user_id')
         .eq('id', pinId)
-        .eq('user_id', user.id)
-        .single()
+
+      if (!isAdmin) {
+        pinAccessQuery = pinAccessQuery.eq('user_id', user.id)
+      }
+
+      const { data: pinData, error: pinError } = await pinAccessQuery.single()
 
       if (pinError || !pinData) {
         perfLogger.warn(`Pin ${pinId.slice(0, 8)} not accessible`);
@@ -304,13 +321,19 @@ class FileStorageService {
         return []
       }
 
-      // First verify that the user owns the area
-      const { data: areaData, error: areaError } = await this.supabase
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify that the user has access to the area (admins can access any area)
+      let areaAccessQuery = this.supabase
         .from('areas')
         .select('id, user_id')
         .eq('id', areaId)
-        .eq('user_id', user.id)
-        .single()
+
+      if (!isAdmin) {
+        areaAccessQuery = areaAccessQuery.eq('user_id', user.id)
+      }
+
+      const { data: areaData, error: areaError } = await areaAccessQuery.single()
 
       if (areaError || !areaData) {
         perfLogger.warn(`Area ${areaId.slice(0, 8)} not accessible`);
@@ -508,7 +531,9 @@ class FileStorageService {
       
       console.log('File data retrieved:', fileData)
 
-      // Verify user owns the pin
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify user has access to the pin (admins can delete any file)
       const { data: pinData, error: pinError } = await this.supabase
         .from('pins')
         .select('user_id')
@@ -520,8 +545,8 @@ class FileStorageService {
         return false
       }
 
-      // Check if user owns the pin associated with this file
-      if (pinData.user_id !== user.id) {
+      // Check if user owns the pin associated with this file (admins bypass)
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('User does not have permission to delete this file')
         console.error('File owner:', pinData.user_id, 'Current user:', user.id)
         return false
@@ -608,7 +633,9 @@ class FileStorageService {
       console.log('📄 Current file name:', fileData.file_name);
       console.log('📍 File associations:', { pin_id: fileData.pin_id, area_id: fileData.area_id });
 
-      // Verify ownership based on whether file belongs to a pin or area
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify ownership based on whether file belongs to a pin or area (admins bypass)
       if (fileData.pin_id && fileData.pin_id !== 'null') {
         // File belongs to a pin - verify user owns the pin
         const { data: pinData, error: pinError } = await this.supabase
@@ -622,11 +649,11 @@ class FileStorageService {
           return false;
         }
 
-        if (pinData.user_id !== user.id) {
+        if (!isAdmin && pinData.user_id !== user.id) {
           console.error('🚫 User does not have permission to rename this file (pin ownership)');
           return false;
         }
-        console.log('✅ Pin ownership verified');
+        console.log('✅ Pin access verified');
       } else if (fileData.area_id && fileData.area_id !== 'null') {
         // File belongs to an area - verify user owns the area
         const { data: areaData, error: areaError } = await this.supabase
@@ -640,11 +667,11 @@ class FileStorageService {
           return false;
         }
 
-        if (areaData.user_id !== user.id) {
+        if (!isAdmin && areaData.user_id !== user.id) {
           console.error('🚫 User does not have permission to rename this file (area ownership)');
           return false;
         }
-        console.log('✅ Area ownership verified');
+        console.log('✅ Area access verified');
       } else {
         // File doesn't belong to a pin or area - this is an orphaned file
         // Allow rename but log a warning
@@ -859,7 +886,9 @@ class FileStorageService {
         return false;
       }
 
-      // Verify user owns the pin
+      const isAdmin = isPeblAdminEmail(user.email)
+
+      // Verify user has access to the pin (admins bypass ownership check)
       const { data: pinData, error: pinError } = await this.supabase
         .from('pins')
         .select('user_id')
@@ -871,8 +900,8 @@ class FileStorageService {
         return false;
       }
 
-      // Check if user owns the pin associated with this file
-      if (pinData.user_id !== user.id) {
+      // Check if user owns the pin associated with this file (admins bypass)
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('🚫 User does not have permission to update this file');
         return false;
       }

@@ -1,5 +1,6 @@
 import { createClient } from './client'
 import { Project } from './types'
+import { isPeblAdminEmail } from './role-service'
 
 class ProjectService {
   private supabase = createClient()
@@ -8,7 +9,12 @@ class ProjectService {
   // PEBL admins see all projects, partners see shared projects
   async getProjects(): Promise<Project[]> {
     const { data: { user } } = await this.supabase.auth.getUser()
-    if (!user) return []
+    if (!user) {
+      console.log('[ProjectService] No user authenticated, returning empty projects');
+      return [];
+    }
+
+    console.log('[ProjectService] Loading projects for user:', user.id, user.email);
 
     // Let RLS handle access control - no user_id filter needed
     const { data, error } = await this.supabase
@@ -16,9 +22,14 @@ class ProjectService {
       .select('*')
       .order('created_at', { ascending: false })
 
-    if (error) throw error
+    if (error) {
+      console.error('[ProjectService] Error loading projects:', error);
+      throw error;
+    }
 
-    return data.map(project => ({
+    console.log('[ProjectService] Loaded', data?.length || 0, 'projects from database');
+
+    return (data || []).map(project => ({
       id: project.id,
       name: project.name,
       description: project.description || undefined,
@@ -64,14 +75,16 @@ class ProjectService {
 
   async updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'description'>>): Promise<Project> {
     console.log('📝 Updating project:', id, updates);
-    
+
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) {
       console.error('❌ User not authenticated for project update');
       throw new Error('Please log in to update projects. User authentication is required.')
     }
 
-    // First verify the user owns this project
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    // First verify the user owns this project (admins can update any project)
     const { data: projectCheck, error: checkError } = await this.supabase
       .from('projects')
       .select('user_id')
@@ -83,7 +96,7 @@ class ProjectService {
       throw new Error('Project not found or access denied.')
     }
 
-    if (projectCheck.user_id !== user.id) {
+    if (!isAdmin && projectCheck.user_id !== user.id) {
       console.error('❌ User does not own this project');
       throw new Error('You do not have permission to update this project.')
     }
@@ -116,14 +129,16 @@ class ProjectService {
 
   async deleteProject(id: string): Promise<void> {
     console.log('🗑️ Deleting project:', id);
-    
+
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) {
       console.error('❌ User not authenticated for project deletion');
       throw new Error('Please log in to delete projects. User authentication is required.')
     }
 
-    // First verify the user owns this project
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    // First verify the user owns this project (admins can delete any project)
     const { data: projectCheck, error: checkError } = await this.supabase
       .from('projects')
       .select('user_id')
@@ -135,7 +150,7 @@ class ProjectService {
       throw new Error('Project not found or access denied.')
     }
 
-    if (projectCheck.user_id !== user.id) {
+    if (!isAdmin && projectCheck.user_id !== user.id) {
       console.error('❌ User does not own this project');
       throw new Error('You do not have permission to delete this project.')
     }
@@ -279,12 +294,19 @@ class ProjectService {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return null
 
-    const { data, error } = await this.supabase
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    let query = this.supabase
       .from('projects')
       .select('*')
       .eq('id', id)
-      .eq('user_id', user.id)
-      .single()
+
+    // Only filter by user_id for non-admin users; admins can view any project
+    if (!isAdmin) {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data, error } = await query.single()
 
     if (error || !data) return null
 
@@ -304,11 +326,19 @@ class ProjectService {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return null
 
-    // Get all user's projects and find one whose name matches the slug
-    const { data, error } = await this.supabase
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    // Get projects and find one whose name matches the slug
+    let query = this.supabase
       .from('projects')
       .select('*')
-      .eq('user_id', user.id)
+
+    // Only filter by user_id for non-admin users
+    if (!isAdmin) {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data, error } = await query
 
     if (error || !data) return null
 
@@ -332,33 +362,137 @@ class ProjectService {
     }
   }
 
+  /**
+   * Discover projects by scanning distinct project_ids from pins, lines, and areas.
+   * This finds legacy string-based projects (e.g. 'bidefordbay') that don't have
+   * entries in the projects table. RLS policies control which data is visible.
+   */
+  async discoverLegacyProjects(): Promise<Project[]> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return []
+
+    const LEGACY_NAMES: Record<string, string> = {
+      milfordhaven: "Milford Haven",
+      ramseysound: "Ramsey Sound",
+      bidefordbay: "Bideford Bay",
+      blakeneyoverfalls: "Blakeney Overfalls",
+      pabayinnersound: "Pabay Inner Sound",
+      lochbay: "Loch Bay",
+      lochsunart: "Loch Sunart",
+    }
+
+    // Query distinct project_ids from pins, lines, and areas (RLS handles access)
+    const [pinsResult, linesResult, areasResult] = await Promise.all([
+      this.supabase.from('pins').select('project_id').not('project_id', 'is', null),
+      this.supabase.from('lines').select('project_id').not('project_id', 'is', null),
+      this.supabase.from('areas').select('project_id').not('project_id', 'is', null),
+    ])
+
+    const allProjectIds = new Set<string>()
+
+    for (const result of [pinsResult, linesResult, areasResult]) {
+      if (result.data) {
+        for (const row of result.data) {
+          if (row.project_id) allProjectIds.add(row.project_id)
+        }
+      }
+    }
+
+    // Filter to non-UUID project IDs (legacy projects)
+    const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+
+    const legacyProjects: Project[] = []
+    for (const projectId of allProjectIds) {
+      if (!isUuid(projectId)) {
+        legacyProjects.push({
+          id: projectId,
+          name: LEGACY_NAMES[projectId] || projectId,
+          description: undefined,
+          createdAt: new Date(),
+        })
+      }
+    }
+
+    console.log(`[ProjectService] Discovered ${legacyProjects.length} legacy projects from data`)
+    return legacyProjects
+  }
+
   async getSharedProjects(): Promise<(Project & { isShared: true })[]> {
     const { data: { user } } = await this.supabase.auth.getUser()
     if (!user) return []
 
-    const { data, error } = await this.supabase
+    // Legacy project locations for non-UUID project IDs
+    const LEGACY_PROJECTS: Record<string, string> = {
+      milfordhaven: "Milford Haven",
+      ramseysound: "Ramsey Sound",
+      bidefordbay: "Bideford Bay",
+      blakeneyoverfalls: "Blakeney Overfalls",
+      pabayinnersound: "Pabay Inner Sound",
+      lochbay: "Loch Bay",
+      lochsunart: "Loch Sunart",
+    }
+
+    // Step 1: Get project IDs shared with this user
+    const { data: shares, error: sharesError } = await this.supabase
       .from('project_shares')
-      .select(`
-        project_id,
-        projects:project_id (id, name, description, created_at)
-      `)
+      .select('project_id')
       .eq('shared_with_user_id', user.id)
 
-    if (error) {
-      console.error('Error loading shared projects:', error)
+    if (sharesError) {
+      console.error('Error loading project shares:', sharesError)
       return []
     }
 
-    return (data ?? [])
-      .map((row: any) => row.projects)
-      .filter(Boolean)
-      .map((project: any) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description || undefined,
-        createdAt: new Date(project.created_at),
-        isShared: true as const,
-      }))
+    if (!shares || shares.length === 0) {
+      return []
+    }
+
+    const results: (Project & { isShared: true })[] = []
+    const uuidProjectIds: string[] = []
+
+    // Separate UUID project IDs from legacy string IDs
+    for (const share of shares) {
+      const projectId = share.project_id
+      // Check if it's a UUID (contains hyphens and is 36 chars)
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
+
+      if (isUuid) {
+        uuidProjectIds.push(projectId)
+      } else if (LEGACY_PROJECTS[projectId]) {
+        // Legacy string ID - use hardcoded name
+        results.push({
+          id: projectId,
+          name: LEGACY_PROJECTS[projectId],
+          description: undefined,
+          createdAt: new Date(),
+          isShared: true as const,
+        })
+      }
+    }
+
+    // Step 2: Get the actual project details for UUID projects
+    if (uuidProjectIds.length > 0) {
+      const { data: projects, error: projectsError } = await this.supabase
+        .from('projects')
+        .select('id, name, description, created_at')
+        .in('id', uuidProjectIds)
+
+      if (projectsError) {
+        console.error('Error loading shared project details:', projectsError)
+      } else {
+        for (const project of projects ?? []) {
+          results.push({
+            id: project.id,
+            name: project.name,
+            description: project.description || undefined,
+            createdAt: new Date(project.created_at),
+            isShared: true as const,
+          })
+        }
+      }
+    }
+
+    return results
   }
 }
 

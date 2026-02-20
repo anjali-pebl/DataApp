@@ -819,6 +819,10 @@ function MapDrawingPageContent() {
   // Read-only when partner is viewing a shared project
   const isReadOnly = userRole === 'partner' && sharedProjectIds.has(activeProjectId);
 
+  // Partners cannot upload files or create projects anywhere
+  const canUploadFiles = userRole !== 'partner';
+  const canCreateProjects = userRole !== 'partner';
+
   // Unified loading state for smooth UX
   const {
     isLoading: isPageLoading,
@@ -838,15 +842,32 @@ function MapDrawingPageContent() {
     perfLogger.start('loadProjects');
     setIsLoadingProjects(true);
     try {
-      const [databaseProjects, sharedProjects] = await Promise.all([
+      const [databaseProjects, sharedProjects, legacyProjects] = await Promise.all([
         projectService.getProjects(),
-        projectService.getSharedProjects().catch(() => []),
+        projectService.getSharedProjects().catch((err) => {
+          console.error('Failed to load shared projects:', err);
+          return [];
+        }),
+        projectService.discoverLegacyProjects().catch((err) => {
+          console.error('Failed to discover legacy projects:', err);
+          return [];
+        }),
       ]);
+
+      console.log(`[Projects] Loaded ${databaseProjects.length} database, ${sharedProjects.length} shared, ${legacyProjects.length} legacy`);
 
       // Start with empty projects - only show database projects, not hardcoded locations
       const combinedProjects: Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }> = {};
 
-      // Add owned projects from database
+      // Add legacy projects discovered from data (pins/lines/areas)
+      legacyProjects.forEach(project => {
+        combinedProjects[project.id] = {
+          name: project.name,
+          isDynamic: true
+        };
+      });
+
+      // Add owned projects from database (overwrites legacy if both exist)
       databaseProjects.forEach(project => {
         combinedProjects[project.id] = {
           name: project.name,
@@ -871,7 +892,7 @@ function MapDrawingPageContent() {
       // Update project visibility to include new projects
       setProjectVisibility(prev => {
         const updated = { ...prev };
-        [...databaseProjects, ...sharedProjects].forEach(project => {
+        [...legacyProjects, ...databaseProjects, ...sharedProjects].forEach(project => {
           if (!(project.id in updated)) {
             updated[project.id] = true;
           }
@@ -3957,6 +3978,10 @@ function MapDrawingPageContent() {
 
   // Initiate file upload - select files first, then show pin selector
   const handleInitiateFileUpload = () => {
+    if (!canUploadFiles) {
+      toast({ variant: 'destructive', title: 'Not Allowed', description: 'Partner accounts cannot upload files.' });
+      return;
+    }
     if (isReadOnly) {
       toast({ variant: 'destructive', title: 'Read Only', description: 'You do not have permission to upload files to this project.' });
       return;
@@ -7651,22 +7676,24 @@ function MapDrawingPageContent() {
                             );
                           })}
                         
-                        {/* Add New Project Button */}
-                        <div className="border-t border-muted-foreground/20 pt-3 mt-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full justify-center gap-2 h-8"
-                            onClick={() => {
-                              setNewProjectName('');
-                              setNewProjectDescription('');
-                              setShowAddProjectDialog(true);
-                            }}
-                          >
-                            <Plus className="h-3 w-3" />
-                            Add New Project
-                          </Button>
-                        </div>
+                        {/* Add New Project Button - hidden for partners */}
+                        {userRole !== 'partner' && (
+                          <div className="border-t border-muted-foreground/20 pt-3 mt-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-center gap-2 h-8"
+                              onClick={() => {
+                                setNewProjectName('');
+                                setNewProjectDescription('');
+                                setShowAddProjectDialog(true);
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                              Add New Project
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                     

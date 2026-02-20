@@ -15,6 +15,15 @@ export function isPebl(role: AccountRole | null): boolean {
   return role === 'pebl'
 }
 
+/**
+ * Check if an email belongs to a PEBL admin (by domain).
+ * Use this in service methods that already have the user object
+ * to avoid an extra DB query for role checking.
+ */
+export function isPeblAdminEmail(email: string | undefined): boolean {
+  return !!email && email.endsWith('@pebl-cic.co.uk')
+}
+
 export function isApproved(role: AccountRole | null): boolean {
   return role === 'pebl' || role === 'partner'
 }

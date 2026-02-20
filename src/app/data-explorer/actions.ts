@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { isPeblAdminEmail } from '@/lib/supabase/role-service';
 
 export interface UserFileDetails {
   id: string
@@ -42,11 +43,18 @@ export async function getAllUserFilesAction(): Promise<{
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
-    // Get all pins owned by the user
-    const { data: userPins, error: pinsError } = await supabase
+    const isAdmin = isPeblAdminEmail(user.email)
+
+    // Get all pins (admins see all, regular users see their own via RLS + filter)
+    let pinsQuery = supabase
       .from('pins')
       .select('id, label')
-      .eq('user_id', user.id);
+
+    if (!isAdmin) {
+      pinsQuery = pinsQuery.eq('user_id', user.id)
+    }
+
+    const { data: userPins, error: pinsError } = await pinsQuery;
 
     if (pinsError) {
       console.error('[Data Explorer Actions] Error fetching pins:', pinsError);
@@ -56,11 +64,16 @@ export async function getAllUserFilesAction(): Promise<{
       };
     }
 
-    // Get all areas owned by the user
-    const { data: userAreas, error: areasError } = await supabase
+    // Get all areas (admins see all, regular users see their own)
+    let areasQuery = supabase
       .from('areas')
       .select('id, label')
-      .eq('user_id', user.id);
+
+    if (!isAdmin) {
+      areasQuery = areasQuery.eq('user_id', user.id)
+    }
+
+    const { data: userAreas, error: areasError } = await areasQuery;
 
     if (areasError) {
       console.error('[Data Explorer Actions] Error fetching areas:', areasError);
@@ -279,6 +292,8 @@ export async function renameFileAction(fileId: string, newFileName: string): Pro
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
+    const isAdmin = isPeblAdminEmail(user.email);
+
     // Get file metadata to verify ownership
     const { data: fileData, error: getError } = await supabase
       .from('pin_files')
@@ -313,7 +328,7 @@ export async function renameFileAction(fileId: string, newFileName: string): Pro
         };
       }
 
-      if (pinData.user_id !== user.id) {
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -336,7 +351,7 @@ export async function renameFileAction(fileId: string, newFileName: string): Pro
         };
       }
 
-      if (areaData.user_id !== user.id) {
+      if (!isAdmin && areaData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -410,6 +425,8 @@ export async function updateFileDatesAction(
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
+    const isAdmin = isPeblAdminEmail(user.email);
+
     // Get file metadata to verify ownership (check both pin_id and area_id)
     const { data: fileData, error: getError } = await supabase
       .from('pin_files')
@@ -447,7 +464,7 @@ export async function updateFileDatesAction(
         };
       }
 
-      if (pinData.user_id !== user.id) {
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this pin file');
         return {
           success: false,
@@ -470,7 +487,7 @@ export async function updateFileDatesAction(
         };
       }
 
-      if (areaData.user_id !== user.id) {
+      if (!isAdmin && areaData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this area file');
         return {
           success: false,
@@ -550,6 +567,8 @@ export async function deleteFileAction(fileId: string): Promise<{
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
+    const isAdmin = isPeblAdminEmail(user.email);
+
     // Get file metadata to verify ownership
     const { data: fileData, error: getError } = await supabase
       .from('pin_files')
@@ -584,7 +603,7 @@ export async function deleteFileAction(fileId: string): Promise<{
         };
       }
 
-      if (pinData.user_id !== user.id) {
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -607,7 +626,7 @@ export async function deleteFileAction(fileId: string): Promise<{
         };
       }
 
-      if (areaData.user_id !== user.id) {
+      if (!isAdmin && areaData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -688,6 +707,8 @@ export async function downloadFileAction(fileId: string): Promise<{
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
+    const isAdmin = isPeblAdminEmail(user.email);
+
     // Get file metadata to verify ownership
     const { data: fileData, error: getError } = await supabase
       .from('pin_files')
@@ -722,7 +743,7 @@ export async function downloadFileAction(fileId: string): Promise<{
         };
       }
 
-      if (pinData.user_id !== user.id) {
+      if (!isAdmin && pinData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -745,7 +766,7 @@ export async function downloadFileAction(fileId: string): Promise<{
         };
       }
 
-      if (areaData.user_id !== user.id) {
+      if (!isAdmin && areaData.user_id !== user.id) {
         console.error('[Data Explorer Actions] User does not own this file');
         return {
           success: false,
@@ -824,6 +845,8 @@ export async function fetchFileDataAction(fileId: string): Promise<{
 
     console.log('[Data Explorer Actions] User authenticated:', user.id);
 
+    const isAdmin = isPeblAdminEmail(user.email);
+
     // Get file metadata to verify ownership
     const { data: fileData, error: getError } = await supabase
       .from('pin_files')
@@ -841,7 +864,7 @@ export async function fetchFileDataAction(fileId: string): Promise<{
 
     console.log('[Data Explorer Actions] File to fetch data from:', fileData.file_name);
 
-    // Verify user owns the pin associated with this file
+    // Verify user owns the pin associated with this file (admins bypass)
     const { data: pinData, error: pinError } = await supabase
       .from('pins')
       .select('user_id')
@@ -856,7 +879,7 @@ export async function fetchFileDataAction(fileId: string): Promise<{
       };
     }
 
-    if (pinData.user_id !== user.id) {
+    if (!isAdmin && pinData.user_id !== user.id) {
       console.error('[Data Explorer Actions] User does not own this file');
       return {
         success: false,
@@ -963,14 +986,16 @@ export async function uploadCleanedFileAction(
       };
     }
 
-    // Verify user owns the pin
+    const isAdmin = isPeblAdminEmail(user.email);
+
+    // Verify user owns the pin (admins bypass)
     const { data: pinData, error: pinError } = await supabase
       .from('pins')
       .select('user_id')
       .eq('id', originalFile.pin_id)
       .single();
 
-    if (pinError || !pinData || pinData.user_id !== user.id) {
+    if (pinError || !pinData || (!isAdmin && pinData.user_id !== user.id)) {
       console.error('[Data Explorer Actions] User does not own this file');
       return {
         success: false,
@@ -1082,10 +1107,12 @@ export async function fetchRawCsvAction(fileId: string): Promise<{
 
     console.log('[Data Explorer Actions] File to fetch raw data from:', fileData.file_name);
 
-    // Verify user owns the pin or area associated with this file
-    let ownershipVerified = false;
+    const isAdmin = isPeblAdminEmail(user.email);
 
-    if (fileData.pin_id) {
+    // Verify user owns the pin or area associated with this file (admins bypass)
+    let ownershipVerified = isAdmin;
+
+    if (!ownershipVerified && fileData.pin_id) {
       const { data: pinData, error: pinError } = await supabase
         .from('pins')
         .select('user_id')
@@ -1095,7 +1122,7 @@ export async function fetchRawCsvAction(fileId: string): Promise<{
       if (!pinError && pinData && pinData.user_id === user.id) {
         ownershipVerified = true;
       }
-    } else if (fileData.area_id) {
+    } else if (!ownershipVerified && fileData.area_id) {
       const { data: areaData, error: areaError } = await supabase
         .from('areas')
         .select('user_id')
@@ -1220,10 +1247,12 @@ export async function updateCsvFileAction(fileId: string, csvContent: string): P
       };
     }
 
-    // Verify user owns the pin or area associated with this file
-    let ownershipVerified = false;
+    const isAdmin = isPeblAdminEmail(user.email);
 
-    if (fileData.pin_id) {
+    // Verify user owns the pin or area associated with this file (admins bypass)
+    let ownershipVerified = isAdmin;
+
+    if (!ownershipVerified && fileData.pin_id) {
       const { data: pinData, error: pinError } = await supabase
         .from('pins')
         .select('user_id')
@@ -1233,7 +1262,7 @@ export async function updateCsvFileAction(fileId: string, csvContent: string): P
       if (!pinError && pinData && pinData.user_id === user.id) {
         ownershipVerified = true;
       }
-    } else if (fileData.area_id) {
+    } else if (!ownershipVerified && fileData.area_id) {
       const { data: areaData, error: areaError } = await supabase
         .from('areas')
         .select('user_id')
@@ -1375,7 +1404,9 @@ export async function transformSingleCellAction(
       return { success: false, error: 'Unauthorized' };
     }
 
-    // 2. Verify file ownership
+    const isAdmin = isPeblAdminEmail(user.email);
+
+    // 2. Verify file ownership (admins bypass)
     const { data: fileData, error: fileError } = await supabase
       .from('pin_files')
       .select('id, pin_id, area_id')
@@ -1386,10 +1417,10 @@ export async function transformSingleCellAction(
       return { success: false, error: 'File not found' };
     }
 
-    // Verify ownership through pin or area
-    let ownershipVerified = false;
+    // Verify ownership through pin or area (admins bypass)
+    let ownershipVerified = isAdmin;
 
-    if (fileData.pin_id) {
+    if (!ownershipVerified && fileData.pin_id) {
       const { data: pinData, error: pinError } = await supabase
         .from('pins')
         .select('user_id')
@@ -1533,7 +1564,9 @@ export async function batchTransformCellsAction(
       return { success: false, error: 'Unauthorized' };
     }
 
-    // 2. Verify file ownership (similar to fetchRawCsvAction)
+    const isAdmin = isPeblAdminEmail(user.email);
+
+    // 2. Verify file ownership (admins bypass)
     const { data: fileData, error: fileError } = await supabase
       .from('pin_files')
       .select('id, pin_id, area_id')
@@ -1544,10 +1577,10 @@ export async function batchTransformCellsAction(
       return { success: false, error: 'File not found' };
     }
 
-    // Verify ownership through pin or area
-    let ownershipVerified = false;
+    // Verify ownership through pin or area (admins bypass)
+    let ownershipVerified = isAdmin;
 
-    if (fileData.pin_id) {
+    if (!ownershipVerified && fileData.pin_id) {
       const { data: pinData, error: pinError } = await supabase
         .from('pins')
         .select('user_id')
