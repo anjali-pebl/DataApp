@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { useToast } from '@/hooks/use-toast';
 import { fileStorageService } from '@/lib/supabase/file-storage-service';
 import { categorizeFile, TILE_NAMES, ALL_ACCEPT_STRING, isMediaFile } from '@/lib/file-categorization-config';
+import { getUserRole } from '@/lib/supabase/role-service';
 import type { PinFile, MergedFile } from '@/lib/supabase/types';
 
 import { ProjectDataHeader } from '@/components/project-data/ProjectDataHeader';
@@ -71,11 +72,20 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [projectId, setProjectId] = useState<string>('');
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Resolve params promise
   useEffect(() => {
     params.then(p => setProjectId(p.projectId));
   }, [params]);
+
+  // Check user role
+  useEffect(() => {
+    getUserRole().then(role => setUserRole(role));
+  }, []);
+
+  // Partners cannot upload files
+  const canUpload = userRole !== 'partner';
 
   // Project data hook
   const {
@@ -835,6 +845,7 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
         projectName={project?.name || ''}
         isUploadingFiles={isUploadingFiles}
         onUpload={handleInitiateFileUpload}
+        canUpload={canUpload}
       />
 
       <div className="flex-shrink-0 px-6 py-3">

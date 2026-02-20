@@ -58,6 +58,7 @@ export interface ProjectDataDialogProps {
   isPageLoading: boolean;
   isInitialLoad: boolean;
   multiFileMergeMode: 'union' | 'intersection';
+  canUpload?: boolean; // Partners cannot upload
   setCurrentProjectContext: (id: string) => void;
   setShowUploadPinSelector: (show: boolean) => void;
   setSelectedUploadPinId: (id: string) => void;
@@ -335,6 +336,7 @@ export function ProjectDataDialog({
   isPageLoading,
   isInitialLoad,
   multiFileMergeMode,
+  canUpload = true,
   setCurrentProjectContext,
   setShowUploadPinSelector,
   setSelectedUploadPinId,
@@ -386,29 +388,31 @@ export function ProjectDataDialog({
               Manage and upload data files for the current project
             </DialogDescription>
             {/* Action Buttons - Inline with header */}
-            <div className="flex items-center gap-2">
-              {/* Upload Button */}
-              <Button
-                variant="default"
-                size="sm"
-                className="flex items-center gap-1.5 h-7 px-2.5"
-                disabled={isUploadingFiles}
-                onClick={handleInitiateFileUpload}
-                data-testid="upload-file-button"
-              >
-                {isUploadingFiles ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    <span className="text-xs">Uploading...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-3 w-3" />
-                    <span className="text-xs">Upload</span>
-                  </>
-                )}
-              </Button>
-            </div>
+            {canUpload && (
+              <div className="flex items-center gap-2">
+                {/* Upload Button */}
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex items-center gap-1.5 h-7 px-2.5"
+                  disabled={isUploadingFiles}
+                  onClick={handleInitiateFileUpload}
+                  data-testid="upload-file-button"
+                >
+                  {isUploadingFiles ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span className="text-xs">Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-3 w-3" />
+                      <span className="text-xs">Upload</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         </DialogHeader>
 

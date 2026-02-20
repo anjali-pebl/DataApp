@@ -9,12 +9,14 @@ export interface ProjectDataHeaderProps {
   projectName: string;
   isUploadingFiles: boolean;
   onUpload: () => void;
+  canUpload?: boolean; // Partners cannot upload
 }
 
 export function ProjectDataHeader({
   projectName,
   isUploadingFiles,
-  onUpload
+  onUpload,
+  canUpload = true
 }: ProjectDataHeaderProps) {
   return (
     <header className="flex-shrink-0 border-b border-border bg-background px-6 py-4">
@@ -40,28 +42,30 @@ export function ProjectDataHeader({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            className="flex items-center gap-1.5 h-8 px-3"
-            disabled={isUploadingFiles}
-            onClick={onUpload}
-            data-testid="upload-file-button"
-          >
-            {isUploadingFiles ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span className="text-sm">Uploading...</span>
-              </>
-            ) : (
-              <>
-                <Upload className="h-3.5 w-3.5" />
-                <span className="text-sm">Upload</span>
-              </>
-            )}
-          </Button>
-        </div>
+        {canUpload && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              className="flex items-center gap-1.5 h-8 px-3"
+              disabled={isUploadingFiles}
+              onClick={onUpload}
+              data-testid="upload-file-button"
+            >
+              {isUploadingFiles ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="text-sm">Uploading...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-3.5 w-3.5" />
+                  <span className="text-sm">Upload</span>
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

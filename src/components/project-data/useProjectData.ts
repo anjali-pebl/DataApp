@@ -127,36 +127,50 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
       // Load ALL files for the project using resolved ID (which is the slug)
       console.log(`[useProjectData] Fetching files with resolvedProjectId: "${resolvedProjectId}"`);
       const allProjectFiles = await fileStorageService.getProjectFiles(resolvedProjectId);
-      console.log(`[useProjectData] Got ${allProjectFiles.length} files total`);
-      if (allProjectFiles.length > 0) {
-        console.log(`[useProjectData] File pinIds:`, allProjectFiles.map(f => f.pinId).filter(Boolean));
-      }
+      console.log(`[useProjectData] Got ${allProjectFiles.length} files from database`);
 
       // Group files by pinId or areaId
+      // IMPORTANT: Only include files whose pin/area is in the loaded list
+      // This ensures partners only see files from pins/areas they have access to
       const pinMetadata: Record<string, PinFile[]> = {};
       const areaMetadata: Record<string, PinFile[]> = {};
+      const loadedPinIds = new Set(loadedPins.map(p => p.id));
+      const loadedAreaIds = new Set(loadedAreas.map(a => a.id));
 
+      let filteredOutCount = 0;
       for (const file of allProjectFiles) {
         if (file.pinId) {
-          if (!pinMetadata[file.pinId]) {
-            pinMetadata[file.pinId] = [];
+          // Only include if the pin is in the loaded pins
+          if (loadedPinIds.has(file.pinId)) {
+            if (!pinMetadata[file.pinId]) {
+              pinMetadata[file.pinId] = [];
+            }
+            pinMetadata[file.pinId].push(file);
+          } else {
+            filteredOutCount++;
           }
-          pinMetadata[file.pinId].push(file);
         } else if (file.areaId) {
-          if (!areaMetadata[file.areaId]) {
-            areaMetadata[file.areaId] = [];
+          // Only include if the area is in the loaded areas
+          if (loadedAreaIds.has(file.areaId)) {
+            if (!areaMetadata[file.areaId]) {
+              areaMetadata[file.areaId] = [];
+            }
+            areaMetadata[file.areaId].push(file);
+          } else {
+            filteredOutCount++;
           }
-          areaMetadata[file.areaId].push(file);
+        } else {
+          // Files without pin or area are filtered out (orphaned files)
+          filteredOutCount++;
         }
       }
 
-      // Debug: log area files
-      const areaFileCount = Object.values(areaMetadata).flat().length;
-      if (areaFileCount > 0) {
-        console.log(`[useProjectData] Found ${areaFileCount} area files:`,
-          Object.values(areaMetadata).flat().map(f => f.fileName));
+      if (filteredOutCount > 0) {
+        console.log(`[useProjectData] Filtered out ${filteredOutCount} files (not associated with accessible pins/areas)`);
       }
-      console.log(`[useProjectData] Loaded areas: ${loadedAreas.length}`, loadedAreas.map(a => a.id));
+
+      const totalFilesKept = Object.values(pinMetadata).flat().length + Object.values(areaMetadata).flat().length;
+      console.log(`[useProjectData] Keeping ${totalFilesKept} files associated with accessible pins/areas`);
 
       setPinFileMetadata(pinMetadata);
       setAreaFileMetadata(areaMetadata);
@@ -240,51 +254,8 @@ export function useProjectData(projectId: string): UseProjectDataReturn {
       });
     });
 
-    // Add files whose pins/areas aren't in the current project (orphaned files)
-    // These are files that belong to this project but reference pins from other projects
-    Object.entries(pinFileMetadata).forEach(([pinId, files]) => {
-      if (!pinMap.has(pinId)) {
-        files.forEach(file => {
-          if (!addedFileIds.has(file.id)) {
-            const fileNameLower = file.fileName.toLowerCase();
-            const containsAll = fileNameLower.includes('_all') ||
-                                fileNameLower.includes('all_') ||
-                                fileNameLower.startsWith('all') ||
-                                /\ball\b/.test(fileNameLower);
-
-            const pinLabel = containsAll ? 'All Locations' : 'Unknown Location';
-            allFiles.push({ ...file, pinLabel });
-            addedFileIds.add(file.id);
-          }
-        });
-      }
-    });
-
-    Object.entries(areaFileMetadata).forEach(([areaId, files]) => {
-      if (!areaMap.has(areaId)) {
-        files.forEach(file => {
-          if (!addedFileIds.has(file.id)) {
-            const fileNameLower = file.fileName.toLowerCase();
-            const containsAll = fileNameLower.includes('_all') ||
-                                fileNameLower.includes('all_') ||
-                                fileNameLower.startsWith('all') ||
-                                /\ball\b/.test(fileNameLower);
-
-            const areaLabel = containsAll ? 'All Locations' : 'Unknown Location';
-            allFiles.push({ ...file, pinLabel: areaLabel });
-            addedFileIds.add(file.id);
-          }
-        });
-      }
-    });
-
-    // Debug: log what files are being returned
-    const areaFilesInResult = allFiles.filter(f => f.areaId);
-    if (areaFilesInResult.length > 0 || Object.keys(areaFileMetadata).length > 0) {
-      console.log(`[useProjectData.getProjectFiles] Total files: ${allFiles.length}, Area files in result: ${areaFilesInResult.length}`);
-      console.log(`[useProjectData.getProjectFiles] areaFileMetadata keys:`, Object.keys(areaFileMetadata));
-      console.log(`[useProjectData.getProjectFiles] areas count:`, areas.length);
-    }
+    // NOTE: Orphaned files (files whose pins/areas aren't accessible) are intentionally
+    // NOT included. This ensures users only see files from pins/areas they have access to.
 
     return allFiles;
   }, [pins, areas, pinFileMetadata, areaFileMetadata]);
