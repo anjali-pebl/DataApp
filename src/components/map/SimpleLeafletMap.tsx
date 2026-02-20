@@ -28,12 +28,10 @@ const SimpleLeafletMap: React.FC<SimpleLeafletMapProps> = ({
       });
 
       // Add tile layer
-      const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
-      L.tileLayer(`https://api.maptiler.com/maps/dataviz/{z}/{x}/{y}.png?key=${maptilerKey}`, {
-        attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      const esriKey = process.env.NEXT_PUBLIC_ESRI_API_KEY || '';
+      L.tileLayer(`https://ibasemaps-api.arcgis.com/arcgis/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`, {
+        attribution: 'Esri, GEBCO, NOAA, National Geographic, DeLorme, HERE, Geonames.org, and other contributors',
         maxZoom: 20,
-        tileSize: 512,
-        zoomOffset: -1,
       }).addTo(mapRef.current);
 
       // Add click handler if provided

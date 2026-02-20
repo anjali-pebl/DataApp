@@ -86,7 +86,7 @@ interface LeafletMapProps {
     // Map ready callback
     onMapReady?: () => void;
     // Map style toggle
-    mapStyle?: 'street' | 'satellite';
+    mapStyle?: 'bathymetry' | 'plain';
 }
 
 // Coordinate and distance conversion helpers
@@ -412,13 +412,13 @@ const LeafletMap = ({
             });
             mapRef.current = map;
 
-                const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
-                const initialStyle = mapStyle === 'satellite' ? 'hybrid' : 'dataviz';
-                tileLayerRef.current = L.tileLayer(`https://api.maptiler.com/maps/${initialStyle}/{z}/{x}/{y}.png?key=${maptilerKey}`, {
-                    attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                const esriKey = process.env.NEXT_PUBLIC_ESRI_API_KEY || '';
+                const initialUrl = mapStyle === 'plain'
+                    ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`
+                    : `https://ibasemaps-api.arcgis.com/arcgis/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`;
+                tileLayerRef.current = L.tileLayer(initialUrl, {
+                    attribution: 'Esri, GEBCO, NOAA, National Geographic, DeLorme, HERE, Geonames.org, and other contributors',
                     maxZoom: 20,
-                    tileSize: 512,
-                    zoomOffset: -1,
                 }).addTo(map);
                 
                 pinLayerRef.current = L.layerGroup().addTo(map);
@@ -497,9 +497,11 @@ const LeafletMap = ({
     // Swap tile layer when mapStyle changes
     useEffect(() => {
         if (!tileLayerRef.current) return;
-        const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '';
-        const style = mapStyle === 'satellite' ? 'hybrid' : 'dataviz';
-        tileLayerRef.current.setUrl(`https://api.maptiler.com/maps/${style}/{z}/{x}/{y}.png?key=${maptilerKey}`);
+        const esriKey = process.env.NEXT_PUBLIC_ESRI_API_KEY || '';
+        const url = mapStyle === 'plain'
+            ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`
+            : `https://ibasemaps-api.arcgis.com/arcgis/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`;
+        tileLayerRef.current.setUrl(url);
     }, [mapStyle]);
 
     // Initial zoom to fit active project content (runs when page loads/reloads)
