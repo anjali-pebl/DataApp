@@ -983,7 +983,7 @@ function MapDrawingPageContent() {
   }, [isAuthenticated, isDataLoading, loadDynamicProjects, hasCheckedAuth]);
   
   // Map style state
-  const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street');
+  const [mapStyle, setMapStyle] = useState<'bathymetry' | 'plain'>('bathymetry');
 
   // Drawing state
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('none');
@@ -7718,18 +7718,18 @@ function MapDrawingPageContent() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setMapStyle(prev => prev === 'street' ? 'satellite' : 'street')}
+                    onClick={() => setMapStyle(prev => prev === 'bathymetry' ? 'plain' : 'bathymetry')}
                     className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                   >
-                    {mapStyle === 'street' ? (
-                      <Waves className="h-5 w-5" />
-                    ) : (
+                    {mapStyle === 'bathymetry' ? (
                       <Globe className="h-5 w-5" />
+                    ) : (
+                      <Waves className="h-5 w-5" />
                     )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  <p>{mapStyle === 'street' ? 'Satellite View' : 'Street View'}</p>
+                  <p>{mapStyle === 'bathymetry' ? 'Satellite View' : 'Bathymetry View'}</p>
                 </TooltipContent>
               </Tooltip>
 
