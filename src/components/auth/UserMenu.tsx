@@ -14,7 +14,7 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { SunMoon, Settings, LogOut, Ruler, Map, BarChart3, Loader2, Save, Lock, Check, X, FolderOpen, LineChart, Video, Shield } from 'lucide-react'
+import { SunMoon, Settings, LogOut, Ruler, Map, BarChart3, Loader2, Save, Lock, Check, X, FolderOpen, LineChart, Shield } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useSettings } from '@/hooks/use-settings'
@@ -36,7 +36,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { LoadPlotViewDialog } from '@/components/pin-data/LoadPlotViewDialog'
 import type { SavedPlotView, PlotViewValidationResult } from '@/lib/supabase/plot-view-types'
 import { isFeatureEnabled } from '@/lib/feature-flags'
-import { Database } from 'lucide-react'
 import { analyticsService } from '@/lib/analytics/analytics-service'
 
 interface UserMenuProps {
@@ -357,28 +356,6 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
         <DropdownMenuSeparator />
 
         {/* Navigation Items */}
-        {/* Data Processing - Admin Only */}
-        {isAdmin && (
-          <Link href="/data-processing">
-            <DropdownMenuItem className="cursor-pointer">
-              <Database className="mr-2 h-4 w-4" />
-              <span>Data Processing</span>
-              {pathname === '/data-processing' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
-            </DropdownMenuItem>
-          </Link>
-        )}
-
-        {/* Motion Analysis - Admin Only */}
-        {isAdmin && (
-          <Link href="/motion-analysis">
-            <DropdownMenuItem className="cursor-pointer">
-              <Video className="mr-2 h-4 w-4" />
-              <span>Motion Analysis</span>
-              {pathname === '/motion-analysis' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
-            </DropdownMenuItem>
-          </Link>
-        )}
-
         <Link href="/map-drawing">
           <DropdownMenuItem className="cursor-pointer">
             <Map className="mr-2 h-4 w-4" />
