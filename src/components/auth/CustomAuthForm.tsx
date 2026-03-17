@@ -23,13 +23,19 @@ import {
 import { logger } from '@/lib/logger'
 import { analyticsService } from '@/lib/analytics/analytics-service'
 
-type AuthMode = 'sign-in' | 'sign-up'
+type AuthMode = 'sign-in' | 'sign-up' | 'forgot-password' | 'reset-password'
 
-export default function CustomAuthForm() {
-  const [mode, setMode] = useState<AuthMode>('sign-in')
+interface CustomAuthFormProps {
+  initialMode?: AuthMode
+}
+
+export default function CustomAuthForm({ initialMode = 'sign-in' }: CustomAuthFormProps) {
+  const [mode, setMode] = useState<AuthMode>(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -37,7 +43,11 @@ export default function CustomAuthForm() {
   const supabase = createClient()
   const router = useRouter()
 
+  // Normalize email to lowercase for case-insensitive auth
+  const normalizedEmail = email.trim().toLowerCase()
+
   const passwordValidation = mode === 'sign-up' ? validatePassword(password) : null
+  const newPasswordValidation = mode === 'reset-password' ? validatePassword(newPassword) : null
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,7 +57,7 @@ export default function CustomAuthForm() {
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizedEmail,
         password,
       })
 
@@ -100,7 +110,7 @@ export default function CustomAuthForm() {
 
     try {
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
@@ -137,18 +147,112 @@ export default function CustomAuthForm() {
     }
   }
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset-password`,
+      })
+
+      if (error) throw error
+
+      setSuccess('Password reset link sent! Please check your email (including spam folder).')
+      logger.info('Password reset email sent', {
+        context: 'CustomAuthForm',
+        data: { email: normalizedEmail },
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send reset email'
+      setError(errorMessage)
+      logger.error('Password reset request failed', err, { context: 'CustomAuthForm' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    if (!newPasswordValidation?.isValid) {
+      setError(newPasswordValidation?.errors[0] || 'Invalid password')
+      setLoading(false)
+      return
+    }
+
+    if (!checkPasswordsMatch(newPassword, confirmNewPassword)) {
+      setError('Passwords do not match')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      })
+
+      if (error) throw error
+
+      setSuccess('Password updated successfully! Redirecting to sign in...')
+      logger.info('Password reset successful', { context: 'CustomAuthForm' })
+
+      setTimeout(() => {
+        setMode('sign-in')
+        setNewPassword('')
+        setConfirmNewPassword('')
+        setSuccess(null)
+        router.push('/auth')
+      }, 2000)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reset password'
+      setError(errorMessage)
+      logger.error('Password reset failed', err, { context: 'CustomAuthForm' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getFormHandler = () => {
+    switch (mode) {
+      case 'sign-in': return handleSignIn
+      case 'sign-up': return handleSignUp
+      case 'forgot-password': return handleForgotPassword
+      case 'reset-password': return handleResetPassword
+    }
+  }
+
+  const getTitle = () => {
+    switch (mode) {
+      case 'sign-in': return 'Sign In'
+      case 'sign-up': return 'Sign Up'
+      case 'forgot-password': return 'Reset Password'
+      case 'reset-password': return 'Set New Password'
+    }
+  }
+
+  const getDescription = () => {
+    switch (mode) {
+      case 'sign-in': return 'Sign in to your account to continue'
+      case 'sign-up': return 'Create a new account to get started'
+      case 'forgot-password': return 'Enter your email and we\'ll send you a reset link'
+      case 'reset-password': return 'Choose a new password for your account'
+    }
+  }
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle>{mode === 'sign-in' ? 'Sign In' : 'Sign Up'}</CardTitle>
-        <CardDescription>
-          {mode === 'sign-in'
-            ? 'Sign in to your account to continue'
-            : 'Create a new account to get started'}
-        </CardDescription>
+        <CardTitle>{getTitle()}</CardTitle>
+        <CardDescription>{getDescription()}</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={mode === 'sign-in' ? handleSignIn : handleSignUp}>
+        <form onSubmit={getFormHandler()}>
           <div className="space-y-4">
             {error && (
               <Alert variant="destructive">
@@ -162,50 +266,57 @@ export default function CustomAuthForm() {
               </Alert>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={loading}
-              />
-            </div>
+            {/* Email field — shown for sign-in, sign-up, forgot-password */}
+            {mode !== 'reset-password' && (
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-              />
-              {mode === 'sign-up' && password && passwordValidation && (
-                <div className="mt-2 space-y-1">
-                  <p
-                    className={`text-sm font-medium ${getPasswordStrengthColor(
-                      passwordValidation.strength
-                    )}`}
-                  >
-                    Strength: {getPasswordStrengthLabel(passwordValidation.strength)}
-                  </p>
-                  {passwordValidation.errors.length > 0 && (
-                    <ul className="text-sm text-red-600 space-y-1">
-                      {passwordValidation.errors.map((err, idx) => (
-                        <li key={idx}>• {err}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
+            {/* Password field — shown for sign-in and sign-up */}
+            {(mode === 'sign-in' || mode === 'sign-up') && (
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+                {mode === 'sign-up' && password && passwordValidation && (
+                  <div className="mt-2 space-y-1">
+                    <p
+                      className={`text-sm font-medium ${getPasswordStrengthColor(
+                        passwordValidation.strength
+                      )}`}
+                    >
+                      Strength: {getPasswordStrengthLabel(passwordValidation.strength)}
+                    </p>
+                    {passwordValidation.errors.length > 0 && (
+                      <ul className="text-sm text-red-600 space-y-1">
+                        {passwordValidation.errors.map((err, idx) => (
+                          <li key={idx}>• {err}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
+            {/* Confirm password — sign-up only */}
             {mode === 'sign-up' && (
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -224,29 +335,111 @@ export default function CustomAuthForm() {
               </div>
             )}
 
+            {/* New password fields — reset-password only */}
+            {mode === 'reset-password' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="newPassword">New Password</Label>
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    placeholder="••••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    disabled={loading}
+                  />
+                  {newPassword && newPasswordValidation && (
+                    <div className="mt-2 space-y-1">
+                      <p
+                        className={`text-sm font-medium ${getPasswordStrengthColor(
+                          newPasswordValidation.strength
+                        )}`}
+                      >
+                        Strength: {getPasswordStrengthLabel(newPasswordValidation.strength)}
+                      </p>
+                      {newPasswordValidation.errors.length > 0 && (
+                        <ul className="text-sm text-red-600 space-y-1">
+                          {newPasswordValidation.errors.map((err, idx) => (
+                            <li key={idx}>• {err}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmNewPassword">Confirm New Password</Label>
+                  <Input
+                    id="confirmNewPassword"
+                    type="password"
+                    placeholder="••••••••••"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    required
+                    disabled={loading}
+                  />
+                  {confirmNewPassword && !checkPasswordsMatch(newPassword, confirmNewPassword) && (
+                    <p className="text-sm text-red-600">Passwords do not match</p>
+                  )}
+                </div>
+              </>
+            )}
+
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Loading...' : mode === 'sign-in' ? 'Sign In' : 'Sign Up'}
+              {loading
+                ? 'Loading...'
+                : mode === 'sign-in' ? 'Sign In'
+                : mode === 'sign-up' ? 'Sign Up'
+                : mode === 'forgot-password' ? 'Send Reset Link'
+                : 'Update Password'}
             </Button>
 
+            {/* Forgot password link — sign-in only */}
+            {mode === 'sign-in' && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:underline"
+                  onClick={() => { setMode('forgot-password'); setError(null); setSuccess(null) }}
+                >
+                  Forgot your password?
+                </button>
+              </div>
+            )}
+
             <div className="text-center text-sm">
-              {mode === 'sign-in' ? (
+              {mode === 'sign-in' && (
                 <p>
                   Don&apos;t have an account?{' '}
                   <button
                     type="button"
                     className="text-blue-600 hover:underline"
-                    onClick={() => setMode('sign-up')}
+                    onClick={() => { setMode('sign-up'); setError(null); setSuccess(null) }}
                   >
                     Sign up
                   </button>
                 </p>
-              ) : (
+              )}
+              {mode === 'sign-up' && (
                 <p>
                   Already have an account?{' '}
                   <button
                     type="button"
                     className="text-blue-600 hover:underline"
-                    onClick={() => setMode('sign-in')}
+                    onClick={() => { setMode('sign-in'); setError(null); setSuccess(null) }}
+                  >
+                    Sign in
+                  </button>
+                </p>
+              )}
+              {(mode === 'forgot-password' || mode === 'reset-password') && (
+                <p>
+                  Back to{' '}
+                  <button
+                    type="button"
+                    className="text-blue-600 hover:underline"
+                    onClick={() => { setMode('sign-in'); setError(null); setSuccess(null) }}
                   >
                     Sign in
                   </button>

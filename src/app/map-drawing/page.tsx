@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode, Image, FileText, Download } from 'lucide-react';
+import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode, Image, FileText, Download, Camera, Ruler } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line as RechartsLine, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, Brush, LabelList, ReferenceLine } from 'recharts';
 import type { LucideIcon } from "lucide-react";
 import { Checkbox } from '@/components/ui/checkbox';
@@ -156,6 +156,7 @@ import {
   LazyAddProjectDialog as AddProjectDialog,
   LazyPhotoViewerDialog as PhotoViewerDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
+const ProjectPhotoCarousel = dynamic(() => import('@/components/map-drawing/dialogs/ProjectPhotoCarousel'), { ssr: false });
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
 
@@ -447,8 +448,8 @@ function MapDrawingPageContent() {
   const [mapScale, setMapScale] = useState<{ distance: number; unit: string; pixels: number } | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [objectTypeFilter, setObjectTypeFilter] = useState<'all' | 'pin' | 'line' | 'area'>('all');
-  const [sidebarWidth, setSidebarWidth] = useState(320); // Default width in pixels
-  const [originalSidebarWidth, setOriginalSidebarWidth] = useState(320); // Store original width
+  const [sidebarWidth, setSidebarWidth] = useState(448); // Default width in pixels
+  const [originalSidebarWidth, setOriginalSidebarWidth] = useState(448); // Store original width
   const [isResizing, setIsResizing] = useState(false);
   const [showFloatingDrawingTools, setShowFloatingDrawingTools] = useState(false);
   const [isEditingObject, setIsEditingObject] = useState(false);
@@ -707,6 +708,8 @@ function MapDrawingPageContent() {
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [photoViewerData, setPhotoViewerData] = useState<{ url: string; fileName: string; fileId: string } | null>(null);
+  const [showPhotoCarousel, setShowPhotoCarousel] = useState(false);
+  const [coverImageUploading, setCoverImageUploading] = useState(false);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
 
@@ -793,7 +796,7 @@ function MapDrawingPageContent() {
   const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null);
   
   // Dynamic projects state (loaded from database - owned + shared projects only)
-  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }>>({});
+  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean; coverImagePath?: string }>>({});
   const [isLoadingProjects, setIsLoadingProjects] = useState(true); // Start true since we load on mount
 
   // Project management state
@@ -842,7 +845,7 @@ function MapDrawingPageContent() {
     perfLogger.start('loadProjects');
     setIsLoadingProjects(true);
     try {
-      const [databaseProjects, sharedProjects, legacyProjects] = await Promise.all([
+      const [databaseProjects, sharedProjects, legacyProjects, projectCovers, displayNames] = await Promise.all([
         projectService.getProjects(),
         projectService.getSharedProjects().catch((err) => {
           console.error('Failed to load shared projects:', err);
@@ -852,26 +855,30 @@ function MapDrawingPageContent() {
           console.error('Failed to discover legacy projects:', err);
           return [];
         }),
+        projectService.getProjectCovers().catch(() => ({} as Record<string, string>)),
+        projectService.getProjectDisplayNames().catch(() => ({} as Record<string, string>)),
       ]);
 
       console.log(`[Projects] Loaded ${databaseProjects.length} database, ${sharedProjects.length} shared, ${legacyProjects.length} legacy`);
 
       // Start with empty projects - only show database projects, not hardcoded locations
-      const combinedProjects: Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }> = {};
+      const combinedProjects: Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean; coverImagePath?: string }> = {};
 
       // Add legacy projects discovered from data (pins/lines/areas)
       legacyProjects.forEach(project => {
         combinedProjects[project.id] = {
-          name: project.name,
-          isDynamic: true
+          name: displayNames[project.id] || project.name,
+          isDynamic: true,
+          coverImagePath: projectCovers[project.id]
         };
       });
 
       // Add owned projects from database (overwrites legacy if both exist)
       databaseProjects.forEach(project => {
         combinedProjects[project.id] = {
-          name: project.name,
-          isDynamic: true
+          name: displayNames[project.id] || project.name,
+          isDynamic: true,
+          coverImagePath: projectCovers[project.id]
         };
       });
 
@@ -880,8 +887,9 @@ function MapDrawingPageContent() {
       sharedProjects.forEach(project => {
         newSharedIds.add(project.id);
         combinedProjects[project.id] = {
-          name: `${project.name} (Shared)`,
-          isDynamic: true
+          name: displayNames[project.id] || `${project.name} (Shared)`,
+          isDynamic: true,
+          coverImagePath: projectCovers[project.id]
         };
       });
       setSharedProjectIds(newSharedIds);
@@ -995,6 +1003,11 @@ function MapDrawingPageContent() {
   const [areaStartPoint, setAreaStartPoint] = useState<LatLng | null>(null);
   const [currentAreaEndPoint, setCurrentAreaEndPoint] = useState<LatLng | null>(null);
   
+  // Measurement tool state
+  const [isMeasuring, setIsMeasuring] = useState(false);
+  const [measureStart, setMeasureStart] = useState<LatLng | null>(null);
+  const [measureEnd, setMeasureEnd] = useState<LatLng | null>(null);
+
   // Pending items (waiting for user input)
   const [pendingPin, setPendingPin] = useState<LatLng | null>(null);
   const [pendingLine, setPendingLine] = useState<{ path: LatLng[] } | null>(null);
@@ -1440,8 +1453,8 @@ function MapDrawingPageContent() {
 
   // Update the handler ref whenever dependencies change
   mapMoveHandlerRef.current = (center: LatLng, zoom: number, isMoving: boolean = false) => {
-    // Only update crosshair during continuous movement (isMoving=true) if actively drawing
-    const shouldUpdateDuringMove = isMoving && (isDrawingLine || isDrawingArea);
+    // Only update crosshair during continuous movement (isMoving=true) if actively drawing or measuring
+    const shouldUpdateDuringMove = isMoving && (isDrawingLine || isDrawingArea || (isMeasuring && measureStart));
 
     // Update view - but only on moveend (not during continuous dragging) to avoid excessive re-renders
     if (!isMoving) {
@@ -1457,6 +1470,11 @@ function MapDrawingPageContent() {
     // Update crosshair position for area drawing (this needs to update during movement)
     if (isDrawingArea && areaStartPoint && shouldUpdateDuringMove) {
       setCurrentAreaEndPoint(center);
+    }
+
+    // Update measurement endpoint during movement — only when not actively drawing
+    if (isMeasuring && measureStart && !isDrawingLine && !isDrawingArea && shouldUpdateDuringMove) {
+      setMeasureEnd(center);
     }
   };
 
@@ -5139,7 +5157,20 @@ function MapDrawingPageContent() {
 
       {/* Map Container - Account for top navigation height (h-14 = 3.5rem) */}
       <main className="relative overflow-hidden bg-background text-foreground" style={{ height: 'calc(100vh - 3.5rem)' }}>
-        <div className="h-full w-full relative" style={{ minHeight: '500px', cursor: drawingMode === 'none' ? 'default' : 'crosshair' }}>
+        <div className="h-full w-full relative" style={{ minHeight: '500px', cursor: (drawingMode !== 'none' || isMeasuring) ? 'crosshair' : 'default' }}>
+
+          {/* Center crosshair overlay for drawing and measuring modes */}
+          {(isDrawingLine || isDrawingArea || isMeasuring) && (
+            <div className="absolute inset-0 pointer-events-none z-[999] flex items-center justify-center">
+              <svg width="40" height="40" viewBox="0 0 40 40" className="opacity-70">
+                <line x1="20" y1="4" x2="20" y2="16" stroke="currentColor" strokeWidth="2" />
+                <line x1="20" y1="24" x2="20" y2="36" stroke="currentColor" strokeWidth="2" />
+                <line x1="4" y1="20" x2="16" y2="20" stroke="currentColor" strokeWidth="2" />
+                <line x1="24" y1="20" x2="36" y2="20" stroke="currentColor" strokeWidth="2" />
+                <circle cx="20" cy="20" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </div>
+          )}
 
           {/* Show skeleton during initial load */}
           {isPageLoading && isInitialLoad ? (
@@ -5208,6 +5239,9 @@ function MapDrawingPageContent() {
             tempAreaPath={tempAreaPath}
             onAreaCornerDrag={handleAreaCornerDrag}
             mapStyle={mapStyle}
+            isMeasuring={isMeasuring}
+            measureStart={measureStart}
+            measureEnd={measureEnd}
           />
           )}
 
@@ -6785,7 +6819,46 @@ function MapDrawingPageContent() {
                 </Tooltip>
               </TooltipProvider>
             )}
-            
+
+            {/* Measure Tool Button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      if (isMeasuring) {
+                        // Toggle off — clear measurement
+                        setIsMeasuring(false);
+                        setMeasureStart(null);
+                        setMeasureEnd(null);
+                      } else {
+                        // Toggle on — set start at map center
+                        if (mapRef.current) {
+                          const center = mapRef.current.getCenter();
+                          setMeasureStart(center);
+                          setMeasureEnd(center);
+                          setIsMeasuring(true);
+                          setShowFloatingDrawingTools(false);
+                        }
+                      }
+                    }}
+                    className={`h-10 w-10 rounded-full shadow-lg border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 ${
+                      isMeasuring
+                        ? 'bg-amber-500/90 hover:bg-amber-500 text-white'
+                        : 'bg-primary/90 hover:bg-primary text-primary-foreground'
+                    }`}
+                  >
+                    <Ruler className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isMeasuring ? 'Stop Measuring' : 'Measure Distance'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
             {/* Floating Drawing Tools Dropdown */}
             {showFloatingDrawingTools && (
               <div className="w-48 bg-background border rounded-lg shadow-xl p-2 space-y-1">
@@ -6909,8 +6982,8 @@ function MapDrawingPageContent() {
               }`}
               style={{
                 width: `${sidebarWidth}px`,
-                top: '80px', // Start below the header bar
-                height: 'calc(100vh - 80px)', // Adjust height accordingly
+                top: '3.5rem', // Start below the header bar (h-14 = 3.5rem)
+                height: 'calc(100vh - 3.5rem)', // Adjust height accordingly
                 transition: 'width 0.3s ease-out' // Smooth width transitions
               }}
               data-menu-dropdown
@@ -6963,21 +7036,95 @@ function MapDrawingPageContent() {
                     {(() => {
                       const activeProject = dynamicProjects[activeProjectId];
                       if (!activeProject) return null;
-                      
+
                       const projectPins = pins.filter(p => p.projectId === activeProjectId);
                       const projectLines = lines.filter(l => l.projectId === activeProjectId);
                       const projectAreas = areas.filter(a => a.projectId === activeProjectId);
                       const totalObjects = projectPins.length + projectLines.length + projectAreas.length;
-                      
+
+                      const coverImageUrl = activeProject.coverImagePath
+                        ? fileStorageService.getPublicUrl(activeProject.coverImagePath)
+                        : null;
+
+                      const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setCoverImageUploading(true);
+                        try {
+                          const path = await projectService.uploadCoverImage(activeProjectId, file);
+                          if (path) {
+                            setDynamicProjects(prev => ({
+                              ...prev,
+                              [activeProjectId]: { ...prev[activeProjectId], coverImagePath: path }
+                            }));
+                            toast({ title: 'Cover image updated', duration: 2000 });
+                          } else {
+                            toast({ variant: 'destructive', title: 'Upload failed', description: 'Only admins can upload cover images.' });
+                          }
+                        } catch {
+                          toast({ variant: 'destructive', title: 'Upload failed' });
+                        } finally {
+                          setCoverImageUploading(false);
+                          e.target.value = '';
+                        }
+                      };
+
                       return (
-                        <div className="border-l-4 border-accent rounded-sm mb-4 pl-2">
+                        <div className="rounded-lg mb-4 overflow-hidden border">
+                          {/* Cover Image */}
+                          <div
+                            className="relative w-full h-40 bg-muted cursor-pointer group"
+                            onClick={() => coverImageUrl ? setShowPhotoCarousel(true) : undefined}
+                          >
+                            {coverImageUrl ? (
+                              <>
+                                <img
+                                  src={coverImageUrl}
+                                  alt={`${activeProject.name} cover`}
+                                  className="w-full h-full object-cover"
+                                />
+                                {/* See Photos badge */}
+                                <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Camera className="h-3 w-3" />
+                                  See Photos
+                                </div>
+                              </>
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/40">
+                                <Image className="h-8 w-8 mb-1" />
+                                <span className="text-xs">No cover image</span>
+                              </div>
+                            )}
+                            {/* Upload button overlay for admins */}
+                            {userRole === 'pebl' && (
+                              <label className="absolute top-2 right-2 cursor-pointer">
+                                <div className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors">
+                                  {coverImageUploading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Camera className="h-3.5 w-3.5" />
+                                  )}
+                                </div>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={handleCoverImageUpload}
+                                  disabled={coverImageUploading}
+                                />
+                              </label>
+                            )}
+                          </div>
+
+                          {/* Project info below image */}
+                          <div className="px-3 pt-3 pb-3">
                           {/* Clickable header with arrow and separate center button */}
                           <div className="flex items-center gap-1">
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    className="h-6 w-6 p-0 hover:bg-accent/20 rounded inline-flex items-center justify-center"
+                                    className="h-6 w-6 p-0 hover:bg-accent/20 rounded inline-flex items-center justify-center flex-shrink-0"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       // Calculate bounding box and optimal zoom for all active project objects
@@ -7093,7 +7240,7 @@ function MapDrawingPageContent() {
                                 variant="ghost"
                                 size="sm" 
                                 onClick={() => setShowProjectInfo(showProjectInfo === activeProjectId ? null : activeProjectId)}
-                                className="w-full justify-between gap-3 h-auto p-3 text-left hover:bg-muted/30"
+                                className="w-full justify-between gap-3 h-auto px-3 pt-1 pb-3 text-left hover:bg-muted/30"
                               >
                                 <div className="flex items-center gap-2 ml-2">
                                   <div>
@@ -7255,6 +7402,7 @@ function MapDrawingPageContent() {
                             </div>
 
                           </div>
+                          </div> {/* Close px-3 pt-2 wrapper */}
 
 
                           {/* Active Project Objects Dropdown */}
@@ -7814,25 +7962,70 @@ function MapDrawingPageContent() {
               <div className="bg-black/80 text-white px-3 py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm shadow-lg">
                 {pendingAreaPath.length === 1 ? 'Drag map to set corner' : `${pendingAreaPath.length} corners added`}
               </div>
-              <Button 
-                onClick={handleAreaAddCorner} 
+              <Button
+                onClick={handleAreaAddCorner}
                 className="h-10 px-4 bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
               >
                 + Add Corner
               </Button>
               {pendingAreaPath.length >= 3 && (
-                <Button 
-                  onClick={handleAreaFinish} 
+                <Button
+                  onClick={handleAreaFinish}
                   className="h-10 px-4 bg-accent/90 hover:bg-accent text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
                 >
                   ✓ Finish Area
                 </Button>
               )}
-              <Button 
-                onClick={handleAreaCancelDrawing} 
+              <Button
+                onClick={handleAreaCancelDrawing}
                 className="h-10 px-4 bg-destructive/90 hover:bg-destructive text-destructive-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
               >
                 ✗ Cancel Area
+              </Button>
+            </div>
+          )}
+
+          {/* Measurement Controls - hidden when actively drawing or dropdown open to avoid overlap */}
+          {isMeasuring && !isDrawingLine && !isDrawingArea && !showFloatingDrawingTools && (
+            <div className="absolute top-16 right-4 z-[1000] flex flex-col gap-2">
+              <div className="bg-amber-500/90 text-white px-3 py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm shadow-lg">
+                <Ruler className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+                {measureStart && measureEnd && measureStart.distanceTo(measureEnd) > 0
+                  ? (() => {
+                      const d = measureStart.distanceTo(measureEnd);
+                      const lat1 = measureStart.lat * Math.PI / 180;
+                      const lat2 = measureEnd.lat * Math.PI / 180;
+                      const dLng = (measureEnd.lng - measureStart.lng) * Math.PI / 180;
+                      const y = Math.sin(dLng) * Math.cos(lat2);
+                      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+                      const bearing = ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+                      const distText = d >= 1000 ? `${(d / 1000).toFixed(2)} km` : `${d.toFixed(0)} m`;
+                      return `${distText}, ${bearing.toFixed(1)}°`;
+                    })()
+                  : 'Drag map to measure'}
+              </div>
+              <Button
+                onClick={() => {
+                  // Reset start to current map center
+                  if (mapRef.current) {
+                    const center = mapRef.current.getCenter();
+                    setMeasureStart(center);
+                    setMeasureEnd(center);
+                  }
+                }}
+                className="h-10 px-4 bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
+              >
+                ↻ Reset Start Point
+              </Button>
+              <Button
+                onClick={() => {
+                  setIsMeasuring(false);
+                  setMeasureStart(null);
+                  setMeasureEnd(null);
+                }}
+                className="h-10 px-4 bg-destructive/90 hover:bg-destructive text-destructive-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
+              >
+                ✗ Stop Measuring
               </Button>
             </div>
           )}
@@ -7950,6 +8143,14 @@ function MapDrawingPageContent() {
           }}
         />
       )}
+
+      {/* Project Photo Carousel */}
+      <ProjectPhotoCarousel
+        open={showPhotoCarousel}
+        onClose={() => setShowPhotoCarousel(false)}
+        projectId={activeProjectId}
+        projectName={dynamicProjects[activeProjectId]?.name || ''}
+      />
 
       {/* Duplicate File Warning Dialog */}
       <Dialog open={showDuplicateWarning} onOpenChange={(open) => {
@@ -8083,6 +8284,17 @@ function MapDrawingPageContent() {
         }}
         onCancel={() => {
           setShowProjectSettingsDialog(false);
+        }}
+        onRename={async (newName: string) => {
+          const projectId = currentProjectContext || activeProjectId;
+          const success = await projectService.setProjectDisplayName(projectId, newName);
+          if (success) {
+            setDynamicProjects(prev => ({
+              ...prev,
+              [projectId]: { ...prev[projectId], name: newName }
+            }));
+          }
+          return success;
         }}
       />
 

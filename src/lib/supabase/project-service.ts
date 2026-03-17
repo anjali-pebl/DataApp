@@ -1,6 +1,8 @@
 import { createClient } from './client'
 import { Project } from './types'
 import { isPeblAdminEmail } from './role-service'
+import { v4 as uuidv4 } from 'uuid'
+import { isPhotoFile } from '@/lib/file-categorization-config'
 
 class ProjectService {
   private supabase = createClient()
@@ -101,13 +103,15 @@ class ProjectService {
       throw new Error('You do not have permission to update this project.')
     }
 
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString()
+    }
+    if (updates.name !== undefined) updatePayload.name = updates.name
+    if (updates.description !== undefined) updatePayload.description = updates.description || null
+
     const { data, error } = await this.supabase
       .from('projects')
-      .update({
-        name: updates.name,
-        description: updates.description || null,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single()
@@ -415,6 +419,160 @@ class ProjectService {
 
     console.log(`[ProjectService] Discovered ${legacyProjects.length} legacy projects from data`)
     return legacyProjects
+  }
+
+  /**
+   * Upload a cover image for a project (works with text slug IDs)
+   */
+  async uploadCoverImage(projectId: string, file: File): Promise<string | null> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return null
+
+    const isAdmin = isPeblAdminEmail(user.email)
+    if (!isAdmin) {
+      console.error('Only admins can upload cover images')
+      return null
+    }
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const filePath = `projects/${projectId}/cover-${uuidv4()}.${ext}`
+
+    const { error: uploadError } = await this.supabase.storage
+      .from('pin-files')
+      .upload(filePath, file, { upsert: true })
+
+    if (uploadError) {
+      console.error('Cover image upload error:', uploadError)
+      return null
+    }
+
+    // Upsert into project_covers table (works for both slug and UUID project IDs)
+    const { error: dbError } = await this.supabase
+      .from('project_covers')
+      .upsert({
+        project_id: projectId,
+        image_path: filePath,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'project_id' })
+
+    if (dbError) {
+      console.error('Failed to save cover image path:', dbError)
+      // File uploaded but DB failed — still return the path
+    }
+
+    return filePath
+  }
+
+  /**
+   * Load cover images for all projects
+   */
+  async getProjectCovers(): Promise<Record<string, string>> {
+    const { data, error } = await this.supabase
+      .from('project_covers')
+      .select('project_id, image_path')
+
+    if (error || !data) return {}
+
+    const covers: Record<string, string> = {}
+    data.forEach(row => { covers[row.project_id] = row.image_path })
+    return covers
+  }
+
+  /**
+   * Get all photo files across all pins and areas in a project
+   */
+  async getProjectPhotos(projectId: string): Promise<Array<{ url: string; fileName: string; pinName?: string; areaName?: string }>> {
+    const results: Array<{ url: string; fileName: string; pinName?: string; areaName?: string }> = []
+
+    // Get pin photos
+    const { data: pinFiles } = await this.supabase
+      .from('pin_files')
+      .select('file_name, file_path, pin_id, area_id')
+      .eq('project_id', projectId)
+
+    if (!pinFiles) return results
+
+    // Get pin/area names for labels
+    const pinIds = [...new Set(pinFiles.filter(f => f.pin_id).map(f => f.pin_id))]
+    const areaIds = [...new Set(pinFiles.filter(f => f.area_id).map(f => f.area_id))]
+
+    const pinNameMap: Record<string, string> = {}
+    const areaNameMap: Record<string, string> = {}
+
+    if (pinIds.length > 0) {
+      const { data: pins } = await this.supabase
+        .from('pins')
+        .select('id, label')
+        .in('id', pinIds)
+      pins?.forEach(p => { pinNameMap[p.id] = p.label })
+    }
+
+    if (areaIds.length > 0) {
+      const { data: areas } = await this.supabase
+        .from('areas')
+        .select('id, name')
+        .in('id', areaIds)
+      areas?.forEach(a => { areaNameMap[a.id] = a.name })
+    }
+
+    for (const file of pinFiles) {
+      if (!isPhotoFile(file.file_name)) continue
+
+      const { data: urlData } = this.supabase.storage
+        .from('pin-files')
+        .getPublicUrl(file.file_path)
+
+      if (urlData?.publicUrl) {
+        results.push({
+          url: urlData.publicUrl,
+          fileName: file.file_name,
+          pinName: file.pin_id ? pinNameMap[file.pin_id] : undefined,
+          areaName: file.area_id ? areaNameMap[file.area_id] : undefined,
+        })
+      }
+    }
+
+    return results
+  }
+
+  /**
+   * Set a display name alias for a project (works with text slug IDs)
+   */
+  async setProjectDisplayName(projectId: string, displayName: string): Promise<boolean> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) return false
+
+    const isAdmin = isPeblAdminEmail(user.email)
+    if (!isAdmin) return false
+
+    const { error } = await this.supabase
+      .from('project_display_names')
+      .upsert({
+        project_id: projectId,
+        display_name: displayName.trim(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'project_id' })
+
+    if (error) {
+      console.error('Failed to save display name:', error)
+      return false
+    }
+    return true
+  }
+
+  /**
+   * Load display name overrides for all projects
+   */
+  async getProjectDisplayNames(): Promise<Record<string, string>> {
+    const { data, error } = await this.supabase
+      .from('project_display_names')
+      .select('project_id, display_name')
+
+    if (error || !data) return {}
+
+    const names: Record<string, string> = {}
+    data.forEach(row => { names[row.project_id] = row.display_name })
+    return names
   }
 
   async getSharedProjects(): Promise<(Project & { isShared: true })[]> {

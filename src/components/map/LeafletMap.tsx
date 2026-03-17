@@ -87,6 +87,10 @@ interface LeafletMapProps {
     onMapReady?: () => void;
     // Map style toggle
     mapStyle?: 'bathymetry' | 'plain';
+    // Measurement tool props
+    isMeasuring?: boolean;
+    measureStart?: LatLng | null;
+    measureEnd?: LatLng | null;
 }
 
 // Coordinate and distance conversion helpers
@@ -362,7 +366,10 @@ const LeafletMap = ({
     lineEditMode = 'none', editingLineId = null, tempLinePath = null, onLinePointDrag, onLineEditComplete, onLineEditCancel,
     areaEditMode = 'none', editingAreaId = null, tempAreaPath = null, onAreaCornerDrag,
     onMapReady,
-    mapStyle = 'street'
+    mapStyle = 'street',
+    isMeasuring = false,
+    measureStart = null,
+    measureEnd = null,
 }: LeafletMapProps) => {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const pinLayerRef = useRef<LayerGroup | null>(null);
@@ -386,6 +393,10 @@ const LeafletMap = ({
     const popupRef = useRef<Popup | null>(null);
     const previewAreaPointsRef = useRef<LayerGroup | null>(null);
     const distanceTooltipRef = useRef<LeafletTooltip | null>(null);
+    const measureLineRef = useRef<Polyline | null>(null);
+    const measureTooltipRef = useRef<LeafletTooltip | null>(null);
+    const measureStartMarkerRef = useRef<CircleMarker | null>(null);
+    const measureEndMarkerRef = useRef<CircleMarker | null>(null);
     const linePopupActiveRef = useRef<boolean>(false);
     const lineSavingRef = useRef<boolean>(false);
     const areaSavingRef = useRef<boolean>(false);
@@ -1658,6 +1669,77 @@ const LeafletMap = ({
         };
     }, [isDrawingLine, lineStartPoint, currentMousePosition]);
 
+    // Handle measurement line rendering
+    useEffect(() => {
+        const cleanupMeasure = () => {
+            if (measureLineRef.current) { measureLineRef.current.remove(); measureLineRef.current = null; }
+            if (measureTooltipRef.current) { measureTooltipRef.current.remove(); measureTooltipRef.current = null; }
+            if (measureStartMarkerRef.current) { measureStartMarkerRef.current.remove(); measureStartMarkerRef.current = null; }
+            if (measureEndMarkerRef.current) { measureEndMarkerRef.current.remove(); measureEndMarkerRef.current = null; }
+        };
+
+        const isActivelyDrawing = isDrawingLine || isDrawingArea;
+
+        if (mapRef.current && isMeasuring && measureStart && measureEnd) {
+            cleanupMeasure();
+
+            const distance = measureStart.distanceTo(measureEnd);
+            if (distance > 0) {
+                // Calculate bearing
+                const lat1 = measureStart.lat * Math.PI / 180;
+                const lat2 = measureEnd.lat * Math.PI / 180;
+                const dLng = (measureEnd.lng - measureStart.lng) * Math.PI / 180;
+                const y = Math.sin(dLng) * Math.cos(lat2);
+                const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+                const bearing = ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+
+                // Always draw measurement line (as a tracing guide)
+                measureLineRef.current = L.polyline(
+                    [[measureStart.lat, measureStart.lng], [measureEnd.lat, measureEnd.lng]],
+                    { color: '#f59e0b', weight: 3, opacity: 0.9, dashArray: '10, 6' }
+                ).addTo(mapRef.current);
+
+                // Start marker
+                measureStartMarkerRef.current = L.circleMarker(
+                    [measureStart.lat, measureStart.lng],
+                    { radius: 5, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1, weight: 2 }
+                ).addTo(mapRef.current);
+
+                // End marker
+                measureEndMarkerRef.current = L.circleMarker(
+                    [measureEnd.lat, measureEnd.lng],
+                    { radius: 5, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1, weight: 2 }
+                ).addTo(mapRef.current);
+
+                // Only show tooltip when NOT actively drawing
+                if (!isActivelyDrawing) {
+                    const distanceText = distance >= 1000
+                        ? `${(distance / 1000).toFixed(2)} km`
+                        : `${distance.toFixed(0)} m`;
+                    const tooltipContent = `${distanceText}, ${bearing.toFixed(1)}°`;
+
+                    const midPoint = L.latLng(
+                        (measureStart.lat + measureEnd.lat) / 2,
+                        (measureStart.lng + measureEnd.lng) / 2
+                    );
+
+                    measureTooltipRef.current = L.tooltip({
+                        permanent: true,
+                        direction: 'center',
+                        className: 'measure-tooltip'
+                    })
+                    .setContent(tooltipContent)
+                    .setLatLng(midPoint)
+                    .addTo(mapRef.current);
+                }
+            }
+        } else if (!isMeasuring || !measureStart) {
+            cleanupMeasure();
+        }
+
+        return cleanupMeasure;
+    }, [isMeasuring, measureStart, measureEnd, isDrawingLine, isDrawingArea]);
+
     // Handle live area preview while drawing
     useEffect(() => {
         if (mapRef.current && isDrawingArea && areaStartPoint && currentAreaEndPoint) {
@@ -1816,6 +1898,13 @@ const arePropsEqual = (prevProps: LeafletMapProps, nextProps: LeafletMapProps): 
         prevProps.areaStartPoint !== nextProps.areaStartPoint ||
         prevProps.currentMousePosition !== nextProps.currentMousePosition ||
         prevProps.currentAreaEndPoint !== nextProps.currentAreaEndPoint) {
+        return false;
+    }
+
+    // Check measurement state
+    if (prevProps.isMeasuring !== nextProps.isMeasuring ||
+        prevProps.measureStart !== nextProps.measureStart ||
+        prevProps.measureEnd !== nextProps.measureEnd) {
         return false;
     }
 

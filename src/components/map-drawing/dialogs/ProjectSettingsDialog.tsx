@@ -28,6 +28,7 @@ export interface ProjectSettingsDialogProps {
   onDeleteProject: () => void;
   onBatchDelete: () => void;
   onCancel: () => void;
+  onRename?: (newName: string) => Promise<boolean>;
 }
 
 export function ProjectSettingsDialog({
@@ -39,9 +40,11 @@ export function ProjectSettingsDialog({
   onDeleteProject,
   onBatchDelete,
   onCancel,
+  onRename,
 }: ProjectSettingsDialogProps) {
   const { toast } = useToast();
   const [projectNameEdit, setProjectNameEdit] = React.useState(projectName);
+  const [isSaving, setIsSaving] = React.useState(false);
 
   // Update internal state when project name changes
   React.useEffect(() => {
@@ -50,14 +53,30 @@ export function ProjectSettingsDialog({
     }
   }, [open, projectName]);
 
-  const handleSaveChanges = () => {
-    // TODO: Implement project rename functionality
-    toast({
-      title: "Feature Coming Soon",
-      description: "Project renaming will be available in a future update.",
-      duration: 3000
-    });
-    onOpenChange(false);
+  const handleSaveChanges = async () => {
+    const trimmed = projectNameEdit.trim();
+    if (!trimmed) {
+      toast({ variant: 'destructive', title: 'Project name cannot be empty', duration: 2000 });
+      return;
+    }
+    if (trimmed === projectName) {
+      onOpenChange(false);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const success = onRename ? await onRename(trimmed) : false;
+      if (success) {
+        toast({ title: 'Project Renamed', description: `Display name updated to: ${trimmed}`, duration: 2000 });
+        onOpenChange(false);
+      } else {
+        toast({ variant: 'destructive', title: 'Rename Failed', description: 'Only admins can rename projects.', duration: 3000 });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Rename Failed', duration: 2000 });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDeleteProject = () => {
@@ -91,7 +110,7 @@ export function ProjectSettingsDialog({
               placeholder="Enter project name"
             />
             <p className="text-xs text-muted-foreground">
-              Note: This application currently uses predefined projects. Full project management will be available in a future update.
+              Changes the display name only. The underlying project data is not affected.
             </p>
           </div>
 
@@ -149,8 +168,9 @@ export function ProjectSettingsDialog({
               </Button>
               <Button
                 onClick={handleSaveChanges}
+                disabled={isSaving}
               >
-                Save Changes
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>

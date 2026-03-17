@@ -140,7 +140,14 @@ export function SourceTile({
       {/* Tile Header */}
       <div className="bg-teal-700 border-b border-teal-800 px-4 py-3 flex-shrink-0 rounded-t-lg">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm text-white">{label}</h3>
+          <h3 className="font-semibold text-sm text-white">
+            {label}
+            {label === 'SubCam' && <span className="font-normal text-teal-200 ml-1">· Benthic Video Data</span>}
+            {label === 'GrowProbe' && <span className="font-normal text-teal-200 ml-1">· Temperature, Light, Turbidity, Current Data</span>}
+            {label === 'FPOD' && <span className="font-normal text-teal-200 ml-1">· Cetacean Click Detection Data</span>}
+            {label === 'eDNA' && <span className="font-normal text-teal-200 ml-1">· Environmental DNA Data</span>}
+            {label === 'Water and Crop Samples' && <span className="font-normal text-teal-200 ml-1">· Water Quality, Crop Chemical Compounds, Crop Yield And Morphology Data</span>}
+          </h3>
           <div className="flex items-center gap-2">
             {/* Category Filter Dropdown */}
             {hasCategories && availableCategories.length > 0 && (
