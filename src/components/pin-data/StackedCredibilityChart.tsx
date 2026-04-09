@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, LabelList } from 'recharts';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { AggregatedCredData } from '@/lib/edna-cred-processor';
 
 interface StackedCredibilityChartProps {
@@ -31,6 +32,7 @@ export function StackedCredibilityChart({
   width = "100%",
   height = 400
 }: StackedCredibilityChartProps) {
+  const isMobile = useIsMobile();
 
   // Transform aggregated data into Recharts format
   const chartData = [
@@ -83,36 +85,37 @@ export function StackedCredibilityChart({
   };
 
   return (
-    <div className="relative w-full flex flex-col items-center" style={{ height }}>
+    <div className="relative w-full flex flex-col items-center" style={{ height: isMobile ? height + 60 : height }}>
       {/* Chart Title - centered over the chart */}
-      <div className="text-center pt-4 mb-4">
-        <h3 className="text-lg font-semibold text-foreground">{customTitle}</h3>
+      <div className="text-center pt-2 md:pt-4 mb-2 md:mb-4">
+        <h3 className="text-sm md:text-lg font-semibold text-foreground">{customTitle}</h3>
       </div>
 
       {/* Chart and Legend Container */}
-      <div className="flex items-start justify-center gap-6" style={{ height: height - 60 }}>
-        {/* Chart Container - larger width */}
-        <div style={{ width: '450px', height: '100%' }}>
+      <div className={isMobile ? "flex flex-col items-center w-full" : "flex items-start justify-center gap-6"} style={{ height: height - 60 }}>
+        {/* Chart Container */}
+        <div style={{ width: isMobile ? '100%' : '450px', height: isMobile ? '280px' : '100%' }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 20, right: 30, left: 50, bottom: 40 }}
+              margin={isMobile ? { top: 10, right: 10, left: 5, bottom: 30 } : { top: 20, right: 30, left: 50, bottom: 40 }}
               barCategoryGap="20%"
             >
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="category"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: isMobile ? 11 : 12 }}
               />
               <YAxis
-                label={{
+                label={isMobile ? undefined : {
                   value: customYAxisLabel,
                   angle: -90,
                   position: 'insideLeft',
                   offset: 20,
                   style: { fontSize: '14px', fontWeight: 'bold', textAnchor: 'middle' }
                 }}
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: isMobile ? 10 : 12 }}
+                width={isMobile ? 30 : undefined}
               />
               <Tooltip content={<CustomTooltip />} />
 
@@ -149,19 +152,22 @@ export function StackedCredibilityChart({
           </ResponsiveContainer>
         </div>
 
-        {/* Legend - positioned to the right of chart */}
-        <div className="bg-card/80 border border-border rounded shadow-sm px-4 py-3 mt-8">
-          <p className="text-sm font-medium text-foreground mb-3">
-            Total Unique Species: {data.totalUniqueSpecies}
+        {/* Legend */}
+        <div className={isMobile
+          ? "bg-card/80 border border-border rounded shadow-sm px-3 py-2 mt-2 flex items-center gap-4 flex-wrap justify-center"
+          : "bg-card/80 border border-border rounded shadow-sm px-4 py-3 mt-8"
+        }>
+          <p className={isMobile ? "text-xs font-medium text-foreground" : "text-sm font-medium text-foreground mb-3"}>
+            Total: {data.totalUniqueSpecies} species
           </p>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-4 h-4 rounded" style={{ backgroundColor: gbifTrueColor }}></span>
-              <span className="text-sm text-muted-foreground">GBIF Verified</span>
+          <div className={isMobile ? "flex items-center gap-3" : "flex flex-col gap-2"}>
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <span className="inline-block w-3 h-3 md:w-4 md:h-4 rounded" style={{ backgroundColor: gbifTrueColor }}></span>
+              <span className="text-xs md:text-sm text-muted-foreground">GBIF Verified</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-4 h-4 rounded" style={{ backgroundColor: gbifFalseColor }}></span>
-              <span className="text-sm text-muted-foreground">GBIF Unverified</span>
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <span className="inline-block w-3 h-3 md:w-4 md:h-4 rounded" style={{ backgroundColor: gbifFalseColor }}></span>
+              <span className="text-xs md:text-sm text-muted-foreground">GBIF Unverified</span>
             </div>
           </div>
         </div>

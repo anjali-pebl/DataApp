@@ -930,70 +930,75 @@ export function PinChartDisplaySpotSample({
     });
 
     return (
-      <div className="space-y-3">
-        {/* File header - location, time period, categories, and filename */}
+      <div className="space-y-2 md:space-y-3">
+        {/* File header */}
         {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0) || fileName) && (
-          <div className="flex flex-col gap-0.5 mb-2">
-            {/* Main header: Location • Time Period (Categories) */}
-            {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-              <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-                {/* Location */}
-                {pinLabel && <span>{pinLabel}</span>}
-
-                {/* Time Period */}
-                {(startDate || endDate) && (
-                  <>
-                    {pinLabel && <span className="text-muted-foreground">•</span>}
-                    <span className="font-normal">
-                      {startDate && endDate
-                        ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
-                        : startDate
-                        ? `From ${format(startDate, 'MMM d, yyyy')}`
-                        : endDate
-                        ? `Until ${format(endDate, 'MMM d, yyyy')}`
-                        : ''}
+          <div className="flex gap-2 mb-1 md:mb-2">
+            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+              {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+                <div className="text-xs md:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                  {pinLabel && <span>{pinLabel}</span>}
+                  {(startDate || endDate) && (
+                    <>
+                      {pinLabel && <span className="text-muted-foreground">•</span>}
+                      <span className="font-normal">
+                        {startDate && endDate
+                          ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                          : startDate
+                          ? `From ${format(startDate, 'MMM d, yyyy')}`
+                          : endDate
+                          ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                          : ''}
+                      </span>
+                    </>
+                  )}
+                  {/* Categories - desktop inline */}
+                  {fileCategories && fileCategories.map((category, index) => (
+                    <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                      {category}
                     </span>
-                  </>
-                )}
-
-                {/* Categories - multiple badges */}
-                {fileCategories && fileCategories.map((category, index) => (
-                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  ))}
+                </div>
+              )}
+              {fileName && (
+                <div className="text-xs text-muted-foreground font-mono truncate">
+                  {fileName}
+                </div>
+              )}
+            </div>
+            {/* Categories - mobile: stacked vertically on the right */}
+            {fileCategories && fileCategories.length > 0 && (
+              <div className="md:hidden flex flex-col gap-0.5 shrink-0">
+                {fileCategories.map((category, index) => (
+                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium text-center">
                     {category}
                   </span>
                 ))}
-              </div>
-            )}
-
-            {/* Raw filename in smaller font */}
-            {fileName && (
-              <div className="text-xs text-muted-foreground font-mono">
-                {fileName}
               </div>
             )}
           </div>
         )}
 
         {/* Control Bar */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
           {/* Chart/Table Toggle */}
           <div className="flex items-center gap-1 border rounded-lg p-1">
             <Button
               variant={!showTable ? "default" : "ghost"}
               size="sm"
               onClick={() => setShowTable(false)}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <BarChart3 className="h-4 w-4 mr-1" />
+              <BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1" />
               Chart
             </Button>
             <Button
               variant={showTable ? "default" : "ghost"}
               size="sm"
               onClick={() => setShowTable(true)}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <TableIcon className="h-4 w-4 mr-1" />
+              <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1" />
               Table
             </Button>
           </div>
@@ -1016,17 +1021,18 @@ export function PinChartDisplaySpotSample({
             onSampleColorChange={handleSampleColorChange}
           >
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-8 ml-auto"
+              className="h-7 w-7 md:h-8 md:w-auto md:px-3 p-0 md:border md:border-input md:variant-outline"
               title="Configure chart styling"
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground" />
             </Button>
           </StylingRulesDialog>
 
+
           {/* Info Badge */}
-          <div className="text-xs text-muted-foreground">
+          <div className="hidden md:block text-xs text-muted-foreground ml-auto">
             {credibilityData.totalUniqueSpecies} unique species detected
           </div>
         </div>
@@ -1108,70 +1114,75 @@ export function PinChartDisplaySpotSample({
     console.log('[SPOT-SAMPLE]   - Spot sample styles:', spotSampleStyles);
 
     return (
-      <div className="space-y-3">
-        {/* File header - location, time period, categories, and filename */}
+      <div className="space-y-2 md:space-y-3">
+        {/* File header */}
         {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0) || fileName) && (
-          <div className="flex flex-col gap-0.5 mb-2">
-            {/* Main header: Location • Time Period (Categories) */}
-            {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-              <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-                {/* Location */}
-                {pinLabel && <span>{pinLabel}</span>}
-
-                {/* Time Period */}
-                {(startDate || endDate) && (
-                  <>
-                    {pinLabel && <span className="text-muted-foreground">•</span>}
-                    <span className="font-normal">
-                      {startDate && endDate
-                        ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
-                        : startDate
-                        ? `From ${format(startDate, 'MMM d, yyyy')}`
-                        : endDate
-                        ? `Until ${format(endDate, 'MMM d, yyyy')}`
-                        : ''}
+          <div className="flex gap-2 mb-1 md:mb-2">
+            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+              {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+                <div className="text-xs md:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                  {pinLabel && <span>{pinLabel}</span>}
+                  {(startDate || endDate) && (
+                    <>
+                      {pinLabel && <span className="text-muted-foreground">•</span>}
+                      <span className="font-normal">
+                        {startDate && endDate
+                          ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                          : startDate
+                          ? `From ${format(startDate, 'MMM d, yyyy')}`
+                          : endDate
+                          ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                          : ''}
+                      </span>
+                    </>
+                  )}
+                  {/* Categories - desktop inline */}
+                  {fileCategories && fileCategories.map((category, index) => (
+                    <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                      {category}
                     </span>
-                  </>
-                )}
-
-                {/* Categories - multiple badges */}
-                {fileCategories && fileCategories.map((category, index) => (
-                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  ))}
+                </div>
+              )}
+              {fileName && (
+                <div className="text-xs text-muted-foreground font-mono truncate">
+                  {fileName}
+                </div>
+              )}
+            </div>
+            {/* Categories - mobile: stacked vertically on the right */}
+            {fileCategories && fileCategories.length > 0 && (
+              <div className="md:hidden flex flex-col gap-0.5 shrink-0">
+                {fileCategories.map((category, index) => (
+                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium text-center">
                     {category}
                   </span>
                 ))}
-              </div>
-            )}
-
-            {/* Raw filename in smaller font */}
-            {fileName && (
-              <div className="text-xs text-muted-foreground font-mono">
-                {fileName}
               </div>
             )}
           </div>
         )}
 
         {/* Control Bar */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
           {/* Chart/Table Toggle */}
           <div className="flex items-center gap-1 border rounded-lg p-1">
             <Button
               variant={!showTable ? "default" : "ghost"}
               size="sm"
               onClick={() => setShowTable(false)}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <BarChart3 className="h-4 w-4 mr-1" />
+              <BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1" />
               Chart
             </Button>
             <Button
               variant={showTable ? "default" : "ghost"}
               size="sm"
               onClick={() => setShowTable(true)}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <TableIcon className="h-4 w-4 mr-1" />
+              <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1" />
               Table
             </Button>
           </div>
@@ -1194,17 +1205,18 @@ export function PinChartDisplaySpotSample({
             onSampleColorChange={handleSampleColorChange}
           >
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-8 ml-auto"
+              className="h-7 w-7 md:h-8 md:w-auto md:px-3 p-0 md:border md:border-input md:variant-outline"
               title="Configure chart styling"
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground" />
             </Button>
           </StylingRulesDialog>
 
+
           {/* Info Badge */}
-          <div className="text-xs text-muted-foreground">
+          <div className="hidden md:block text-xs text-muted-foreground ml-auto">
             {taxonomyData.allPhyla.length} phyla across {taxonomyData.samples.length} samples
           </div>
         </div>
@@ -1380,18 +1392,14 @@ export function PinChartDisplaySpotSample({
   return (
     <div className="flex gap-3">
       {/* Main chart area */}
-      <div className="flex-1 space-y-3">
-        {/* File header - location, time period, categories, filename */}
-        <div className="flex items-stretch gap-4 mb-2">
-          {/* Left side: Header info and filename stacked */}
-          <div className="flex flex-col gap-0.5 flex-1">
-            {/* Main header: Location • Time Period (Categories) */}
+      <div className="flex-1 space-y-2 md:space-y-3">
+        {/* File header - two rows: info on top, controls on bottom */}
+        <div className="flex flex-col gap-1.5 md:gap-2">
+          {/* Row 1: Location, time period, categories, filename */}
+          <div className="flex flex-col gap-0.5">
             {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-              <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-                {/* Location */}
+              <div className="text-xs md:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
                 {pinLabel && <span>{pinLabel}</span>}
-
-                {/* Time Period */}
                 {(startDate || endDate) && (
                   <>
                     {pinLabel && <span className="text-muted-foreground">•</span>}
@@ -1406,47 +1414,47 @@ export function PinChartDisplaySpotSample({
                     </span>
                   </>
                 )}
-
-                {/* Categories - multiple badges */}
+                {/* Categories - desktop only */}
                 {fileCategories && fileCategories.map((category, index) => (
-                  <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
                     {category}
                   </span>
                 ))}
               </div>
             )}
-
-            {/* Raw filename in smaller font */}
             {fileName && (
-              <div className="text-xs text-muted-foreground font-mono">
+              <div className="text-xs text-muted-foreground font-mono truncate">
                 {fileName}
               </div>
             )}
           </div>
 
-
-        </div>
-
-        {/* Control Bar */}
-        <div className="flex items-center gap-3 flex-wrap">
+          {/* Row 2: Controls + Category Badges */}
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+        {/* Category badges - mobile only */}
+        {fileCategories && fileCategories.map((category, index) => (
+          <span key={index} className="md:hidden text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+            {category}
+          </span>
+        ))}
         {/* Chart/Table Toggle */}
         <div className="flex items-center gap-1 border rounded-lg p-1">
           <Button
             variant={!showTable ? "default" : "ghost"}
             size="sm"
             onClick={() => setShowTable(false)}
-            className="h-8"
+            className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
           >
-            <BarChart3 className="h-4 w-4 mr-1" />
+            <BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1" />
             Chart
           </Button>
           <Button
             variant={showTable ? "default" : "ghost"}
             size="sm"
             onClick={() => setShowTable(true)}
-            className="h-8"
+            className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
           >
-            <TableIcon className="h-4 w-4 mr-1" />
+            <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1" />
             Table
           </Button>
         </div>
@@ -1458,7 +1466,7 @@ export function PinChartDisplaySpotSample({
               variant={aggregationMode === 'detailed' ? "default" : "ghost"}
               size="sm"
               onClick={() => setAggregationMode('detailed')}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
               title="Show all individual data points"
             >
               Detailed
@@ -1467,7 +1475,7 @@ export function PinChartDisplaySpotSample({
               variant={aggregationMode === 'by-date' ? "default" : "ghost"}
               size="sm"
               onClick={() => setAggregationMode('by-date')}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
               title="Aggregate all samples by date"
             >
               By Date
@@ -1480,8 +1488,8 @@ export function PinChartDisplaySpotSample({
 
         {/* Chart Type Selector (only show when chart is active) */}
         {!showTable && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-muted-foreground">Show As:</span>
+          <div className="flex items-center gap-1 md:gap-2">
+            <span className="text-xs md:text-sm font-semibold text-muted-foreground">Show As:</span>
             <Select
               value={chartType}
               onValueChange={(val) => {
@@ -1489,7 +1497,7 @@ export function PinChartDisplaySpotSample({
                 setChartType(val as 'column' | 'whisker');
               }}
             >
-              <SelectTrigger className="w-[160px] h-8">
+              <SelectTrigger className="w-[120px] md:w-[160px] h-7 md:h-8 text-xs md:text-sm">
                 <SelectValue placeholder="Select chart type" />
               </SelectTrigger>
               <SelectContent className="z-[9999]">
@@ -1515,13 +1523,13 @@ export function PinChartDisplaySpotSample({
           if (isChemFile || isMetaFile || hasOnlyOneOption) return null;
 
           return (
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-muted-foreground">Show By:</span>
+            <div className="flex items-center gap-1 md:gap-2">
+              <span className="text-xs md:text-sm font-semibold text-muted-foreground">Show By:</span>
               <Select
                 value={selectedSampleIdColumn || detectedSampleIdColumn || ''}
                 onValueChange={(val) => setSelectedSampleIdColumn(val)}
               >
-                <SelectTrigger className="w-[180px] h-8">
+                <SelectTrigger className="w-[130px] md:w-[180px] h-7 md:h-8 text-xs md:text-sm">
                   <SelectValue>
                     {selectedSampleIdColumn
                       ? selectedSampleIdColumn
@@ -1699,6 +1707,7 @@ export function PinChartDisplaySpotSample({
           {finalGroupedData.length} data point{finalGroupedData.length !== 1 ? 's' : ''} • {' '}
           {Object.keys(sampleIdColors).length} sample{Object.keys(sampleIdColors).length !== 1 ? 's' : ''}
         </div>
+      </div>
       </div>
 
       {/* Chart or Table View */}

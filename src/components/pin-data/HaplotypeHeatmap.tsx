@@ -598,36 +598,36 @@ export function HaplotypeHeatmap({
   return (
     <div className="w-full h-full flex flex-col gap-2">
       {/* Filter Panel */}
-      <div className="flex flex-col gap-3 p-3 border rounded-md bg-card shadow-sm">
-        {/* View Mode Selector */}
-        <div className="flex items-center gap-4 pb-3 border-b">
-          <span className="text-sm font-medium">View Mode:</span>
+      <div className="flex flex-col gap-2 md:gap-3 p-2 md:p-3 border rounded-md bg-card shadow-sm">
+        {/* Row 1: View Mode + Sort/Settings */}
+        <div className="flex items-center gap-2 md:gap-4 pb-2 md:pb-3 border-b flex-wrap">
+          <span className="text-xs md:text-sm font-medium">View:</span>
           <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
             <Button
               variant={viewMode === 'heatmap' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('heatmap')}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <TableIcon className="h-4 w-4 mr-2" />
+              <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               Heatmap
             </Button>
             <Button
               variant={viewMode === 'rarefaction' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('rarefaction')}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <TrendingUp className="h-4 w-4 mr-2" />
+              <TrendingUp className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               Rarefaction
             </Button>
             <Button
               variant={viewMode === 'tree' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('tree')}
-              className="h-8"
+              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
             >
-              <Network className="h-4 w-4 mr-2" />
+              <Network className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               Tree
             </Button>
           </div>
@@ -638,76 +638,78 @@ export function HaplotypeHeatmap({
               variant="outline"
               size="sm"
               onClick={() => setShowRarefactionSettings(true)}
-              className="h-8 gap-2"
+              className="h-7 md:h-8 gap-1 md:gap-2 text-xs md:text-sm"
             >
-              <Settings className="h-4 w-4" />
-              Curve Fit Settings
+              <Settings className="h-3 w-3 md:h-4 md:w-4" />
+              Curve Fit
             </Button>
           )}
 
           {/* Sort Mode Toggle (only show for heatmap view) */}
           {viewMode === 'heatmap' && (
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-sm font-medium">Sort:</span>
+            <div className="flex items-center gap-2 md:ml-auto">
+              <span className="text-xs md:text-sm font-medium">Sort:</span>
               <div className="flex items-center gap-1 border rounded-md p-1 bg-muted">
                 <Button
                   variant={sortMode === 'hierarchical' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setSortMode('hierarchical')}
-                  className="h-8"
+                  className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
                   title="Group taxa by taxonomic hierarchy with indentation"
                 >
-                  <Network className="h-4 w-4 mr-1" />
-                  Hierarchical
+                  <Network className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+                  <span className="hidden sm:inline">Hierarchical</span>
+                  <span className="sm:hidden">Hier.</span>
                 </Button>
                 <Button
                   variant={sortMode === 'alphabetical' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setSortMode('alphabetical')}
-                  className="h-8"
+                  className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
                   title="Sort taxa alphabetically (A-Z)"
                 >
-                  <ArrowUpDown className="h-4 w-4 mr-1" />
-                  Alphabetical
+                  <ArrowUpDown className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+                  <span className="hidden sm:inline">Alphabetical</span>
+                  <span className="sm:hidden">A-Z</span>
                 </Button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Heatmap-specific filters (only show in heatmap mode) */}
+        {/* Row 2: Heatmap-specific filters (only show in heatmap mode) */}
         {viewMode === 'heatmap' && (
           <>
-            <div className="flex items-center gap-6">
-              <span className="text-sm font-medium">Credibility Filters:</span>
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 md:gap-6 flex-wrap">
+              <span className="text-xs md:text-sm font-medium">Credibility:</span>
+          <div className="flex items-center gap-1.5 md:gap-2">
             <Checkbox id="high" checked={showHigh} onCheckedChange={setShowHigh} />
-            <Label htmlFor="high" className="text-sm cursor-pointer">High</Label>
+            <Label htmlFor="high" className="text-xs md:text-sm cursor-pointer">High</Label>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 md:gap-2">
             <Checkbox id="moderate" checked={showModerate} onCheckedChange={setShowModerate} />
-            <Label htmlFor="moderate" className="text-sm cursor-pointer">Moderate</Label>
+            <Label htmlFor="moderate" className="text-xs md:text-sm cursor-pointer">Med</Label>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 md:gap-2">
             <Checkbox id="low" checked={showLow} onCheckedChange={setShowLow} />
-            <Label htmlFor="low" className="text-sm cursor-pointer">Low</Label>
+            <Label htmlFor="low" className="text-xs md:text-sm cursor-pointer">Low</Label>
           </div>
-          <div className="flex items-center gap-2 pl-6 border-l">
+          <div className="flex items-center gap-1.5 md:gap-2 md:pl-6 md:border-l">
             <Checkbox id="hideEmpty" checked={hideEmptyRows} onCheckedChange={setHideEmptyRows} />
-            <Label htmlFor="hideEmpty" className="text-sm cursor-pointer">Hide Empty Rows</Label>
+            <Label htmlFor="hideEmpty" className="text-xs md:text-sm cursor-pointer">Hide Empty</Label>
           </div>
-          <div className="flex items-center gap-2 pl-6 border-l">
+          <div className="flex items-center gap-1.5 md:gap-2 md:pl-6 md:border-l">
             <Checkbox id="showRedList" checked={showRedListColumn} onCheckedChange={setShowRedListColumn} />
-            <Label htmlFor="showRedList" className="text-sm cursor-pointer">Show RedList Status</Label>
+            <Label htmlFor="showRedList" className="text-xs md:text-sm cursor-pointer">RedList</Label>
           </div>
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex items-center gap-2 md:gap-4">
             {isFetchingTaxonomy && (
-              <div className="text-xs text-blue-600 font-medium flex items-center gap-2">
+              <div className="text-[10px] md:text-xs text-blue-600 font-medium flex items-center gap-1 md:gap-2">
                 <div className="animate-spin h-3 w-3 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                Fetching taxonomy: {taxonomyFetchProgress.current}/{taxonomyFetchProgress.total}
+                {taxonomyFetchProgress.current}/{taxonomyFetchProgress.total}
               </div>
             )}
-            <span className="text-xs text-muted-foreground">
+            <span className="text-[10px] md:text-xs text-muted-foreground">
               {filteredSpecies.length} species • {sites.length} sites
             </span>
           </div>
@@ -717,6 +719,14 @@ export function HaplotypeHeatmap({
       </div>
 
       {/* Conditional Rendering: Heatmap, Rarefaction, or Tree */}
+      {/* Mobile-only rotate banner for heatmap views */}
+      {viewMode === 'heatmap' && (
+        <div className="md:hidden flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-amber-700 dark:text-amber-400 text-xs">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+          Rotate phone for best heatmap view
+        </div>
+      )}
+
       {viewMode === 'rarefaction' ? (
         /* Rarefaction View */
         <div
@@ -763,11 +773,11 @@ export function HaplotypeHeatmap({
         <div
           ref={setContainerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="flex-1 w-full border rounded-md p-2 bg-card overflow-auto"
+          className="flex-1 w-full border rounded-md pt-3 md:pt-2 px-2 pb-2 bg-card overflow-auto touch-pan-x touch-pan-y"
         >
           {/* Taxonomic Rank Legend (only in hierarchical mode) */}
           {sortMode === 'hierarchical' && (
-            <div className="flex flex-wrap items-center justify-end gap-3 text-xs mb-2 pb-2 pr-4 border-b border-border">
+            <div className="flex flex-wrap items-center justify-end gap-1.5 md:gap-3 text-[10px] md:text-xs mb-2 pb-2 pr-2 md:pr-4 border-b border-border">
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
                 <span className="text-muted-foreground">Kingdom</span>
@@ -808,7 +818,7 @@ export function HaplotypeHeatmap({
             </div>
           )}
         <TooltipProvider>
-          <svg width="100%" height={Math.max(plotHeight + margin.top + margin.bottom, 400)}>
+          <svg width={Math.max(plotWidth + margin.left + margin.right, width)} height={Math.max(plotHeight + margin.top + margin.bottom, 400)} style={{ minWidth: `${plotWidth + margin.left + margin.right}px` }}>
             {plotWidth > 0 && plotHeight > 0 && (
               <g transform={`translate(${margin.left},${margin.top})`}>
                 {/* Column Headers */}

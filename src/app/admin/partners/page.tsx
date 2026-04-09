@@ -164,53 +164,51 @@ export default function PartnersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-3 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/map-drawing">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back to Map
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Shield className="h-6 w-6" />
-                Partner Management
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Manage partner accounts and project access
-              </p>
-            </div>
+        <div className="flex items-center gap-2 md:gap-3">
+          <Link href="/map-drawing">
+            <Button variant="ghost" size="sm" className="h-8 w-8 md:h-9 md:w-auto p-0 md:px-3">
+              <ArrowLeft className="h-4 w-4 md:mr-1" />
+              <span className="hidden md:inline">Back</span>
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-base md:text-2xl font-bold flex items-center gap-1.5 md:gap-2">
+              <Shield className="h-4 w-4 md:h-6 md:w-6" />
+              Partner Management
+            </h1>
+            <p className="text-xs md:text-sm text-muted-foreground">
+              Manage accounts and project access
+            </p>
           </div>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-2 md:gap-4">
           <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Pending Approvals</CardDescription>
-              <CardTitle className="text-3xl flex items-center gap-2">
-                <Clock className="h-6 w-6 text-amber-500" />
+            <CardHeader className="pb-2 p-3 md:p-6 items-center md:items-start">
+              <CardDescription className="text-xs md:text-sm">Pending</CardDescription>
+              <CardTitle className="text-xl md:text-3xl flex items-center gap-1 md:gap-2">
+                <Clock className="h-4 w-4 md:h-6 md:w-6 text-amber-500" />
                 {pendingUsers.length}
               </CardTitle>
             </CardHeader>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Active Partners</CardDescription>
-              <CardTitle className="text-3xl flex items-center gap-2">
-                <Users className="h-6 w-6 text-blue-500" />
+            <CardHeader className="pb-2 p-3 md:p-6 items-center md:items-start">
+              <CardDescription className="text-xs md:text-sm">Partners</CardDescription>
+              <CardTitle className="text-xl md:text-3xl flex items-center gap-1 md:gap-2">
+                <Users className="h-4 w-4 md:h-6 md:w-6 text-blue-500" />
                 {partners.length}
               </CardTitle>
             </CardHeader>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total Projects</CardDescription>
-              <CardTitle className="text-3xl flex items-center gap-2">
-                <FolderOpen className="h-6 w-6 text-green-500" />
+            <CardHeader className="pb-2 p-3 md:p-6 items-center md:items-start">
+              <CardDescription className="text-xs md:text-sm">Projects</CardDescription>
+              <CardTitle className="text-xl md:text-3xl flex items-center gap-1 md:gap-2">
+                <FolderOpen className="h-4 w-4 md:h-6 md:w-6 text-green-500" />
                 {allProjects.length}
               </CardTitle>
             </CardHeader>
@@ -245,6 +243,28 @@ export default function PartnersPage() {
                     No pending approvals.
                   </p>
                 ) : (
+                  <>
+                  {/* Mobile: card layout */}
+                  <div className="md:hidden space-y-3">
+                    {pendingUsers.map(user => (
+                      <div key={user.id} className="border rounded-lg p-3 space-y-2">
+                        <div>
+                          <p className="text-sm font-medium truncate">{user.email}</p>
+                          <p className="text-xs text-muted-foreground">{user.display_name || '-'} · Signed up {formatDate(user.created_at)}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="default" className="flex-1 h-8 text-xs" onClick={() => handleApprove(user.id)}>
+                            <Check className="h-3 w-3 mr-1" /> Approve
+                          </Button>
+                          <Button size="sm" variant="destructive" className="flex-1 h-8 text-xs" onClick={() => handleReject(user.id)}>
+                            <X className="h-3 w-3 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop: table layout */}
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -282,6 +302,8 @@ export default function PartnersPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -290,23 +312,32 @@ export default function PartnersPage() {
           {/* Partners Tab */}
           <TabsContent value="partners" className="space-y-4">
             <Card>
-              <CardHeader>
+              <CardHeader className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Active Partners</CardTitle>
-                    <CardDescription>
-                      Approved partner accounts with project access management.
+                    <CardTitle className="text-base md:text-lg">Active Partners</CardTitle>
+                    <CardDescription className="text-xs md:text-sm">
+                      Approved partner accounts with project access.
                     </CardDescription>
                   </div>
-                  <div className="relative w-64">
+                  <div className="relative w-64 hidden md:block">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search partners..."
-                      className="pl-8"
+                      className="pl-8 h-9"
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
                     />
                   </div>
+                </div>
+                <div className="relative md:hidden">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search partners..."
+                    className="pl-8 h-9"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
                 </div>
               </CardHeader>
               <CardContent>
@@ -315,6 +346,32 @@ export default function PartnersPage() {
                     {searchQuery ? 'No partners match your search.' : 'No active partners yet.'}
                   </p>
                 ) : (
+                  <>
+                  {/* Mobile: card layout */}
+                  <div className="md:hidden space-y-3">
+                    {filteredPartners.map(partner => (
+                      <div key={partner.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{partner.email}</p>
+                            <p className="text-xs text-muted-foreground">{partner.display_name || '-'} · Joined {formatDate(partner.created_at)}</p>
+                          </div>
+                          <Badge variant="secondary" className="shrink-0 text-xs">Partner</Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full h-8 text-xs"
+                          onClick={() => openSharingDialog(partner)}
+                        >
+                          <FolderOpen className="h-3 w-3 mr-1" />
+                          Manage Projects
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop: table layout */}
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -348,6 +405,8 @@ export default function PartnersPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -357,7 +416,7 @@ export default function PartnersPage() {
 
       {/* Project Sharing Dialog */}
       <Dialog open={sharingDialogOpen} onOpenChange={setSharingDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] md:max-w-lg max-h-[80vh] overflow-y-auto p-4 md:p-6">
           <DialogHeader>
             <DialogTitle>Manage Project Access</DialogTitle>
             <DialogDescription>

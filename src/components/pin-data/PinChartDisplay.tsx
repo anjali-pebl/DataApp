@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useFileViewTracking } from "@/hooks/use-analytics";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ChevronUp, ChevronDown, BarChart3, Info, TableIcon, ChevronRight, ChevronLeft, Settings, Circle, Filter, AlertCircle, Database, Clock, Palette, Eye, Grid3x3, Ruler, Network, RefreshCw } from "lucide-react";
 import { cn } from '@/lib/utils';
 import { getParameterLabelWithUnit } from '@/lib/units';
@@ -776,10 +777,19 @@ export function PinChartDisplay({
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-// Axis mode state - default to single for SubCam and FPOD, multi for everything else
+// Axis mode state - default to single for SubCam, FPOD, and mobile; multi for everything else
+  const isMobile = useIsMobile();
   const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
     (fileType === 'Subcam' || fileType === 'FPOD') ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
   );
+  // Switch to single-axis on mobile (runs once when isMobile is determined)
+  const hasSetMobileAxisDefault = React.useRef(false);
+  React.useEffect(() => {
+    if (isMobile && !hasSetMobileAxisDefault.current && fileType !== 'Subcam' && fileType !== 'FPOD') {
+      setAxisMode('single');
+      hasSetMobileAxisDefault.current = true;
+    }
+  }, [isMobile, fileType]);
 
   // MA update counter to force data recalculation
   const [maUpdateCounter, setMaUpdateCounter] = useState(0);
@@ -3549,14 +3559,14 @@ export function PinChartDisplay({
 
   return (
     <div className="space-y-3">
-      {/* Toggle Switches - at the top */}
-      <div className="flex items-stretch gap-3">
-        {/* File header - location, time period, category, and filename */}
-        <div className="flex flex-col gap-0.5 flex-1">
+      {/* Header - two rows on mobile: info on top, controls on bottom */}
+      <div className="flex flex-col gap-2">
+        {/* Row 1: File info - location, time period, category, and filename */}
+        <div className="flex flex-col gap-0.5">
           {/* Main header: Location • Time Period (Categories) */}
           {/* For 24hr avg: Location [Category] within [date range] */}
           {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-            <div className="text-xs font-semibold text-foreground flex items-center gap-2">
+            <div className="text-xs font-semibold text-foreground flex items-center gap-2 flex-wrap">
               {/* Location */}
               {pinLabel && <span>{pinLabel}</span>}
 
@@ -3576,9 +3586,9 @@ export function PinChartDisplay({
                 </>
               )}
 
-              {/* Categories - multiple badges */}
+              {/* Categories - desktop only (on mobile, shown in controls row) */}
               {fileCategories && fileCategories.map((category, index) => (
-                <span key={index} className="text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
                   {category}
                 </span>
               ))}
@@ -3603,14 +3613,21 @@ export function PinChartDisplay({
 
           {/* Raw filename in smaller font */}
           {fileName && (
-            <div className="text-xs text-muted-foreground font-mono">
+            <div className="text-xs text-muted-foreground font-mono truncate">
               {fileName}
             </div>
           )}
         </div>
 
-        {/* View Controls - always consistent layout */}
-        <div className="flex items-center gap-3">
+        {/* Row 2: View Controls + Category Badges */}
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+          {/* Category badges - mobile only (on desktop, shown in header row) */}
+          {fileCategories && fileCategories.map((category, index) => (
+            <span key={index} className="md:hidden text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+              {category}
+            </span>
+          ))}
+
           {/* FPOD Unit Toggle - Clicks / DPM */}
           {fileType === 'FPOD' && (
             <div className="flex items-center gap-2">
@@ -3936,60 +3953,60 @@ export function PinChartDisplay({
         // Table View
         <div className="space-y-2">
           {console.log('[TABLE VIEW] Rendering table view. onDateFormatChange:', !!onDateFormatChange, 'rawFiles:', !!rawFiles)}
-          {/* Table controls - single row with date format and raw CSV button */}
+          {/* Table controls - two rows on mobile: date format on top, actions on bottom */}
           {(onDateFormatChange || (rawFiles && rawFiles.length > 0)) && (
-            <div className="flex items-center justify-between gap-3 px-3 py-2 bg-muted/30 rounded-md border">
-              {/* Left side: Date format controls */}
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 px-2 md:px-3 py-2 bg-muted/30 rounded-md border">
+              {/* Row 1: Date format controls */}
               {onDateFormatChange && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <Settings className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs font-medium">Date Format:</span>
+                <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+                  <div className="flex items-center gap-1.5 md:gap-2">
+                    <Settings className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
+                    <span className="text-xs font-medium">Date:</span>
                     {currentDateFormat ? (
-                      <span className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded font-semibold">
+                      <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 bg-primary text-primary-foreground rounded font-semibold">
                         {currentDateFormat}
                       </span>
                     ) : (
-                      <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 rounded font-semibold">
-                        Auto-Detected
+                      <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 rounded font-semibold">
+                        Auto
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Switch to:</span>
+                  <div className="flex items-center gap-1.5 md:gap-2">
                     <Button
                       variant={currentDateFormat === 'DD/MM/YYYY' ? 'default' : 'outline'}
                       size="sm"
-                      className="h-7 text-xs px-3"
+                      className="h-6 md:h-7 text-[10px] md:text-xs px-2 md:px-3"
                       onClick={() => handleDateFormatClick('DD/MM/YYYY')}
                       disabled={currentDateFormat === 'DD/MM/YYYY'}
                     >
-                      DD/MM/YYYY
+                      DD/MM
                     </Button>
                     <Button
                       variant={currentDateFormat === 'MM/DD/YYYY' ? 'default' : 'outline'}
                       size="sm"
-                      className="h-7 text-xs px-3"
+                      className="h-6 md:h-7 text-[10px] md:text-xs px-2 md:px-3"
                       onClick={() => handleDateFormatClick('MM/DD/YYYY')}
                       disabled={currentDateFormat === 'MM/DD/YYYY'}
                     >
-                      MM/DD/YYYY
+                      MM/DD
                     </Button>
                   </div>
                 </div>
               )}
 
-              {/* Right side: Action buttons */}
-              <div className="flex items-center gap-2">
+              {/* Row 2: Action buttons */}
+              <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
                 {rawFiles && rawFiles.length > 0 && (
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="h-8 text-xs px-4 font-semibold"
+                    className="h-7 md:h-8 text-[10px] md:text-xs px-2 md:px-4 font-semibold"
                     onClick={handleViewRawCSV}
                   >
-                    <TableIcon className="h-4 w-4 mr-2" />
-                    View Original CSV
+                    <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+                    <span className="hidden md:inline">View Original CSV</span>
+                    <span className="md:hidden">Raw CSV</span>
                   </Button>
                 )}
                 {currentDateFormat && (
@@ -3997,20 +4014,21 @@ export function PinChartDisplay({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-8 text-xs px-4 font-semibold"
+                      className="h-7 md:h-8 text-[10px] md:text-xs px-2 md:px-4 font-semibold"
                       onClick={handleSaveAsCsv}
                     >
-                      Save as CSV
+                      Save CSV
                     </Button>
                     {pinId && (
                       <Button
                         variant="default"
                         size="sm"
-                        className="h-8 text-xs px-4 font-semibold"
+                        className="h-7 md:h-8 text-[10px] md:text-xs px-2 md:px-4 font-semibold"
                         onClick={handleSaveToDatabase}
                       >
-                        <Database className="h-4 w-4 mr-2" />
-                        Save to Database
+                        <Database className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+                        <span className="hidden md:inline">Save to Database</span>
+                        <span className="md:hidden">Save DB</span>
                       </Button>
                     )}
                   </>
@@ -4391,8 +4409,7 @@ export function PinChartDisplay({
                         name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }}
-                        onClick={() => toggleParameterVisibility(parameter)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'default' }}
                       />
                     );
                   });
@@ -4596,8 +4613,7 @@ export function PinChartDisplay({
                         name={getLITUDisplayName(parameter) || parameter}
                         isAnimationActive={false}
                         activeDot={{ r: isMA ? 4 : 6, strokeWidth: 2 }} // Smaller dots for MA
-                        onClick={() => toggleParameterVisibility(parameter)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'default' }}
                       />
                     );
                   });

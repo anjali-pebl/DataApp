@@ -89,7 +89,7 @@ export function ProjectDataFilters({
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] p-2" align="start">
             <div className="space-y-1">
               <div className="text-xs font-semibold mb-2 flex items-center justify-between">
                 <span>Filter by Pin</span>
@@ -140,7 +140,7 @@ export function ProjectDataFilters({
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] p-2" align="start">
             <div className="space-y-1">
               <div className="text-xs font-semibold mb-2 flex items-center justify-between">
                 <span>Filter by Source</span>
@@ -199,7 +199,7 @@ export function ProjectDataFilters({
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] p-2" align="start">
             <div className="space-y-1">
               <div className="text-xs font-semibold mb-2 flex items-center justify-between">
                 <span>Filter by Type</span>
@@ -243,7 +243,7 @@ export function ProjectDataFilters({
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] p-2" align="start">
             <div className="space-y-1">
               <div className="text-xs font-semibold mb-2 flex items-center justify-between">
                 <span>Filter by Date Range</span>

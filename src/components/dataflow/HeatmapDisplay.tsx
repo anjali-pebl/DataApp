@@ -431,15 +431,20 @@ const HeatmapDisplayComponent = ({
 
   return (
     <div className="w-full h-full">
+        {/* Mobile-only rotate banner */}
+        <div className="md:hidden flex items-center justify-center gap-2 px-3 py-1.5 mb-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-amber-700 dark:text-amber-400 text-xs">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+          Rotate phone for best heatmap view
+        </div>
         <div
           ref={containerRef}
           style={{ height: `${heatmapHeight}px` }}
-          className="relative w-full h-full border rounded-md p-2 bg-card overflow-x-auto overflow-y-visible"
+          className="relative w-full h-full border rounded-md pt-3 md:pt-2 px-2 pb-2 bg-card overflow-x-auto overflow-y-visible"
         >
           {/* Taxonomic Rank Legend - Top Right */}
-          <div className="absolute top-[6px] right-2 px-3 py-2 bg-card/95 backdrop-blur-sm rounded-md shadow-sm z-10 border border-border">
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-foreground">Taxonomic Ranks:</span>
+          <div className="absolute top-[6px] right-2 px-2 md:px-3 py-1.5 md:py-2 bg-card/95 backdrop-blur-sm rounded-md shadow-sm z-10 border border-border max-w-[calc(100%-1rem)]">
+            <div className="flex items-center gap-1.5 md:gap-3 text-[10px] md:text-xs flex-wrap">
+              <span className="font-semibold text-foreground">Ranks:</span>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#882255' }}></div>
                 <span className="text-muted-foreground">Kingdom</span>
