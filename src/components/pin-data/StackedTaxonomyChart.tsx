@@ -5,6 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Info } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { AggregatedTaxonomyData } from '@/lib/edna-taxonomy-processor';
 
 interface StackedTaxonomyChartProps {
@@ -184,6 +185,8 @@ export function StackedTaxonomyChart({
     return colorPalette[phylum] || generatePhylumColor(phylum);
   };
 
+  const isMobile = useIsMobile();
+
   // Track which phylum is currently hovered for highlighting
   const [hoveredPhylum, setHoveredPhylum] = useState<string | null>(null);
 
@@ -275,30 +278,30 @@ export function StackedTaxonomyChart({
 
 
   return (
-    <div className="relative w-full" style={{ height: styles.chartHeight, overflow: 'visible' }}>
+    <div className="relative w-full" style={{ height: isMobile ? styles.chartHeight + 120 : styles.chartHeight, overflow: 'visible' }}>
       {/* Chart Title */}
-      <div className="text-center pt-6 mb-2">
-        <h3 className="text-lg font-semibold text-foreground">{customTitle}</h3>
+      <div className="text-center pt-4 md:pt-6 mb-2">
+        <h3 className="text-sm md:text-lg font-semibold text-foreground">{customTitle}</h3>
       </div>
 
       {/* Stacked Bar Chart */}
-      <ResponsiveContainer width={width} height={styles.chartHeight - 50} style={{ overflow: 'visible' }}>
+      <ResponsiveContainer width={width} height={isMobile ? styles.chartHeight - 80 : styles.chartHeight - 50} style={{ overflow: 'visible' }}>
         <BarChart
           data={chartData}
           margin={{
             top: styles.chartMarginTop,
-            right: styles.chartMarginRight,
-            left: styles.chartMarginLeft,
+            right: isMobile ? 10 : styles.chartMarginRight,
+            left: isMobile ? 5 : styles.chartMarginLeft,
             bottom: styles.chartMarginBottom
           }}
-          barSize={styles.barSize}
+          barSize={isMobile ? 30 : styles.barSize}
           barCategoryGap={styles.barCategoryGap}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
 
           <XAxis
             dataKey="sample"
-            label={{
+            label={isMobile ? undefined : {
               value: 'Sampling Location',
               position: 'insideBottom',
               offset: -15,
@@ -307,15 +310,15 @@ export function StackedTaxonomyChart({
                 fontWeight: styles.yAxisTitleFontWeight
               }
             }}
-            tick={{ fontSize: styles.xAxisLabelFontSize, angle: styles.xAxisLabelRotation, textAnchor: 'end' }}
-            height={styles.chartMarginBottom}
+            tick={{ fontSize: isMobile ? 9 : styles.xAxisLabelFontSize, angle: styles.xAxisLabelRotation, textAnchor: 'end' }}
+            height={isMobile ? 60 : styles.chartMarginBottom}
             interval={0}
           />
 
           <YAxis
             domain={[0, 100]}
             ticks={[0, 20, 40, 60, 80, 100]}
-            label={{
+            label={isMobile ? undefined : {
               value: customYAxisLabel,
               angle: -90,
               position: 'insideLeft',
@@ -326,16 +329,20 @@ export function StackedTaxonomyChart({
                 textAnchor: 'middle'
               }
             }}
-            tick={{ fontSize: styles.yAxisLabelFontSize }}
+            tick={{ fontSize: isMobile ? 10 : styles.yAxisLabelFontSize }}
+            width={isMobile ? 30 : undefined}
           />
 
           <RechartsTooltip content={<CustomTooltip />} cursor={false} />
 
           <Legend
-            verticalAlign="top"
-            align="right"
-            layout="vertical"
-            wrapperStyle={{
+            verticalAlign={isMobile ? "bottom" : "top"}
+            align={isMobile ? "center" : "right"}
+            layout={isMobile ? "horizontal" : "vertical"}
+            wrapperStyle={isMobile ? {
+              fontSize: '10px',
+              paddingTop: '8px'
+            } : {
               paddingLeft: '20px',
               fontSize: '12px'
             }}

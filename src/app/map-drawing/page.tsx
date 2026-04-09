@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode, Image, FileText, Download, Camera, Ruler } from 'lucide-react';
+import { Loader2, MapPin, Minus, Square, Home, RotateCcw, Save, Trash2, Navigation, Settings, Plus, Minus as MinusIcon, ZoomIn, ZoomOut, Map as MapIcon, Crosshair, FolderOpen, Bookmark, Eye, EyeOff, Target, Menu, ChevronDown, ChevronRight, Info, Edit3, Check, Database, BarChart3, Upload, Cloud, Calendar, RotateCw, Share, Share2, Users, Lock, Globe, X, Search, CheckCircle2, XCircle, ChevronUp, Thermometer, Wind as WindIcon, CloudSun, Compass as CompassIcon, Waves, Sailboat, Timer as TimerIcon, Sun as SunIcon, AlertCircle, AlertTriangle, Move3D, Copy, FileCode, Image, FileText, Download } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line as RechartsLine, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, Brush, LabelList, ReferenceLine } from 'recharts';
 import type { LucideIcon } from "lucide-react";
 import { Checkbox } from '@/components/ui/checkbox';
@@ -89,6 +89,7 @@ import { DateInputDialog } from '@/components/pin-data/DateInputDialog';
 import { BatchDateConfirmDialog } from '@/components/pin-data/BatchDateConfirmDialog';
 import { hasTimeColumn, createFileWithDateColumn } from '@/lib/csv-date-injector';
 import { extractEdnaDate, isEdnaMetaFile } from '@/lib/edna-utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 // ============================================================================
 // DATA EXPLORER PANEL IMPORTS - NEW ADDITION
@@ -156,7 +157,6 @@ import {
   LazyAddProjectDialog as AddProjectDialog,
   LazyPhotoViewerDialog as PhotoViewerDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
-const ProjectPhotoCarousel = dynamic(() => import('@/components/map-drawing/dialogs/ProjectPhotoCarousel'), { ssr: false });
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
 
@@ -434,6 +434,9 @@ function MapDrawingPageContent() {
     migrateToDatabase
   } = useMapData({ projectId: 'default', enableSync: true });
   
+  // Mobile detection
+  const isMobile = useIsMobile();
+
   // Map state
   const mapRef = useRef<LeafletMap | null>(null);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
@@ -448,8 +451,8 @@ function MapDrawingPageContent() {
   const [mapScale, setMapScale] = useState<{ distance: number; unit: string; pixels: number } | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [objectTypeFilter, setObjectTypeFilter] = useState<'all' | 'pin' | 'line' | 'area'>('all');
-  const [sidebarWidth, setSidebarWidth] = useState(448); // Default width in pixels
-  const [originalSidebarWidth, setOriginalSidebarWidth] = useState(448); // Store original width
+  const [sidebarWidth, setSidebarWidth] = useState(320); // Default width in pixels
+  const [originalSidebarWidth, setOriginalSidebarWidth] = useState(320); // Store original width
   const [isResizing, setIsResizing] = useState(false);
   const [showFloatingDrawingTools, setShowFloatingDrawingTools] = useState(false);
   const [isEditingObject, setIsEditingObject] = useState(false);
@@ -708,8 +711,6 @@ function MapDrawingPageContent() {
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [photoViewerData, setPhotoViewerData] = useState<{ url: string; fileName: string; fileId: string } | null>(null);
-  const [showPhotoCarousel, setShowPhotoCarousel] = useState(false);
-  const [coverImageUploading, setCoverImageUploading] = useState(false);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
 
@@ -795,12 +796,18 @@ function MapDrawingPageContent() {
   const [tempLinePath, setTempLinePath] = useState<{ lat: number; lng: number }[] | null>(null);
   const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null);
   
-  // Dynamic projects state (loaded from database - owned + shared projects only)
-  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean; coverImagePath?: string }>>({});
-  const [isLoadingProjects, setIsLoadingProjects] = useState(true); // Start true since we load on mount
+  // Dynamic projects state (combines hardcoded + database projects)
+  const [dynamicProjects, setDynamicProjects] = useState<Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean }>>(PROJECT_LOCATIONS);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
   // Project management state
-  const [projectVisibility, setProjectVisibility] = useState<Record<string, boolean>>({});
+  const [projectVisibility, setProjectVisibility] = useState<Record<string, boolean>>(() => {
+    // Initialize all projects as visible
+    return Object.keys(PROJECT_LOCATIONS).reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, {} as Record<string, boolean>);
+  });
   // User role state
   const [userRole, setUserRole] = useState<AccountRole | null>(null);
   useEffect(() => {
@@ -810,8 +817,8 @@ function MapDrawingPageContent() {
   // Use persistent active project hook
   const { activeProject: persistentActiveProject, setActiveProject: setPersistentActiveProject, isLoading: isLoadingActiveProject } = useActiveProject();
 
-  // Manage active project with fallback to first available project
-  const activeProjectId = persistentActiveProject || Object.keys(dynamicProjects)[0] || '';
+  // Manage active project with fallback to default
+  const activeProjectId = persistentActiveProject || Object.keys(dynamicProjects)[0] || 'milfordhaven';
   const setActiveProjectId = (projectId: string) => {
     setPersistentActiveProject(projectId);
   };
@@ -821,10 +828,6 @@ function MapDrawingPageContent() {
 
   // Read-only when partner is viewing a shared project
   const isReadOnly = userRole === 'partner' && sharedProjectIds.has(activeProjectId);
-
-  // Partners cannot upload files or create projects anywhere
-  const canUploadFiles = userRole !== 'partner';
-  const canCreateProjects = userRole !== 'partner';
 
   // Unified loading state for smooth UX
   const {
@@ -845,40 +848,18 @@ function MapDrawingPageContent() {
     perfLogger.start('loadProjects');
     setIsLoadingProjects(true);
     try {
-      const [databaseProjects, sharedProjects, legacyProjects, projectCovers, displayNames] = await Promise.all([
+      const [databaseProjects, sharedProjects] = await Promise.all([
         projectService.getProjects(),
-        projectService.getSharedProjects().catch((err) => {
-          console.error('Failed to load shared projects:', err);
-          return [];
-        }),
-        projectService.discoverLegacyProjects().catch((err) => {
-          console.error('Failed to discover legacy projects:', err);
-          return [];
-        }),
-        projectService.getProjectCovers().catch(() => ({} as Record<string, string>)),
-        projectService.getProjectDisplayNames().catch(() => ({} as Record<string, string>)),
+        projectService.getSharedProjects().catch(() => []),
       ]);
 
-      console.log(`[Projects] Loaded ${databaseProjects.length} database, ${sharedProjects.length} shared, ${legacyProjects.length} legacy`);
+      // All users see hardcoded project locations + database projects
+      const combinedProjects = { ...PROJECT_LOCATIONS };
 
-      // Start with empty projects - only show database projects, not hardcoded locations
-      const combinedProjects: Record<string, { name: string; lat?: number; lon?: number; isDynamic?: boolean; coverImagePath?: string }> = {};
-
-      // Add legacy projects discovered from data (pins/lines/areas)
-      legacyProjects.forEach(project => {
-        combinedProjects[project.id] = {
-          name: displayNames[project.id] || project.name,
-          isDynamic: true,
-          coverImagePath: projectCovers[project.id]
-        };
-      });
-
-      // Add owned projects from database (overwrites legacy if both exist)
       databaseProjects.forEach(project => {
         combinedProjects[project.id] = {
-          name: displayNames[project.id] || project.name,
-          isDynamic: true,
-          coverImagePath: projectCovers[project.id]
+          name: project.name,
+          isDynamic: true
         };
       });
 
@@ -887,9 +868,8 @@ function MapDrawingPageContent() {
       sharedProjects.forEach(project => {
         newSharedIds.add(project.id);
         combinedProjects[project.id] = {
-          name: displayNames[project.id] || `${project.name} (Shared)`,
-          isDynamic: true,
-          coverImagePath: projectCovers[project.id]
+          name: `${project.name} (Shared)`,
+          isDynamic: true
         };
       });
       setSharedProjectIds(newSharedIds);
@@ -900,7 +880,7 @@ function MapDrawingPageContent() {
       // Update project visibility to include new projects
       setProjectVisibility(prev => {
         const updated = { ...prev };
-        [...legacyProjects, ...databaseProjects, ...sharedProjects].forEach(project => {
+        [...databaseProjects, ...sharedProjects].forEach(project => {
           if (!(project.id in updated)) {
             updated[project.id] = true;
           }
@@ -1003,11 +983,6 @@ function MapDrawingPageContent() {
   const [areaStartPoint, setAreaStartPoint] = useState<LatLng | null>(null);
   const [currentAreaEndPoint, setCurrentAreaEndPoint] = useState<LatLng | null>(null);
   
-  // Measurement tool state
-  const [isMeasuring, setIsMeasuring] = useState(false);
-  const [measureStart, setMeasureStart] = useState<LatLng | null>(null);
-  const [measureEnd, setMeasureEnd] = useState<LatLng | null>(null);
-
   // Pending items (waiting for user input)
   const [pendingPin, setPendingPin] = useState<LatLng | null>(null);
   const [pendingLine, setPendingLine] = useState<{ path: LatLng[] } | null>(null);
@@ -1453,8 +1428,8 @@ function MapDrawingPageContent() {
 
   // Update the handler ref whenever dependencies change
   mapMoveHandlerRef.current = (center: LatLng, zoom: number, isMoving: boolean = false) => {
-    // Only update crosshair during continuous movement (isMoving=true) if actively drawing or measuring
-    const shouldUpdateDuringMove = isMoving && (isDrawingLine || isDrawingArea || (isMeasuring && measureStart));
+    // Only update crosshair during continuous movement (isMoving=true) if actively drawing
+    const shouldUpdateDuringMove = isMoving && (isDrawingLine || isDrawingArea);
 
     // Update view - but only on moveend (not during continuous dragging) to avoid excessive re-renders
     if (!isMoving) {
@@ -1470,11 +1445,6 @@ function MapDrawingPageContent() {
     // Update crosshair position for area drawing (this needs to update during movement)
     if (isDrawingArea && areaStartPoint && shouldUpdateDuringMove) {
       setCurrentAreaEndPoint(center);
-    }
-
-    // Update measurement endpoint during movement — only when not actively drawing
-    if (isMeasuring && measureStart && !isDrawingLine && !isDrawingArea && shouldUpdateDuringMove) {
-      setMeasureEnd(center);
     }
   };
 
@@ -3996,10 +3966,6 @@ function MapDrawingPageContent() {
 
   // Initiate file upload - select files first, then show pin selector
   const handleInitiateFileUpload = () => {
-    if (!canUploadFiles) {
-      toast({ variant: 'destructive', title: 'Not Allowed', description: 'Partner accounts cannot upload files.' });
-      return;
-    }
     if (isReadOnly) {
       toast({ variant: 'destructive', title: 'Read Only', description: 'You do not have permission to upload files to this project.' });
       return;
@@ -5157,20 +5123,7 @@ function MapDrawingPageContent() {
 
       {/* Map Container - Account for top navigation height (h-14 = 3.5rem) */}
       <main className="relative overflow-hidden bg-background text-foreground" style={{ height: 'calc(100vh - 3.5rem)' }}>
-        <div className="h-full w-full relative" style={{ minHeight: '500px', cursor: (drawingMode !== 'none' || isMeasuring) ? 'crosshair' : 'default' }}>
-
-          {/* Center crosshair overlay for drawing and measuring modes */}
-          {(isDrawingLine || isDrawingArea || isMeasuring) && (
-            <div className="absolute inset-0 pointer-events-none z-[999] flex items-center justify-center">
-              <svg width="40" height="40" viewBox="0 0 40 40" className="opacity-70">
-                <line x1="20" y1="4" x2="20" y2="16" stroke="currentColor" strokeWidth="2" />
-                <line x1="20" y1="24" x2="20" y2="36" stroke="currentColor" strokeWidth="2" />
-                <line x1="4" y1="20" x2="16" y2="20" stroke="currentColor" strokeWidth="2" />
-                <line x1="24" y1="20" x2="36" y2="20" stroke="currentColor" strokeWidth="2" />
-                <circle cx="20" cy="20" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </div>
-          )}
+        <div className="h-full w-full relative" style={{ minHeight: '500px', cursor: drawingMode === 'none' ? 'default' : 'crosshair' }}>
 
           {/* Show skeleton during initial load */}
           {isPageLoading && isInitialLoad ? (
@@ -5239,9 +5192,6 @@ function MapDrawingPageContent() {
             tempAreaPath={tempAreaPath}
             onAreaCornerDrag={handleAreaCornerDrag}
             mapStyle={mapStyle}
-            isMeasuring={isMeasuring}
-            measureStart={measureStart}
-            measureEnd={measureEnd}
           />
           )}
 
@@ -5277,7 +5227,7 @@ function MapDrawingPageContent() {
                     variant="ghost"
                     size="icon" 
                     onClick={() => setShowMainMenu(!showMainMenu)}
-                    className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
+                    className="h-11 w-11 md:h-10 md:w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                     data-menu-button
                   >
                     <Menu className="h-5 w-5" />
@@ -5290,12 +5240,20 @@ function MapDrawingPageContent() {
             </TooltipProvider>
           </div>
 
-          {/* Top Right Controls */}
-          <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2 items-end">
+          {/* Top Right Controls — bottom sheet on mobile, top-right panel on desktop */}
+          <div className={cn(
+            "absolute z-[1000] flex flex-col gap-2",
+            isMobile
+              ? "top-0 left-0 right-0 px-2 pt-2 items-stretch"
+              : "top-4 right-4 items-end"
+          )}>
             {/* Object Details Panel */}
             {itemToEdit && (
-              <div className="w-72 bg-background/95 border rounded-lg shadow-lg p-3">
-                <div className="flex items-center justify-between mb-3">
+              <div className={cn(
+                "bg-background/95 border rounded-lg shadow-lg p-3",
+                isMobile ? "w-full max-h-[60vh] overflow-y-auto" : "w-72"
+              )}>
+                <div className={cn("flex items-center justify-between mb-3", isMobile && "mr-12")}>
                   <div className="flex items-center gap-2">
                     {'lat' in itemToEdit ? (
                       <MapPin className="h-4 w-4 text-blue-500" />
@@ -5695,7 +5653,12 @@ function MapDrawingPageContent() {
                             const itemFileCount = (itemFileMetadata[itemToEdit.id]?.length || 0) + (isArea ? 0 : (pinFiles[itemToEdit.id]?.length || 0));
                             const itemLabel = isArea ? 'area' : 'pin';
                             return (
-                            <div className={`absolute top-full mt-1 bg-background border rounded-lg shadow-lg z-[1200] p-1 ${showMeteoDataSection ? 'w-[800px] right-0' : 'w-72 left-0'}`}>
+                            <div className={cn(
+                              "bg-background border rounded-lg shadow-lg z-[1200] p-1",
+                              isMobile
+                                ? "mt-1 w-full"
+                                : `absolute top-full mt-1 ${showMeteoDataSection ? 'w-[800px] max-w-[calc(100vw-2rem)] right-0' : 'w-72 max-w-[calc(100vw-2rem)] left-0'}`
+                            )}>
                               {/* Explore Data Dropdown */}
                               <div className="relative" data-explore-dropdown>
                                 <Button
@@ -5728,7 +5691,10 @@ function MapDrawingPageContent() {
                                 
                                 {/* File Type Dropdown */}
                                 {showExploreDropdown && selectedPinForExplore === itemToEdit.id && (
-                                  <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] max-h-[400px] overflow-y-auto bg-background border rounded-lg shadow-lg z-[1300] p-1">
+                                  <div className={cn(
+                                    "w-full min-w-[200px] max-h-[300px] overflow-y-auto bg-background border rounded-lg shadow-lg z-[1300] p-1",
+                                    isMobile ? "mt-1" : "absolute top-full left-0 mt-1"
+                                  )}>
                                     {(() => {
                                       // Use files from database only - resolve correct source for pins vs areas
                                       const dbFiles = (isArea ? areaFileMetadata : pinFileMetadata)[selectedPinForExplore] || [];
@@ -6110,35 +6076,37 @@ function MapDrawingPageContent() {
                               
                               {/* Marine & Meteo Data Expanded Section */}
                               {showMeteoDataSection && (
-                                <div className="px-2 pb-2 space-y-3 border-l-2 border-accent/20 ml-2 w-[750px] max-h-[600px] overflow-y-auto">
+                                <div className={cn(
+                                  "px-2 pb-2 space-y-3 border-l-2 border-accent/20 ml-2 max-h-[600px] overflow-y-auto",
+                                  isMobile ? "w-full" : "w-[750px] max-w-[calc(100vw-3rem)]"
+                                )}>
                                   {/* Date Range and Fetch Button Row */}
-                                  <div className="flex gap-2 items-end">
+                                  <div className="flex gap-2 items-end flex-wrap">
                                     {/* Date Range Selection */}
-                                    <div className="flex-1">
-                                      <div className="text-sm font-medium mb-1">Date Range</div>
-                                      <DatePickerWithRange 
-                                        date={pinMeteoDateRange} 
-                                        onDateChange={setPinMeteoDateRange} 
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs md:text-sm font-medium mb-1">Date Range</div>
+                                      <DatePickerWithRange
+                                        date={pinMeteoDateRange}
+                                        onDateChange={setPinMeteoDateRange}
                                         disabled={isLoadingPinMeteoData}
-                                        className="h-7 text-sm w-full"
+                                        className="h-7 text-xs md:text-sm w-full"
                                       />
                                       {pinMeteoDateRange?.from && pinMeteoDateRange?.to && pinMeteoDateRange.from > pinMeteoDateRange.to && (
                                         <p className="text-xs text-destructive mt-1">Start date must be before end date.</p>
                                       )}
                                     </div>
-                                    
+
                                     {/* Fetch Button */}
-                                    <Button 
+                                    <Button
                                       onClick={() => {
                                         handleFetchPinMeteoData();
-                                        // Keep the dropdown open - remove setShowDataDropdown(false)
-                                      }} 
-                                      disabled={isLoadingPinMeteoData || !pinMeteoDateRange?.from || !pinMeteoDateRange?.to} 
-                                      className="h-7 text-sm px-3 flex-shrink-0"
+                                      }}
+                                      disabled={isLoadingPinMeteoData || !pinMeteoDateRange?.from || !pinMeteoDateRange?.to}
+                                      className="h-7 text-xs px-2 md:px-3 flex-shrink-0 gap-1"
                                       size="sm"
                                     >
-                                      {isLoadingPinMeteoData ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : <Search className="mr-1 h-2.5 w-2.5"/>}
-                                      {isLoadingPinMeteoData ? "Fetching..." : "Fetch Data"}
+                                      {isLoadingPinMeteoData ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3"/>}
+                                      {isLoadingPinMeteoData ? "..." : "Fetch"}
                                     </Button>
                                   </div>
 
@@ -6173,15 +6141,21 @@ function MapDrawingPageContent() {
                                       </div>
                                       
                                       {/* Marine Data Container */}
-                                      <div 
-                                        className={`w-full border rounded-md bg-card/20 transition-all duration-300 ${
-                                          pinMeteoExpanded ? 'max-h-[800px]' : 'max-h-[400px]'
-                                        }`}
+                                      <div
+                                        className={cn(
+                                          "w-full border rounded-md bg-card/20 transition-all duration-300",
+                                          pinMeteoExpanded
+                                            ? (isMobile ? 'max-h-[400px]' : 'max-h-[800px]')
+                                            : (isMobile ? 'max-h-[250px]' : 'max-h-[400px]')
+                                        )}
                                       >
-                                        <div 
-                                          className={`flex-grow flex flex-col space-y-1 overflow-y-auto pr-1 p-2 ${
-                                            pinMeteoExpanded ? 'max-h-[700px]' : 'max-h-[300px]'
-                                          }`}
+                                        <div
+                                          className={cn(
+                                            "flex-grow flex flex-col space-y-1 overflow-y-auto pr-1 p-2",
+                                            pinMeteoExpanded
+                                              ? (isMobile ? 'max-h-[350px]' : 'max-h-[700px]')
+                                              : (isMobile ? 'max-h-[200px]' : 'max-h-[300px]')
+                                          )}
                                         >
                                           {pinMeteoPlotConfigsInternal.map((config, index) => (
                                             <PinMeteoPlotRow
@@ -6567,8 +6541,8 @@ function MapDrawingPageContent() {
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent 
-                              className="w-72 p-3 z-[1100]" 
-                              side="right" 
+                              className="w-72 max-w-[calc(100vw-2rem)] p-3 z-[1100]"
+                              side={isMobile ? "bottom" : "right"}
                               align="start"
                               sideOffset={8}
                             >
@@ -6772,6 +6746,8 @@ function MapDrawingPageContent() {
             )}
 
 
+            {/* Desktop: Data Explorer + Drawing Tools stay in this flex column */}
+            {!isMobile && <>
             {/* Data Explorer Button - Only show when feature is enabled */}
             {isFeatureEnabled('DATA_EXPLORER_PANEL') && !showDataExplorerPanel && (
               <TooltipProvider>
@@ -6819,46 +6795,7 @@ function MapDrawingPageContent() {
                 </Tooltip>
               </TooltipProvider>
             )}
-
-            {/* Measure Tool Button */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      if (isMeasuring) {
-                        // Toggle off — clear measurement
-                        setIsMeasuring(false);
-                        setMeasureStart(null);
-                        setMeasureEnd(null);
-                      } else {
-                        // Toggle on — set start at map center
-                        if (mapRef.current) {
-                          const center = mapRef.current.getCenter();
-                          setMeasureStart(center);
-                          setMeasureEnd(center);
-                          setIsMeasuring(true);
-                          setShowFloatingDrawingTools(false);
-                        }
-                      }
-                    }}
-                    className={`h-10 w-10 rounded-full shadow-lg border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 ${
-                      isMeasuring
-                        ? 'bg-amber-500/90 hover:bg-amber-500 text-white'
-                        : 'bg-primary/90 hover:bg-primary text-primary-foreground'
-                    }`}
-                  >
-                    <Ruler className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{isMeasuring ? 'Stop Measuring' : 'Measure Distance'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
+            
             {/* Floating Drawing Tools Dropdown */}
             {showFloatingDrawingTools && (
               <div className="w-48 bg-background border rounded-lg shadow-xl p-2 space-y-1">
@@ -6971,29 +6908,165 @@ function MapDrawingPageContent() {
                 )}
               </div>
             )}
+            </>}
           </div>
-          
+
+          {/* Mobile: Floating Action Buttons - top-right, separate from panel */}
+          {isMobile && (
+            <div className="absolute z-[1001] flex flex-col gap-2 top-2 right-2">
+              {/* Data Explorer Button */}
+              {isFeatureEnabled('DATA_EXPLORER_PANEL') && !showDataExplorerPanel && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          window.dispatchEvent(new CustomEvent('open-data-explorer-panel'));
+                        }}
+                        className="h-10 w-10 rounded-full shadow-lg border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 bg-primary/90 hover:bg-primary text-primary-foreground"
+                      >
+                        <Database className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Data Explorer</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* Drawing Tools Button */}
+              {!isReadOnly && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowFloatingDrawingTools(!showFloatingDrawingTools)}
+                        className={`h-10 w-10 rounded-full shadow-lg border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 ${
+                          (drawingMode !== 'none' || isDrawingLine || isDrawingArea)
+                            ? 'bg-accent/90 hover:bg-accent text-accent-foreground'
+                            : 'bg-primary/90 hover:bg-primary text-primary-foreground'
+                        }`}
+                      >
+                        <Edit3 className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Drawing Tools</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* Mobile Drawing Tools Dropdown */}
+              {showFloatingDrawingTools && (
+                <div className="w-48 bg-background border rounded-lg shadow-xl p-2 space-y-1">
+                  <div className="text-xs text-muted-foreground mb-2 px-2">
+                    Create objects in active project
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`w-full justify-start gap-3 h-10 text-sm ${drawingMode === 'pin' ? 'bg-accent text-accent-foreground' : ''}`}
+                    onClick={async () => {
+                      if (mapRef.current) {
+                        const mapCenter = mapRef.current.getCenter();
+                        const pinData = { lat: mapCenter.lat, lng: mapCenter.lng, label: 'New Pin', notes: '', projectId: activeProjectId, tagIds: [], labelVisible: true };
+                        try {
+                          const newPin = await createPinData(pinData);
+                          setItemToEdit(newPin);
+                          setIsEditingObject(true);
+                          setShowFloatingDrawingTools(false);
+                          toast({ title: "Pin Created", description: "Pin added and ready for editing." });
+                        } catch (error) {
+                          console.error('Error creating pin:', error);
+                          toast({ variant: "destructive", title: "Error", description: "Failed to create pin." });
+                        }
+                      }
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    Add Pin
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`w-full justify-start gap-3 h-10 text-sm ${isDrawingLine ? 'bg-accent text-accent-foreground' : ''}`}
+                    onClick={() => {
+                      if (mapRef.current) {
+                        if (isDrawingLine) { handleLineCancelDrawing(); } else {
+                          const mapCenter = mapRef.current.getCenter();
+                          setLineStartPoint(mapCenter);
+                          setCurrentMousePosition(mapCenter);
+                          setIsDrawingLine(true);
+                          setDrawingMode('line');
+                        }
+                        setShowFloatingDrawingTools(false);
+                      }
+                    }}
+                  >
+                    <Minus className="h-4 w-4" />
+                    {isDrawingLine ? 'Cancel Line' : 'Draw Line'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`w-full justify-start gap-3 h-10 text-sm ${isDrawingArea ? 'bg-accent text-accent-foreground' : ''}`}
+                    onClick={() => {
+                      if (isDrawingArea) { handleAreaCancelDrawing(); } else { handleAreaStart(); }
+                      setShowFloatingDrawingTools(false);
+                    }}
+                  >
+                    <Square className="h-4 w-4" />
+                    {isDrawingArea ? 'Cancel Area' : 'Draw Area'}
+                  </Button>
+                  {(drawingMode !== 'none' || isDrawingLine || isDrawingArea) && (
+                    <div className="mt-2 p-2 bg-accent/10 rounded text-xs">
+                      <div className="font-medium text-accent mb-1">Currently Drawing:</div>
+                      <div className="text-muted-foreground">
+                        {isDrawingLine && "Line - Drag map to set endpoint"}
+                        {isDrawingArea && `Area - ${pendingAreaPath.length} corners added`}
+                        {drawingMode === 'pin' && "Pin mode active"}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Sidebar Menu - Always rendered for animation */}
+          {/* Mobile backdrop overlay */}
+          {isMobile && showMainMenu && (
+            <div
+              className="fixed inset-0 z-[1599] bg-black/60 transition-opacity duration-300"
+              onClick={() => setShowMainMenu(false)}
+            />
+          )}
           <>
-            {/* Sidebar - always present but translated off-screen when closed */}
+            {/* Sidebar - slide-in panel, responsive width on mobile */}
             <div
               className={`fixed left-0 bg-background border-r shadow-xl z-[1600] transform transition-transform duration-300 ease-in-out overflow-visible ${
                 showMainMenu ? 'translate-x-0' : '-translate-x-full'
               }`}
               style={{
-                width: `${sidebarWidth}px`,
-                top: '3.5rem', // Start below the header bar (h-14 = 3.5rem)
-                height: 'calc(100vh - 3.5rem)', // Adjust height accordingly
-                transition: 'width 0.3s ease-out' // Smooth width transitions
+                width: isMobile ? 'min(85vw, 400px)' : `${sidebarWidth}px`,
+                top: isMobile ? '0' : '80px',
+                height: isMobile ? '100vh' : 'calc(100vh - 80px)',
+                transition: 'width 0.3s ease-out'
               }}
               data-menu-dropdown
               data-sidebar
             >
-              {/* Resize handle and collapse button - only show when sidebar is open */}
-              {showMainMenu && (
+              {/* Resize handle and collapse button - desktop only */}
+              {showMainMenu && !isMobile && (
                 <>
                   {/* Resize Handle */}
-                  <div 
+                  <div
                     className="absolute top-0 bottom-0 -right-1 w-2 cursor-col-resize z-20 flex items-center justify-center hover:bg-accent/10 transition-colors group"
                     onMouseDown={handleResizeStart}
                   >
@@ -7003,7 +7076,7 @@ function MapDrawingPageContent() {
                       <div className="w-px h-8 bg-border group-hover:bg-accent/40 transition-colors"></div>
                     </div>
                   </div>
-                  
+
                   {/* Collapse button */}
                   <div className="absolute top-1/2 -translate-y-1/2 -right-2.5 z-10">
                     <Button
@@ -7016,7 +7089,7 @@ function MapDrawingPageContent() {
                   </div>
                 </>
               )}
-              
+
               <div className="p-4 overflow-y-auto h-full">
                   {/* Header */}
                   <div className="flex items-center justify-between mb-6">
@@ -7036,95 +7109,21 @@ function MapDrawingPageContent() {
                     {(() => {
                       const activeProject = dynamicProjects[activeProjectId];
                       if (!activeProject) return null;
-
+                      
                       const projectPins = pins.filter(p => p.projectId === activeProjectId);
                       const projectLines = lines.filter(l => l.projectId === activeProjectId);
                       const projectAreas = areas.filter(a => a.projectId === activeProjectId);
                       const totalObjects = projectPins.length + projectLines.length + projectAreas.length;
-
-                      const coverImageUrl = activeProject.coverImagePath
-                        ? fileStorageService.getPublicUrl(activeProject.coverImagePath)
-                        : null;
-
-                      const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setCoverImageUploading(true);
-                        try {
-                          const path = await projectService.uploadCoverImage(activeProjectId, file);
-                          if (path) {
-                            setDynamicProjects(prev => ({
-                              ...prev,
-                              [activeProjectId]: { ...prev[activeProjectId], coverImagePath: path }
-                            }));
-                            toast({ title: 'Cover image updated', duration: 2000 });
-                          } else {
-                            toast({ variant: 'destructive', title: 'Upload failed', description: 'Only admins can upload cover images.' });
-                          }
-                        } catch {
-                          toast({ variant: 'destructive', title: 'Upload failed' });
-                        } finally {
-                          setCoverImageUploading(false);
-                          e.target.value = '';
-                        }
-                      };
-
+                      
                       return (
-                        <div className="rounded-lg mb-4 overflow-hidden border">
-                          {/* Cover Image */}
-                          <div
-                            className="relative w-full h-40 bg-muted cursor-pointer group"
-                            onClick={() => coverImageUrl ? setShowPhotoCarousel(true) : undefined}
-                          >
-                            {coverImageUrl ? (
-                              <>
-                                <img
-                                  src={coverImageUrl}
-                                  alt={`${activeProject.name} cover`}
-                                  className="w-full h-full object-cover"
-                                />
-                                {/* See Photos badge */}
-                                <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Camera className="h-3 w-3" />
-                                  See Photos
-                                </div>
-                              </>
-                            ) : (
-                              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/40">
-                                <Image className="h-8 w-8 mb-1" />
-                                <span className="text-xs">No cover image</span>
-                              </div>
-                            )}
-                            {/* Upload button overlay for admins */}
-                            {userRole === 'pebl' && (
-                              <label className="absolute top-2 right-2 cursor-pointer">
-                                <div className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors">
-                                  {coverImageUploading ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Camera className="h-3.5 w-3.5" />
-                                  )}
-                                </div>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={handleCoverImageUpload}
-                                  disabled={coverImageUploading}
-                                />
-                              </label>
-                            )}
-                          </div>
-
-                          {/* Project info below image */}
-                          <div className="px-3 pt-3 pb-3">
+                        <div className="border-l-4 border-accent rounded-sm mb-4 pl-2">
                           {/* Clickable header with arrow and separate center button */}
                           <div className="flex items-center gap-1">
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    className="h-6 w-6 p-0 hover:bg-accent/20 rounded inline-flex items-center justify-center flex-shrink-0"
+                                    className="h-6 w-6 p-0 hover:bg-accent/20 rounded inline-flex items-center justify-center"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       // Calculate bounding box and optimal zoom for all active project objects
@@ -7240,7 +7239,7 @@ function MapDrawingPageContent() {
                                 variant="ghost"
                                 size="sm" 
                                 onClick={() => setShowProjectInfo(showProjectInfo === activeProjectId ? null : activeProjectId)}
-                                className="w-full justify-between gap-3 h-auto px-3 pt-1 pb-3 text-left hover:bg-muted/30"
+                                className="w-full justify-between gap-3 h-auto p-3 text-left hover:bg-muted/30"
                               >
                                 <div className="flex items-center gap-2 ml-2">
                                   <div>
@@ -7402,7 +7401,6 @@ function MapDrawingPageContent() {
                             </div>
 
                           </div>
-                          </div> {/* Close px-3 pt-2 wrapper */}
 
 
                           {/* Active Project Objects Dropdown */}
@@ -7824,24 +7822,22 @@ function MapDrawingPageContent() {
                             );
                           })}
                         
-                        {/* Add New Project Button - hidden for partners */}
-                        {userRole !== 'partner' && (
-                          <div className="border-t border-muted-foreground/20 pt-3 mt-3">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full justify-center gap-2 h-8"
-                              onClick={() => {
-                                setNewProjectName('');
-                                setNewProjectDescription('');
-                                setShowAddProjectDialog(true);
-                              }}
-                            >
-                              <Plus className="h-3 w-3" />
-                              Add New Project
-                            </Button>
-                          </div>
-                        )}
+                        {/* Add New Project Button */}
+                        <div className="border-t border-muted-foreground/20 pt-3 mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full justify-center gap-2 h-8"
+                            onClick={() => {
+                              setNewProjectName('');
+                              setNewProjectDescription('');
+                              setShowAddProjectDialog(true);
+                            }}
+                          >
+                            <Plus className="h-3 w-3" />
+                            Add New Project
+                          </Button>
+                        </div>
                       </div>
                     )}
                     
@@ -7858,7 +7854,7 @@ function MapDrawingPageContent() {
 
 
           {/* Control Tools - Bottom Right, Vertical Layout (Individual Buttons) */}
-          <div className="absolute bottom-4 right-4 z-[1000] flex flex-col gap-2">
+          <div className="absolute right-4 z-[1000] flex flex-col gap-2 bottom-4">
             <TooltipProvider>
               {/* Map Style Toggle */}
               <Tooltip>
@@ -7867,7 +7863,7 @@ function MapDrawingPageContent() {
                     variant="ghost"
                     size="icon"
                     onClick={() => setMapStyle(prev => prev === 'bathymetry' ? 'plain' : 'bathymetry')}
-                    className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
+                    className="h-11 w-11 md:h-10 md:w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                   >
                     {mapStyle === 'bathymetry' ? (
                       <Globe className="h-5 w-5" />
@@ -7877,7 +7873,7 @@ function MapDrawingPageContent() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  <p>{mapStyle === 'bathymetry' ? 'Satellite View' : 'Bathymetry View'}</p>
+                  <p>{mapStyle === 'bathymetry' ? 'Satellite View' : 'Ocean View'}</p>
                 </TooltipContent>
               </Tooltip>
 
@@ -7888,7 +7884,7 @@ function MapDrawingPageContent() {
                     variant="ghost"
                     size="icon" 
                     onClick={zoomIn}
-                    className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
+                    className="h-11 w-11 md:h-10 md:w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                   >
                     <Plus className="h-5 w-5" />
                   </Button>
@@ -7905,7 +7901,7 @@ function MapDrawingPageContent() {
                     variant="ghost"
                     size="icon" 
                     onClick={zoomOut}
-                    className="h-10 w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
+                    className="h-11 w-11 md:h-10 md:w-10 rounded-full shadow-lg bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105"
                   >
                     <MinusIcon className="h-5 w-5" />
                   </Button>
@@ -7920,7 +7916,10 @@ function MapDrawingPageContent() {
 
           {/* Scale Bar - Bottom Right */}
           {mapScale && (
-            <div className="absolute bottom-4 right-20 z-[1000]">
+            <div className={cn(
+              "absolute z-[1000]",
+              isMobile ? "left-1/2 -translate-x-1/2 bottom-9" : "right-20 bottom-4"
+            )}>
               <div className="bg-transparent px-2 py-1 text-xs font-mono">
                 <div className="flex items-center gap-2">
                   <div 
@@ -7962,70 +7961,25 @@ function MapDrawingPageContent() {
               <div className="bg-black/80 text-white px-3 py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm shadow-lg">
                 {pendingAreaPath.length === 1 ? 'Drag map to set corner' : `${pendingAreaPath.length} corners added`}
               </div>
-              <Button
-                onClick={handleAreaAddCorner}
+              <Button 
+                onClick={handleAreaAddCorner} 
                 className="h-10 px-4 bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
               >
                 + Add Corner
               </Button>
               {pendingAreaPath.length >= 3 && (
-                <Button
-                  onClick={handleAreaFinish}
+                <Button 
+                  onClick={handleAreaFinish} 
                   className="h-10 px-4 bg-accent/90 hover:bg-accent text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
                 >
                   ✓ Finish Area
                 </Button>
               )}
-              <Button
-                onClick={handleAreaCancelDrawing}
+              <Button 
+                onClick={handleAreaCancelDrawing} 
                 className="h-10 px-4 bg-destructive/90 hover:bg-destructive text-destructive-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
               >
                 ✗ Cancel Area
-              </Button>
-            </div>
-          )}
-
-          {/* Measurement Controls - hidden when actively drawing or dropdown open to avoid overlap */}
-          {isMeasuring && !isDrawingLine && !isDrawingArea && !showFloatingDrawingTools && (
-            <div className="absolute top-16 right-4 z-[1000] flex flex-col gap-2">
-              <div className="bg-amber-500/90 text-white px-3 py-2 rounded-lg text-sm font-medium text-center backdrop-blur-sm shadow-lg">
-                <Ruler className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-                {measureStart && measureEnd && measureStart.distanceTo(measureEnd) > 0
-                  ? (() => {
-                      const d = measureStart.distanceTo(measureEnd);
-                      const lat1 = measureStart.lat * Math.PI / 180;
-                      const lat2 = measureEnd.lat * Math.PI / 180;
-                      const dLng = (measureEnd.lng - measureStart.lng) * Math.PI / 180;
-                      const y = Math.sin(dLng) * Math.cos(lat2);
-                      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-                      const bearing = ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
-                      const distText = d >= 1000 ? `${(d / 1000).toFixed(2)} km` : `${d.toFixed(0)} m`;
-                      return `${distText}, ${bearing.toFixed(1)}°`;
-                    })()
-                  : 'Drag map to measure'}
-              </div>
-              <Button
-                onClick={() => {
-                  // Reset start to current map center
-                  if (mapRef.current) {
-                    const center = mapRef.current.getCenter();
-                    setMeasureStart(center);
-                    setMeasureEnd(center);
-                  }
-                }}
-                className="h-10 px-4 bg-primary/90 hover:bg-primary text-primary-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
-              >
-                ↻ Reset Start Point
-              </Button>
-              <Button
-                onClick={() => {
-                  setIsMeasuring(false);
-                  setMeasureStart(null);
-                  setMeasureEnd(null);
-                }}
-                className="h-10 px-4 bg-destructive/90 hover:bg-destructive text-destructive-foreground border-0 backdrop-blur-sm transition-all duration-200 hover:scale-105 shadow-lg rounded-lg text-sm"
-              >
-                ✗ Stop Measuring
               </Button>
             </div>
           )}
@@ -8143,14 +8097,6 @@ function MapDrawingPageContent() {
           }}
         />
       )}
-
-      {/* Project Photo Carousel */}
-      <ProjectPhotoCarousel
-        open={showPhotoCarousel}
-        onClose={() => setShowPhotoCarousel(false)}
-        projectId={activeProjectId}
-        projectName={dynamicProjects[activeProjectId]?.name || ''}
-      />
 
       {/* Duplicate File Warning Dialog */}
       <Dialog open={showDuplicateWarning} onOpenChange={(open) => {
@@ -8284,17 +8230,6 @@ function MapDrawingPageContent() {
         }}
         onCancel={() => {
           setShowProjectSettingsDialog(false);
-        }}
-        onRename={async (newName: string) => {
-          const projectId = currentProjectContext || activeProjectId;
-          const success = await projectService.setProjectDisplayName(projectId, newName);
-          if (success) {
-            setDynamicProjects(prev => ({
-              ...prev,
-              [projectId]: { ...prev[projectId], name: newName }
-            }));
-          }
-          return success;
         }}
       />
 

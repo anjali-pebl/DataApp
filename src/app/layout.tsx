@@ -1,5 +1,5 @@
 
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import { Roboto } from 'next/font/google';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
@@ -8,7 +8,6 @@ import TopNavigation from '@/components/layout/TopNavigation';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { NavigationErrorBoundary } from '@/components/layout/NavigationErrorBoundary';
 import { PageTracker } from '@/components/analytics/PageTracker';
-import SetupGuard from '@/components/setup/SetupGuard';
 
 // PEBL Brand Typography: Roboto for body text
 const roboto = Roboto({
@@ -25,6 +24,14 @@ const roboto = Roboto({
 
 // Force dynamic rendering since we use cookies() for authentication
 export const dynamic = 'force-dynamic';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002'),
@@ -70,30 +77,6 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <head>
-        {/* Suppress noisy hot reload logs in development */}
-        {process.env.NODE_ENV === 'development' && (
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-                (function() {
-                  const originalLog = console.log;
-                  console.log = function(...args) {
-                    const message = args.join(' ');
-                    // Filter out Fast Refresh logs
-                    if (message.includes('[Fast Refresh]') ||
-                        message.includes('fast-refresh') ||
-                        message.includes('hot-reloader')) {
-                      return;
-                    }
-                    originalLog.apply(console, args);
-                  };
-                })();
-              `,
-            }}
-          />
-        )}
-      </head>
       <body className={`${roboto.variable} font-roboto antialiased`}>
         <ErrorBoundary>
           {/* Wrap TopNavigation with its own error boundary for extra protection */}
@@ -102,10 +85,7 @@ export default async function RootLayout({
           </NavigationErrorBoundary>
           {/* Analytics page tracking */}
           <PageTracker />
-          {/* Setup guard checks if user needs to complete initial setup */}
-          <SetupGuard user={user}>
-            {children}
-          </SetupGuard>
+          {children}
           <Toaster />
         </ErrorBoundary>
       </body>

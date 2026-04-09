@@ -1684,10 +1684,22 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated,
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-[95vw] h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
-          <DialogTitle className="flex items-center justify-between">
-            <span className="font-mono text-sm truncate">{fileName}</span>
-            <div className="flex items-center gap-2">
+        <DialogHeader className="px-3 md:px-6 pt-3 md:pt-6 pb-2 md:pb-4 shrink-0 space-y-2">
+          {/* Row 1: Filename + info */}
+          <DialogTitle className="flex items-center justify-between gap-2">
+            <div className="flex flex-col md:flex-row md:items-center gap-0.5 md:gap-3 min-w-0 flex-1">
+              <span className="font-mono text-xs md:text-sm truncate">{fileName}</span>
+              <span className="text-[10px] md:text-xs text-muted-foreground shrink-0">
+                {isLoading ? 'Loading...' : error ? 'Error' : `${rows.length.toLocaleString()} rows × ${headers.length} cols`}
+                {isEditMode && selectedCells.size > 0 && (
+                  <span className="ml-2 text-primary font-medium">
+                    • {selectedCells.size} selected
+                  </span>
+                )}
+              </span>
+            </div>
+            {/* Core action buttons - always visible */}
+            <div className="flex items-center gap-1 md:gap-2 shrink-0">
               {!isLoading && !error && (
                 <>
                   {!isReadOnly && (
@@ -1701,122 +1713,11 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated,
                       setEditingHeader(null);
                       setEditValue('');
                     }}
-                    className="gap-2"
+                    className="gap-1 md:gap-2 h-7 md:h-8 px-2 md:px-3 text-xs"
                   >
-                    <Edit className="w-4 h-4" />
-                    {isEditMode ? "Exit Edit" : "Edit"}
+                    <Edit className="w-3 h-3 md:w-4 md:h-4" />
+                    {isEditMode ? "Exit" : "Edit"}
                   </Button>
-                  )}
-                  {isEditMode && (
-                    <>
-                      {/* Edit toolbar - always visible in edit mode */}
-                      <div className="flex items-center gap-1 px-2 py-1 bg-muted/50 rounded-md border">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleAddColumn('end')}
-                          className="h-7 px-2 text-xs gap-1"
-                          title="Add column at end"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Column
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleAddRow('end')}
-                          className="h-7 px-2 text-xs gap-1"
-                          title="Add row at end"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Row
-                        </Button>
-                        <div className="w-px h-4 bg-border mx-1" />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleDeleteColumns}
-                          disabled={selectedCells.size === 0}
-                          className="h-7 px-2 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                          title="Delete selected columns"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Col
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleDeleteRows}
-                          disabled={selectedCells.size === 0}
-                          className="h-7 px-2 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                          title="Delete selected rows"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Row
-                        </Button>
-                        <div className="w-px h-4 bg-border mx-1" />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowFillDialog(true)}
-                          disabled={selectedCells.size === 0}
-                          className="h-7 px-2 text-xs gap-1"
-                          title="Fill selected cells"
-                        >
-                          <PaintBucket className="w-3 h-3" />
-                          Fill
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handlePasteToSelected}
-                          disabled={selectedCells.size === 0}
-                          className="h-7 px-2 text-xs gap-1"
-                          title="Paste from clipboard"
-                        >
-                          <Clipboard className="w-3 h-3" />
-                          Paste
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleClearCells}
-                          disabled={selectedCells.size === 0}
-                          className="h-7 px-2 text-xs gap-1"
-                          title="Clear selected cells"
-                        >
-                          <X className="w-3 h-3" />
-                          Clear
-                        </Button>
-                      </div>
-                      {selectedCells.size > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          {selectedCells.size} selected
-                        </span>
-                      )}
-                    </>
-                  )}
-                  {isEditMode && selectedCells.size > 0 && !isAiProcessing && (
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => {
-                        // Show confirmation for large batches
-                        if (selectedCells.size > 100) {
-                          const confirmed = window.confirm(
-                            `You are about to transform ${selectedCells.size} cells. ` +
-                            `This will take approximately ${Math.ceil(selectedCells.size * 1.2 / 60)} minutes. ` +
-                            `Do you want to continue?`
-                          );
-                          if (!confirmed) return;
-                        }
-                        setShowAiPromptDialog(true);
-                      }}
-                      className="gap-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      Transform ({selectedCells.size})
-                    </Button>
                   )}
                   {hasUnsavedChanges && (
                     <Button
@@ -1824,14 +1725,14 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated,
                       size="sm"
                       onClick={handleSaveEdits}
                       disabled={isLoading}
-                      className="gap-2 bg-green-600 hover:bg-green-700"
+                      className="gap-1 md:gap-2 h-7 md:h-8 px-2 md:px-3 text-xs bg-green-600 hover:bg-green-700"
                     >
                       {isLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-3 h-3 md:w-4 md:h-4 animate-spin" />
                       ) : (
-                        <Save className="w-4 h-4" />
+                        <Save className="w-3 h-3 md:w-4 md:h-4" />
                       )}
-                      Save Edits
+                      Save
                     </Button>
                   )}
                   {transformationLog.length > 0 && (
@@ -1839,41 +1740,132 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated,
                       variant="outline"
                       size="sm"
                       onClick={() => setShowLog(!showLog)}
-                      className="gap-2"
+                      className="gap-1 h-7 md:h-8 px-2 md:px-3 text-xs"
                     >
-                      <FileText className="w-4 h-4" />
-                      {showLog ? 'Hide' : 'View'} Log ({transformationLog.length})
+                      <FileText className="w-3 h-3 md:w-4 md:h-4" />
+                      <span className="hidden md:inline">{showLog ? 'Hide' : 'View'} Log ({transformationLog.length})</span>
+                      <span className="md:hidden">Log</span>
                     </Button>
                   )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleDownload}
-                    className="gap-2"
+                    className="gap-1 h-7 md:h-8 px-2 md:px-3 text-xs"
                   >
-                    <Download className="w-4 h-4" />
-                    Download
+                    <Download className="w-3 h-3 md:w-4 md:h-4" />
+                    <span className="hidden md:inline">Download</span>
                   </Button>
                 </>
               )}
             </div>
           </DialogTitle>
-          <DialogDescription>
-            {isLoading ? (
-              'Loading raw CSV data...'
-            ) : error ? (
-              'Failed to load CSV data'
-            ) : (
-              <>
-                {`${rows.length.toLocaleString()} rows × ${headers.length} columns`}
-                {isEditMode && selectedCells.size > 0 && (
-                  <span className="ml-4 text-primary font-medium">
-                    • {selectedCells.size} cell{selectedCells.size !== 1 ? 's' : ''} selected
-                  </span>
-                )}
-              </>
-            )}
-          </DialogDescription>
+          {/* Row 2: Edit toolbar (only when in edit mode) */}
+          {!isLoading && !error && isEditMode && (
+            <div className="flex items-center gap-1 flex-wrap px-1 md:px-2 py-1 bg-muted/50 rounded-md border">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleAddColumn('end')}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1"
+                title="Add column at end"
+              >
+                <Plus className="w-3 h-3" />
+                Col
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleAddRow('end')}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1"
+                title="Add row at end"
+              >
+                <Plus className="w-3 h-3" />
+                Row
+              </Button>
+              <div className="w-px h-4 bg-border mx-0.5 md:mx-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDeleteColumns}
+                disabled={selectedCells.size === 0}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                title="Delete selected columns"
+              >
+                <Trash2 className="w-3 h-3" />
+                Col
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDeleteRows}
+                disabled={selectedCells.size === 0}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                title="Delete selected rows"
+              >
+                <Trash2 className="w-3 h-3" />
+                Row
+              </Button>
+              <div className="w-px h-4 bg-border mx-0.5 md:mx-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowFillDialog(true)}
+                disabled={selectedCells.size === 0}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1"
+                title="Fill selected cells"
+              >
+                <PaintBucket className="w-3 h-3" />
+                Fill
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handlePasteToSelected}
+                disabled={selectedCells.size === 0}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1"
+                title="Paste from clipboard"
+              >
+                <Clipboard className="w-3 h-3" />
+                Paste
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearCells}
+                disabled={selectedCells.size === 0}
+                className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1"
+                title="Clear selected cells"
+              >
+                <X className="w-3 h-3" />
+                Clear
+              </Button>
+              {isEditMode && selectedCells.size > 0 && !isAiProcessing && (
+                <>
+                  <div className="w-px h-4 bg-border mx-0.5 md:mx-1" />
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      if (selectedCells.size > 100) {
+                        const confirmed = window.confirm(
+                          `You are about to transform ${selectedCells.size} cells. ` +
+                          `This will take approximately ${Math.ceil(selectedCells.size * 1.2 / 60)} minutes. ` +
+                          `Do you want to continue?`
+                        );
+                        if (!confirmed) return;
+                      }
+                      setShowAiPromptDialog(true);
+                    }}
+                    className="h-6 md:h-7 px-1.5 md:px-2 text-[10px] md:text-xs gap-0.5 md:gap-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Transform ({selectedCells.size})
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </DialogHeader>
 
         <div className="flex-1 min-h-0 px-6 pb-6">
@@ -1908,7 +1900,7 @@ export function RawCsvViewer({ fileId, fileName, isOpen, onClose, onFileUpdated,
               <div
                 ref={scrollContainerRef}
                 className={cn(
-                  "h-full overflow-auto scroll-smooth",
+                  "h-full overflow-auto scroll-smooth scroll-hint-x",
                   isEditMode
                     ? "scrollbar scrollbar-thumb-muted-foreground/40 scrollbar-track-muted/20"
                     : "scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent hover:scrollbar-thumb-muted-foreground/30 cursor-grab"

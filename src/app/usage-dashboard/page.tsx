@@ -203,18 +203,19 @@ export default function UsageDashboardPage() {
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-4 md:mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Usage Analytics Dashboard</h1>
-            <p className="text-muted-foreground">
-              Monitor user activity, feature usage, and application health
+            <h1 className="text-xl md:text-3xl font-bold mb-1 md:mb-2">Usage Analytics</h1>
+            <p className="text-xs md:text-base text-muted-foreground">
+              Monitor user activity and application health
             </p>
           </div>
           <Button
             onClick={handleRefresh}
             disabled={refreshing}
             variant="outline"
+            className="hidden md:flex"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -222,29 +223,40 @@ export default function UsageDashboardPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="overview">
-            <BarChart3 className="h-4 w-4 mr-2" />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 md:space-y-6">
+        <div className="flex items-center gap-2">
+        <TabsList className="grid flex-1 grid-cols-5">
+          <TabsTrigger value="overview" className="text-xs md:text-sm px-1 md:px-3">
+            <BarChart3 className="h-4 w-4 mr-2 hidden md:block" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="h-4 w-4 mr-2" />
+          <TabsTrigger value="users" className="text-xs md:text-sm px-1 md:px-3">
+            <Users className="h-4 w-4 mr-2 hidden md:block" />
             Users
           </TabsTrigger>
-          <TabsTrigger value="files">
-            <FileText className="h-4 w-4 mr-2" />
+          <TabsTrigger value="files" className="text-xs md:text-sm px-1 md:px-3">
+            <FileText className="h-4 w-4 mr-2 hidden md:block" />
             Files
           </TabsTrigger>
-          <TabsTrigger value="features">
-            <Activity className="h-4 w-4 mr-2" />
+          <TabsTrigger value="features" className="text-xs md:text-sm px-1 md:px-3">
+            <Activity className="h-4 w-4 mr-2 hidden md:block" />
             Features
           </TabsTrigger>
-          <TabsTrigger value="errors">
-            <AlertCircle className="h-4 w-4 mr-2" />
+          <TabsTrigger value="errors" className="text-xs md:text-sm px-1 md:px-3">
+            <AlertCircle className="h-4 w-4 mr-2 hidden md:block" />
             Errors
           </TabsTrigger>
         </TabsList>
+          <Button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            variant="outline"
+            size="icon"
+            className="md:hidden h-9 w-9 shrink-0"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
@@ -371,13 +383,13 @@ export default function UsageDashboardPage() {
         {/* Users Tab */}
         <TabsContent value="users" className="space-y-6">
           <Card>
-            <CardHeader>
+            <CardHeader className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>User Analytics</CardTitle>
-                  <CardDescription>Detailed user activity and engagement metrics</CardDescription>
+                  <CardTitle className="text-base md:text-lg">User Analytics</CardTitle>
+                  <CardDescription className="text-xs md:text-sm">User activity and engagement metrics</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -389,9 +401,70 @@ export default function UsageDashboardPage() {
                   </div>
                 </div>
               </div>
+              <div className="relative md:hidden">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search users..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-9"
+                />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              {/* Mobile: card layout */}
+              <div className="md:hidden space-y-3">
+                {filteredUsers.map((user) => (
+                  <div
+                    key={user.user_id}
+                    className="border rounded-lg p-3 space-y-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleUserClick(user.user_id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{user.email}</p>
+                        {user.display_name && (
+                          <p className="text-xs text-muted-foreground">{user.display_name}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        {user.is_power_user && (
+                          <Badge variant="default" className="text-[10px] px-1.5">Power</Badge>
+                        )}
+                        {user.is_active ? (
+                          <Badge variant="outline" className="text-[10px] px-1.5 text-green-600">Active</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] px-1.5 text-gray-500">Inactive</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <p className="text-sm font-semibold">{user.total_pins}</p>
+                        <p className="text-[10px] text-muted-foreground">Pins</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">{user.total_files_uploaded}</p>
+                        <p className="text-[10px] text-muted-foreground">Files</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">{user.total_sessions}</p>
+                        <p className="text-[10px] text-muted-foreground">Sessions</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          {user.last_activity
+                            ? new Date(user.last_activity).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                            : '-'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Last</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Desktop: table layout */}
+              <div className="hidden md:block rounded-md border">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-muted">
@@ -508,7 +581,37 @@ export default function UsageDashboardPage() {
             <CardContent>
               {fileViews.length > 0 ? (
                 <div className="space-y-4">
-                  <div className="rounded-md border">
+                  {/* Mobile: card layout */}
+                  <div className="md:hidden space-y-3">
+                    {fileViews.map((file, index) => (
+                      <div key={index} className="border rounded-lg p-3 space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium truncate min-w-0">{file.fileName}</p>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
+                            {file.fileType || '?'}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <p className="text-sm font-semibold">{file.viewCount}</p>
+                            <p className="text-[10px] text-muted-foreground">Views</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold">{file.userCount}</p>
+                            <p className="text-[10px] text-muted-foreground">Users</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {file.avgDuration > 0 ? `${Math.round(file.avgDuration / 1000)}s` : '-'}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">Avg</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop: table layout */}
+                  <div className="hidden md:block rounded-md border">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b bg-muted/50">

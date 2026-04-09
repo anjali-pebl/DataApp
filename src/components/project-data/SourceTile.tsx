@@ -14,6 +14,7 @@ import {
   isPdfFile
 } from '@/lib/file-categorization-config';
 import { fileStorageService } from '@/lib/supabase/file-storage-service';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export interface SourceTileProps {
   source: string;
@@ -59,8 +60,10 @@ export function SourceTile({
   pinColorMap,
   onPairedFileClick
 }: SourceTileProps) {
+  const isMobile = useIsMobile();
   const [selectedCategories, setSelectedCategories] = React.useState<string[]>([]);
   const [viewMode, setViewMode] = React.useState<'table' | 'timeline'>('timeline');
+
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [startY, setStartY] = React.useState(0);
@@ -138,91 +141,92 @@ export function SourceTile({
   return (
     <div className="border border-border rounded-lg overflow-hidden flex flex-col max-h-[500px]">
       {/* Tile Header */}
-      <div className="bg-teal-700 border-b border-teal-800 px-4 py-3 flex-shrink-0 rounded-t-lg">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm text-white">
-            {label}
-            {label === 'SubCam' && <span className="font-normal text-teal-200 ml-1">· Benthic Video Data</span>}
-            {label === 'GrowProbe' && <span className="font-normal text-teal-200 ml-1">· Temperature, Light, Turbidity, Current Data</span>}
-            {label === 'FPOD' && <span className="font-normal text-teal-200 ml-1">· Cetacean Click Detection Data</span>}
-            {label === 'eDNA' && <span className="font-normal text-teal-200 ml-1">· Environmental DNA Data</span>}
-            {label === 'Water and Crop Samples' && <span className="font-normal text-teal-200 ml-1">· Water Quality, Crop Chemical Compounds, Crop Yield And Morphology Data</span>}
-          </h3>
-          <div className="flex items-center gap-2">
-            {/* Category Filter Dropdown */}
-            {hasCategories && availableCategories.length > 0 && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-700 transition-colors text-xs ${selectedCategories.length > 0 ? 'bg-amber-500 text-white' : 'bg-teal-800 text-white'}`}>
-                    <FileCode className="h-3 w-3" />
-                    <span className="font-semibold">{selectedCategories.length > 0 ? selectedCategories.length : availableCategories.length}</span>
-                    <span>Categories</span>
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-2" align="end">
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold mb-2 flex items-center justify-between">
-                      <span>Filter by Category</span>
-                      {selectedCategories.length > 0 && (
-                        <button
-                          onClick={() => setSelectedCategories([])}
-                          className="text-primary hover:text-primary/80 text-[10px]"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    {availableCategories.map(category => (
-                      <label key={category} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedCategories.includes(category)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedCategories([...selectedCategories, category]);
-                            } else {
-                              setSelectedCategories(selectedCategories.filter(c => c !== category));
-                            }
-                          }}
-                          className="h-3 w-3"
-                        />
-                        <span className="font-medium">{category}</span>
-                      </label>
-                    ))}
+      <div className="bg-teal-700 border-b border-teal-800 px-3 md:px-4 py-2 md:py-2.5 flex-shrink-0 rounded-t-lg space-y-1.5">
+        {/* Row 1: Title and subtitle */}
+        <h3 className="font-semibold text-sm text-white">
+          {label}
+          {label === 'SubCam' && <span className="font-normal text-teal-200 text-xs ml-1">· Benthic Video Data</span>}
+          {label === 'GrowProbe' && <span className="font-normal text-teal-200 text-xs ml-1">· Temperature, Light, Turbidity, Current</span>}
+          {label === 'FPOD' && <span className="font-normal text-teal-200 text-xs ml-1">· Cetacean Click Detection</span>}
+          {label === 'eDNA' && <span className="font-normal text-teal-200 text-xs ml-1">· Environmental DNA</span>}
+          {label === 'Water and Crop Samples' && <span className="font-normal text-teal-200 text-xs ml-1">· Water Quality, Crop Compounds & Yield</span>}
+        </h3>
+
+        {/* Row 2: Filter controls, view toggle, file count */}
+        <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
+          {/* Category Filter Dropdown */}
+          {hasCategories && availableCategories.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-700 transition-colors text-xs ${selectedCategories.length > 0 ? 'bg-amber-500 text-white' : 'bg-teal-800 text-white'}`}>
+                  <FileCode className="h-3 w-3" />
+                  <span className="font-semibold">{selectedCategories.length > 0 ? selectedCategories.length : availableCategories.length}</span>
+                  <span>Categories</span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 max-w-[calc(100vw-2rem)] p-2" align="start">
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold mb-2 flex items-center justify-between">
+                    <span>Filter by Category</span>
+                    {selectedCategories.length > 0 && (
+                      <button
+                        onClick={() => setSelectedCategories([])}
+                        className="text-primary hover:text-primary/80 text-[10px]"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
-                </PopoverContent>
-              </Popover>
-            )}
+                  {availableCategories.map(category => (
+                    <label key={category} className="flex items-center gap-2 text-xs hover:bg-muted p-1 rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategories.includes(category)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCategories([...selectedCategories, category]);
+                          } else {
+                            setSelectedCategories(selectedCategories.filter(c => c !== category));
+                          }
+                        }}
+                        className="h-3 w-3"
+                      />
+                      <span className="font-medium">{category}</span>
+                    </label>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
 
-            {/* View Mode Toggle (not useful for Media tile) */}
-            {label !== 'Media' && (
-              <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
-                <Button
-                  variant={viewMode === 'table' ? 'default' : 'ghost'}
-                  size="sm"
-                  className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
-                  onClick={() => setViewMode('table')}
-                >
-                  <Calendar className="h-3 w-3 mr-1" />
-                  <span className="text-xs">Table</span>
-                </Button>
-                <Button
-                  variant={viewMode === 'timeline' ? 'default' : 'ghost'}
-                  size="sm"
-                  className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
-                  onClick={() => setViewMode('timeline')}
-                >
-                  <BarChart3 className="h-3 w-3 mr-1" />
-                  <span className="text-xs">Timeline</span>
-                </Button>
-              </div>
-            )}
+          {/* View Mode Toggle (not useful for Media tile) */}
+          {label !== 'Media' && (
+            <div className="flex items-center gap-1 bg-teal-800/50 rounded p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'table' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('table')}
+              >
+                <Calendar className="h-3 w-3 mr-1" />
+                <span className="text-xs">Table</span>
+              </Button>
+              <Button
+                variant={viewMode === 'timeline' ? 'default' : 'ghost'}
+                size="sm"
+                className={`h-6 px-2 ${viewMode !== 'timeline' ? 'text-white hover:bg-teal-600 hover:text-white' : ''}`}
+                onClick={() => setViewMode('timeline')}
+              >
+                <BarChart3 className="h-3 w-3 mr-1" />
+                <span className="text-xs">Timeline</span>
+              </Button>
+            </div>
+          )}
 
-            <span className="text-xs text-white bg-teal-800 px-2 py-1 rounded">
-              {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
-            </span>
-          </div>
+          <span className="text-xs text-white bg-teal-800 px-2 py-1 rounded">
+            {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'}
+          </span>
         </div>
       </div>
 
