@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ErrorBar, LabelList, Customized } from 'recharts';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { SpotSampleGroup } from '@/lib/statistical-utils';
 
 interface SpotSampleStyles {
@@ -65,6 +66,8 @@ export function ColumnChartWithErrorBars({
   showDateSeparators = false
 }: ColumnChartWithErrorBarsProps) {
 
+  const isMobile = useIsMobile();
+
   // Helper function to capitalize first letter of parameter names
   // Converts "length (cm)" -> "Length (cm)", "width (cm)" -> "Width (cm)"
   const capitalizeParameter = (param: string): string => {
@@ -80,9 +83,9 @@ export function ColumnChartWithErrorBars({
     barCategoryGap: spotSampleStyles?.barCategoryGap ?? 10,
     columnBorderWidth: spotSampleStyles?.columnBorderWidth ?? 0,
     chartMarginTop: (spotSampleStyles?.chartMarginTop ?? 20) + dateLabelsTopMargin,
-    chartMarginRight: spotSampleStyles?.chartMarginRight ?? 30,
-    chartMarginLeft: spotSampleStyles?.chartMarginLeft ?? 40,
-    chartMarginBottom: spotSampleStyles?.chartMarginBottom ?? 80,
+    chartMarginRight: isMobile ? 10 : (spotSampleStyles?.chartMarginRight ?? 30),
+    chartMarginLeft: isMobile ? 5 : (spotSampleStyles?.chartMarginLeft ?? 40),
+    chartMarginBottom: isMobile ? 60 : (spotSampleStyles?.chartMarginBottom ?? 80),
     errorBarWidth: spotSampleStyles?.errorBarWidth ?? 4,
     errorBarStrokeWidth: spotSampleStyles?.errorBarStrokeWidth ?? 2,
     xAxisLabelRotation: spotSampleStyles?.xAxisLabelRotation ?? -45,
@@ -493,18 +496,19 @@ export function ColumnChartWithErrorBars({
         />
 
         <YAxis
-          label={{
+          label={isMobile ? undefined : {
             value: spotSampleStyles?.yAxisLabel || capitalizeParameter(parameter),
             angle: -90,
             position: 'insideLeft',
             style: {
               fontSize: styles.yAxisTitleFontSize,
               fontWeight: styles.yAxisTitleFontWeight,
-              textAnchor: 'middle', // SVG uses 'middle' for centering, not 'center'
-              fill: '#666' // Match the plot color scheme
+              textAnchor: 'middle',
+              fill: '#666'
             }
           }}
-          tick={{ fontSize: styles.yAxisLabelFontSize }}
+          tick={{ fontSize: isMobile ? 10 : styles.yAxisLabelFontSize }}
+          width={isMobile ? 35 : undefined}
           domain={[
             yAxisRange?.min !== undefined ? Math.max(0, yAxisRange.min) : 0,
             yAxisRange?.max !== undefined ? yAxisRange.max : 'auto'

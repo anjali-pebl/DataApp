@@ -3562,71 +3562,76 @@ export function PinChartDisplay({
       {/* Header - two rows on mobile: info on top, controls on bottom */}
       <div className="flex flex-col gap-2">
         {/* Row 1: File info - location, time period, category, and filename */}
-        <div className="flex flex-col gap-0.5">
-          {/* Main header: Location • Time Period (Categories) */}
-          {/* For 24hr avg: Location [Category] within [date range] */}
-          {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-            <div className="text-xs font-semibold text-foreground flex items-center gap-2 flex-wrap">
-              {/* Location */}
-              {pinLabel && <span>{pinLabel}</span>}
+        <div className="flex gap-2">
+          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            {/* Main header: Location • Time Period (Categories) */}
+            {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+              <div className="text-xs font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                {/* Location */}
+                {pinLabel && <span>{pinLabel}</span>}
 
-              {/* Time Period - shown with bullet for regular plots */}
-              {!showDateTimeAxis && (startDate || endDate) && (
-                <>
-                  {pinLabel && <span className="text-muted-foreground">•</span>}
-                  <span className="font-normal">
-                    {startDate && endDate
-                      ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
-                      : startDate
-                      ? `From ${format(startDate, 'MMM d, yyyy')}`
-                      : endDate
-                      ? `Until ${format(endDate, 'MMM d, yyyy')}`
-                      : ''}
+                {/* Time Period - shown with bullet for regular plots */}
+                {!showDateTimeAxis && (startDate || endDate) && (
+                  <>
+                    {pinLabel && <span className="text-muted-foreground">•</span>}
+                    <span className="font-normal">
+                      {startDate && endDate
+                        ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                        : startDate
+                        ? `From ${format(startDate, 'MMM d, yyyy')}`
+                        : endDate
+                        ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                        : ''}
+                    </span>
+                  </>
+                )}
+
+                {/* Categories - desktop inline */}
+                {fileCategories && fileCategories.map((category, index) => (
+                  <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                    {category}
                   </span>
-                </>
-              )}
+                ))}
 
-              {/* Categories - desktop only (on mobile, shown in controls row) */}
-              {fileCategories && fileCategories.map((category, index) => (
-                <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                {/* Date range for 24hr avg plots - "within" between badge and dates */}
+                {showDateTimeAxis && (startDate || endDate) && (
+                  <>
+                    <span className="font-normal italic text-muted-foreground">within</span>
+                    <span className="font-normal">
+                      {startDate && endDate
+                        ? `${formatDateUTC(startDate, 'MMM d, yyyy')} - ${formatDateUTC(endDate, 'MMM d, yyyy')}`
+                        : startDate
+                        ? formatDateUTC(startDate, 'MMM d, yyyy')
+                        : endDate
+                        ? formatDateUTC(endDate, 'MMM d, yyyy')
+                        : ''}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Raw filename in smaller font */}
+            {fileName && (
+              <div className="text-xs text-muted-foreground font-mono truncate">
+                {fileName}
+              </div>
+            )}
+          </div>
+          {/* Categories - mobile: stacked vertically on the right */}
+          {fileCategories && fileCategories.length > 0 && (
+            <div className="md:hidden flex flex-col gap-0.5 shrink-0">
+              {fileCategories.map((category, index) => (
+                <span key={index} className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium text-center">
                   {category}
                 </span>
               ))}
-
-              {/* Date range for 24hr avg plots - "within" between badge and dates */}
-              {showDateTimeAxis && (startDate || endDate) && (
-                <>
-                  <span className="font-normal italic text-muted-foreground">within</span>
-                  <span className="font-normal">
-                    {startDate && endDate
-                      ? `${formatDateUTC(startDate, 'MMM d, yyyy')} - ${formatDateUTC(endDate, 'MMM d, yyyy')}`
-                      : startDate
-                      ? formatDateUTC(startDate, 'MMM d, yyyy')
-                      : endDate
-                      ? formatDateUTC(endDate, 'MMM d, yyyy')
-                      : ''}
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Raw filename in smaller font */}
-          {fileName && (
-            <div className="text-xs text-muted-foreground font-mono truncate">
-              {fileName}
             </div>
           )}
         </div>
 
-        {/* Row 2: View Controls + Category Badges */}
+        {/* Row 2: View Controls */}
         <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-          {/* Category badges - mobile only (on desktop, shown in header row) */}
-          {fileCategories && fileCategories.map((category, index) => (
-            <span key={index} className="md:hidden text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
-              {category}
-            </span>
-          ))}
 
           {/* FPOD Unit Toggle - Clicks / DPM */}
           {fileType === 'FPOD' && (
