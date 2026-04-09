@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { SpotSampleGroup } from '@/lib/statistical-utils';
 
 interface SpotSampleStyles {
@@ -63,6 +64,7 @@ export function WhiskerPlot({
   yAxisRange,
   showDateSeparators = false
 }: WhiskerPlotProps) {
+  const isMobile = useIsMobile();
 
   // Helper function to capitalize first letter of parameter names
   // Converts "length (cm)" -> "Length (cm)", "width (cm)" -> "Width (cm)"
@@ -74,16 +76,16 @@ export function WhiskerPlot({
   const baseYAxisLabelFontSize = spotSampleStyles?.yAxisLabelFontSize ?? 12;
   const styles = {
     chartMarginTop: spotSampleStyles?.chartMarginTop ?? 20,
-    chartMarginRight: spotSampleStyles?.chartMarginRight ?? 30,
-    chartMarginLeft: spotSampleStyles?.chartMarginLeft ?? 60,
-    chartMarginBottom: spotSampleStyles?.chartMarginBottom ?? (showXAxisLabels ? 140 : 40),
+    chartMarginRight: isMobile ? 10 : (spotSampleStyles?.chartMarginRight ?? 30),
+    chartMarginLeft: isMobile ? 5 : (spotSampleStyles?.chartMarginLeft ?? 60),
+    chartMarginBottom: isMobile ? (showXAxisLabels ? 100 : 30) : (spotSampleStyles?.chartMarginBottom ?? (showXAxisLabels ? 140 : 40)),
     xAxisLabelRotation: spotSampleStyles?.xAxisLabelRotation ?? -45,
-    xAxisLabelFontSize: spotSampleStyles?.xAxisLabelFontSize ?? 11,
+    xAxisLabelFontSize: isMobile ? 9 : (spotSampleStyles?.xAxisLabelFontSize ?? 11),
     xAxisLabelSecondLineOffset: spotSampleStyles?.xAxisLabelSecondLineOffset ?? 0,
     xAxisShowDate: spotSampleStyles?.xAxisShowDate ?? true,
     xAxisShowStationName: spotSampleStyles?.xAxisShowStationName ?? true,
     xAxisShowSampleId: spotSampleStyles?.xAxisShowSampleId ?? true,
-    yAxisLabelFontSize: baseYAxisLabelFontSize,
+    yAxisLabelFontSize: isMobile ? 10 : baseYAxisLabelFontSize,
     yAxisTitleFontSize: spotSampleStyles?.yAxisTitleFontSize ?? (baseYAxisLabelFontSize + 2), // Title is 2px larger than labels
     yAxisTitleFontWeight: spotSampleStyles?.yAxisTitleFontWeight ?? 'normal',
     yAxisTitleAlign: spotSampleStyles?.yAxisTitleAlign ?? 'center',
@@ -461,7 +463,8 @@ export function WhiskerPlot({
             ));
           })()}
 
-          {/* Y-axis label */}
+          {/* Y-axis label - hidden on mobile */}
+          {!isMobile && (
           <text
             x={0}
             y={0}
@@ -473,6 +476,7 @@ export function WhiskerPlot({
           >
             {spotSampleStyles?.yAxisLabel || capitalizeParameter(parameter)}
           </text>
+          )}
 
           {/* Date group separator lines - vertical lines between different sampling days (only in Detailed mode) */}
           {showDateSeparators && parameterData.map((group, index) => {

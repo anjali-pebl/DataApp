@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { BarChart3, TableIcon, Settings, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import { MethodologyModal } from "@/components/methodology";
 
 // Common names for chemical parameters (used for tooltips)
@@ -224,8 +225,20 @@ export function PinChartDisplaySpotSample({
   // Data aggregation state (for _indiv files)
   const [aggregationMode, setAggregationMode] = useState<'detailed' | 'by-date'>('detailed');
 
-  // Collapsed state for the Parameters sidebar
+  const isMobile = useIsMobile();
+
+  // Collapsed state for the Parameters sidebar - default collapsed on mobile
   const [isParametersSidebarCollapsed, setIsParametersSidebarCollapsed] = useState(false);
+  const hasSetMobileSidebarDefault = useRef(false);
+  useEffect(() => {
+    if (isMobile && !hasSetMobileSidebarDefault.current) {
+      setIsParametersSidebarCollapsed(true);
+      if (fileName?.toLowerCase().endsWith('_indiv.csv')) {
+        setAggregationMode('by-date');
+      }
+      hasSetMobileSidebarDefault.current = true;
+    }
+  }, [isMobile, fileName]);
 
   // Load style rules from localStorage (with versioning)
   const [styleRules, setStyleRules] = useState<StyleRule[]>(() => {
@@ -1390,126 +1403,120 @@ export function PinChartDisplaySpotSample({
   const visibleParametersList = parameterColumns.filter(p => visibleParameters.has(p));
 
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-col md:flex-row gap-2 md:gap-3 w-full">
       {/* Main chart area */}
-      <div className="flex-1 space-y-2 md:space-y-3">
+      <div className="flex-1 min-w-0 w-full space-y-1.5 md:space-y-3">
         {/* File header - two rows: info on top, controls on bottom */}
-        <div className="flex flex-col gap-1.5 md:gap-2">
+        <div className="flex flex-col gap-1 md:gap-2 w-full">
           {/* Row 1: Location, time period, categories, filename */}
-          <div className="flex flex-col gap-0.5">
-            {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
-              <div className="text-xs md:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
-                {pinLabel && <span>{pinLabel}</span>}
-                {(startDate || endDate) && (
-                  <>
-                    {pinLabel && <span className="text-muted-foreground">•</span>}
-                    <span className="font-normal">
-                      {startDate && endDate
-                        ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
-                        : startDate
-                        ? `From ${format(startDate, 'MMM d, yyyy')}`
-                        : endDate
-                        ? `Until ${format(endDate, 'MMM d, yyyy')}`
-                        : ''}
+          <div className="flex gap-2 w-full">
+            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+              {(pinLabel || startDate || endDate || (fileCategories && fileCategories.length > 0)) && (
+                <div className="text-xs md:text-sm font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                  {pinLabel && <span>{pinLabel}</span>}
+                  {(startDate || endDate) && (
+                    <>
+                      {pinLabel && <span className="text-muted-foreground">•</span>}
+                      <span className="font-normal">
+                        {startDate && endDate
+                          ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
+                          : startDate
+                          ? `From ${format(startDate, 'MMM d, yyyy')}`
+                          : endDate
+                          ? `Until ${format(endDate, 'MMM d, yyyy')}`
+                          : ''}
+                      </span>
+                    </>
+                  )}
+                  {/* Categories - desktop inline */}
+                  {fileCategories && fileCategories.map((category, index) => (
+                    <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                      {category}
                     </span>
-                  </>
-                )}
-                {/* Categories - desktop only */}
-                {fileCategories && fileCategories.map((category, index) => (
-                  <span key={index} className="hidden md:inline text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+                  ))}
+                </div>
+              )}
+              {fileName && (
+                <div className="text-xs text-muted-foreground font-mono truncate">
+                  {fileName}
+                </div>
+              )}
+            </div>
+            {/* Categories - mobile: stacked vertically on the right */}
+            {fileCategories && fileCategories.length > 0 && (
+              <div className="md:hidden flex flex-col gap-0.5 shrink-0">
+                {fileCategories.map((category, index) => (
+                  <span key={index} className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium text-center">
                     {category}
                   </span>
                 ))}
               </div>
             )}
-            {fileName && (
-              <div className="text-xs text-muted-foreground font-mono truncate">
-                {fileName}
-              </div>
-            )}
           </div>
 
-          {/* Row 2: Controls + Category Badges */}
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-        {/* Category badges - mobile only */}
-        {fileCategories && fileCategories.map((category, index) => (
-          <span key={index} className="md:hidden text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
-            {category}
-          </span>
-        ))}
+          {/* Row 2: Controls */}
+          <div className="flex items-center gap-1.5 md:gap-3 flex-wrap w-full">
         {/* Chart/Table Toggle */}
-        <div className="flex items-center gap-1 border rounded-lg p-1">
+        <div className="flex items-center gap-0.5 md:gap-1 border rounded-lg p-0.5 md:p-1">
           <Button
             variant={!showTable ? "default" : "ghost"}
             size="sm"
             onClick={() => setShowTable(false)}
-            className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
+            className="h-6 md:h-8 px-1.5 md:px-3 text-[10px] md:text-sm"
           >
-            <BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+            <BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-0.5 md:mr-1" />
             Chart
           </Button>
           <Button
             variant={showTable ? "default" : "ghost"}
             size="sm"
             onClick={() => setShowTable(true)}
-            className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
+            className="h-6 md:h-8 px-1.5 md:px-3 text-[10px] md:text-sm"
           >
-            <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+            <TableIcon className="h-3 w-3 md:h-4 md:w-4 mr-0.5 md:mr-1" />
             Table
           </Button>
         </div>
 
         {/* Aggregation Mode Toggle - only show for _indiv files */}
         {fileName?.toLowerCase().endsWith('_indiv.csv') && (
-          <div className="flex items-center gap-1 border rounded-lg p-1">
+          <div className="flex items-center gap-0.5 md:gap-1 border rounded-lg p-0.5 md:p-1">
             <Button
               variant={aggregationMode === 'detailed' ? "default" : "ghost"}
               size="sm"
               onClick={() => setAggregationMode('detailed')}
-              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
-              title="Show all individual data points"
+              className="h-6 md:h-8 px-1.5 md:px-3 text-[10px] md:text-sm"
             >
-              Detailed
+              Detail
             </Button>
             <Button
               variant={aggregationMode === 'by-date' ? "default" : "ghost"}
               size="sm"
               onClick={() => setAggregationMode('by-date')}
-              className="h-7 md:h-8 px-2 md:px-3 text-xs md:text-sm"
-              title="Aggregate all samples by date"
+              className="h-6 md:h-8 px-1.5 md:px-3 text-[10px] md:text-sm"
             >
-              By Date
+              Date
             </Button>
           </div>
         )}
 
-        {/* Spacer to push right-side controls to the right */}
-        <div className="flex-1" />
-
         {/* Chart Type Selector (only show when chart is active) */}
         {!showTable && (
-          <div className="flex items-center gap-1 md:gap-2">
-            <span className="text-xs md:text-sm font-semibold text-muted-foreground">Show As:</span>
-            <Select
-              value={chartType}
-              onValueChange={(val) => {
-                console.log('[CHART-TYPE] Changing from', chartType, 'to', val);
-                setChartType(val as 'column' | 'whisker');
-              }}
-            >
-              <SelectTrigger className="w-[120px] md:w-[160px] h-7 md:h-8 text-xs md:text-sm">
-                <SelectValue placeholder="Select chart type" />
-              </SelectTrigger>
-              <SelectContent className="z-[9999]">
-                <SelectItem value="column">
-                  Column Chart
-                </SelectItem>
-                <SelectItem value="whisker">
-                  Whisker Plot
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Select
+            value={chartType}
+            onValueChange={(val) => {
+              console.log('[CHART-TYPE] Changing from', chartType, 'to', val);
+              setChartType(val as 'column' | 'whisker');
+            }}
+          >
+            <SelectTrigger className="flex-1 md:flex-none md:w-[160px] h-6 md:h-8 text-[10px] md:text-sm">
+              <SelectValue placeholder="Chart type" />
+            </SelectTrigger>
+            <SelectContent className="z-[9999]">
+              <SelectItem value="column">Column</SelectItem>
+              <SelectItem value="whisker">Whisker</SelectItem>
+            </SelectContent>
+          </Select>
         )}
 
         {/* Sample ID Column Selector - hidden for Chem files, Meta files, or if only one option */}
@@ -1523,30 +1530,27 @@ export function PinChartDisplaySpotSample({
           if (isChemFile || isMetaFile || hasOnlyOneOption) return null;
 
           return (
-            <div className="flex items-center gap-1 md:gap-2">
-              <span className="text-xs md:text-sm font-semibold text-muted-foreground">Show By:</span>
-              <Select
-                value={selectedSampleIdColumn || detectedSampleIdColumn || ''}
-                onValueChange={(val) => setSelectedSampleIdColumn(val)}
-              >
-                <SelectTrigger className="w-[130px] md:w-[180px] h-7 md:h-8 text-xs md:text-sm">
-                  <SelectValue>
-                    {selectedSampleIdColumn
-                      ? selectedSampleIdColumn
-                      : detectedSampleIdColumn === ''
-                        ? 'Auto (Column 2)'
-                        : `Auto (${detectedSampleIdColumn})`}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="z-[9999]">
-                  {sampleIdColumnOptions.map((col, idx) => (
-                    <SelectItem key={`col-${idx}`} value={col || '__empty__'}>
-                      {col === '' ? 'Column 2 (Unnamed)' : col}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <Select
+              value={selectedSampleIdColumn || detectedSampleIdColumn || ''}
+              onValueChange={(val) => setSelectedSampleIdColumn(val)}
+            >
+              <SelectTrigger className="flex-1 md:flex-none md:w-[180px] h-6 md:h-8 text-[10px] md:text-sm">
+                <SelectValue>
+                  {selectedSampleIdColumn
+                    ? (isMobile ? selectedSampleIdColumn.substring(0, 10) : selectedSampleIdColumn)
+                    : detectedSampleIdColumn === ''
+                      ? (isMobile ? 'Col 2' : 'Auto (Column 2)')
+                      : (isMobile ? detectedSampleIdColumn.substring(0, 10) : `Auto (${detectedSampleIdColumn})`)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="z-[9999]">
+                {sampleIdColumnOptions.map((col, idx) => (
+                  <SelectItem key={`col-${idx}`} value={col || '__empty__'}>
+                    {col === '' ? 'Column 2 (Unnamed)' : col}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           );
         })()}
 
@@ -1555,7 +1559,7 @@ export function PinChartDisplaySpotSample({
           <>
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8">
+                <Button variant="outline" size="sm" className="h-6 md:h-8 text-[10px] md:text-sm px-2 md:px-3 flex-1 md:flex-none">
                   Filter {(selectedDates.length > 0 || selectedSampleIds.length > 0) && `(${selectedDates.length + selectedSampleIds.length})`}
                 </Button>
               </PopoverTrigger>
@@ -1693,17 +1697,17 @@ export function PinChartDisplaySpotSample({
           onSampleColorChange={handleSampleColorChange}
         >
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-8"
+            className="h-6 w-6 md:h-8 md:w-8 p-0"
             title="Configure chart styling"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground" />
           </Button>
         </StylingRulesDialog>
 
-        {/* Info Badge */}
-        <div className="text-xs text-muted-foreground">
+        {/* Info Badge - desktop only */}
+        <div className="hidden md:block text-xs text-muted-foreground">
           {finalGroupedData.length} data point{finalGroupedData.length !== 1 ? 's' : ''} • {' '}
           {Object.keys(sampleIdColors).length} sample{Object.keys(sampleIdColors).length !== 1 ? 's' : ''}
         </div>
@@ -1922,33 +1926,40 @@ export function PinChartDisplaySpotSample({
       </div>
 
       {/* Parameter Selector Panel - Collapsible */}
-      <div className={`shrink-0 transition-all duration-300 ${isParametersSidebarCollapsed ? 'w-8' : 'w-48'}`}>
-        <div className="sticky top-4 space-y-2">
+      <div className={`shrink-0 transition-all duration-300 ${isMobile ? 'w-full' : (isParametersSidebarCollapsed ? 'w-8' : 'w-48')}`}>
+        <div className={isMobile ? '' : 'sticky top-4 space-y-2'}>
           {isParametersSidebarCollapsed ? (
-            /* Collapsed State - Narrow strip with expand button */
-            <div className="border rounded-lg bg-background h-[400px] flex flex-col items-center py-3">
+            /* Collapsed State */
+            <div className={`border rounded-lg bg-background flex items-center cursor-pointer hover:bg-muted/50 ${isMobile ? 'px-3 py-2 gap-2' : 'h-[400px] flex-col py-3'}`}
+              onClick={() => setIsParametersSidebarCollapsed(false)}
+            >
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 mb-3"
-                onClick={() => setIsParametersSidebarCollapsed(false)}
+                className="h-7 w-7 md:h-8 md:w-8 p-0"
+                onClick={(e) => { e.stopPropagation(); setIsParametersSidebarCollapsed(false); }}
                 title="Expand Parameters panel"
               >
-                <ChevronLeft className="h-4 w-4" />
+                {isMobile ? <ChevronDown className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
               </Button>
-              <div
-                className="writing-mode-vertical text-xs font-semibold text-muted-foreground cursor-pointer hover:text-foreground"
-                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
-                onClick={() => setIsParametersSidebarCollapsed(false)}
-              >
-                Parameters ({visibleParameters.size}/{parameterColumns.length})
-              </div>
+              {isMobile ? (
+                <span className="text-xs font-semibold text-muted-foreground">
+                  Parameters ({visibleParameters.size}/{parameterColumns.length})
+                </span>
+              ) : (
+                <div
+                  className="writing-mode-vertical text-xs font-semibold text-muted-foreground cursor-pointer hover:text-foreground"
+                  style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+                >
+                  Parameters ({visibleParameters.size}/{parameterColumns.length})
+                </div>
+              )}
             </div>
           ) : (
             /* Expanded State - Full panel */
             <div className="border rounded-lg p-3 bg-background">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold">Parameters</h3>
+                <div className="flex items-center justify-between mb-2 md:mb-3">
+                  <h3 className="text-xs md:text-sm font-semibold">Parameters</h3>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1956,10 +1967,10 @@ export function PinChartDisplaySpotSample({
                     onClick={() => setIsParametersSidebarCollapsed(true)}
                     title="Collapse Parameters panel"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    {isMobile ? <ChevronUp className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className={isMobile ? "flex flex-wrap gap-x-4 gap-y-1.5" : "space-y-2"}>
                   <TooltipProvider delayDuration={300}>
                     {parameterColumns.map(param => {
                       const commonName = PARAMETER_COMMON_NAMES[param];

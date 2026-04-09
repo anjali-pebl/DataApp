@@ -2678,16 +2678,16 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
                   )}
 
                   {/* Right side: Methodology + Save/Load Plot View buttons - Always visible */}
-                  {/* Added mr-10 to leave space for modal close X button */}
-                  <div className="flex items-center gap-2 mr-10">
+                  <div className="flex items-center gap-1 md:gap-2 mr-10">
                     {projectId && tileName && (
                       <Button
                         size="sm"
-                        className="h-8 text-xs text-white font-medium bg-teal-700 hover:bg-teal-800"
+                        className="h-7 md:h-8 text-[10px] md:text-xs text-white font-medium bg-teal-700 hover:bg-teal-800 px-2 md:px-3"
                         onClick={() => setShowMethodologyModal(true)}
                       >
-                        <BookOpen className="h-3.5 w-3.5 mr-1.5" />
-                        Methodology
+                        <BookOpen className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                        <span className="hidden md:inline">Methodology</span>
+                        <span className="md:hidden">Method</span>
                       </Button>
                     )}
                     <Button
@@ -2699,19 +2699,19 @@ function PinMarineDeviceData({ fileType, files, selectedFileMetadata, onRequestF
                         setShowSavePlotViewDialog(true);
                       }}
                       disabled={plots.length === 0}
-                      className="h-8"
+                      className="h-7 md:h-8 px-2 md:px-3 text-[10px] md:text-xs"
                     >
-                      <Save className="h-3.5 w-3.5 mr-1.5" />
-                      Save View
+                      <Save className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                      Save
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setShowLoadPlotViewDialog(true)}
-                      className="h-8"
+                      className="h-7 md:h-8 px-2 md:px-3 text-[10px] md:text-xs"
                     >
-                      <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-                      Load View
+                      <FolderOpen className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
+                      Load
                     </Button>
                   </div>
                 </div>
