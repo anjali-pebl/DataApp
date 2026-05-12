@@ -93,6 +93,25 @@ interface LeafletMapProps {
     measureEnd?: LatLng | null;
 }
 
+// UKHO bathymetry tile sets — each key has a depth-shaded folder and a contour+label folder
+// on Supabase Storage at bucket `bathymetry-tiles`. maxNative is the highest zoom that was
+// actually generated; Leaflet will upscale past it. Drop to 15 if z16 generation was skipped
+// or failed for a project. See scripts/bathymetry/IMPLEMENTATION_PLAN.md.
+const UKHO_DEPTH_TILES: Record<string, { folder: string; maxNative: number }> = {
+    bidefordbay: { folder: 'bidefordbay_ukho', maxNative: 16 },
+    ramseysound: { folder: 'ramseysound_ukho', maxNative: 16 },
+    blakeney:    { folder: 'blakeney_ukho',    maxNative: 16 },
+    pabay:       { folder: 'pabay_ukho',       maxNative: 16 },
+    stbrides:    { folder: 'stbrides_ukho',    maxNative: 16 },
+};
+const UKHO_CONTOUR_TILES: Record<string, { folder: string; maxNative: number }> = {
+    bidefordbay: { folder: 'bidefordbay_ukho_c', maxNative: 16 },
+    ramseysound: { folder: 'ramseysound_ukho_c', maxNative: 16 },
+    blakeney:    { folder: 'blakeney_ukho_c',    maxNative: 16 },
+    pabay:       { folder: 'pabay_ukho_c',       maxNative: 16 },
+    stbrides:    { folder: 'stbrides_ukho_c',    maxNative: 16 },
+};
+
 // Coordinate and distance conversion helpers
 const toFeet = (meters: number) => meters * 3.28084;
 
@@ -403,6 +422,7 @@ const LeafletMap = ({
     const pinSavingRef = useRef<boolean>(false);
     const editingLayerRef = useRef<LayerGroup | null>(null);
     const tileLayerRef = useRef<any>(null);
+    const ukhoLayersRef = useRef<any[]>([]);
     const [editedPath, setEditedPath] = useState<{lat: number, lng: number}[] | null>(null);
 
     // Initialize map
@@ -513,6 +533,63 @@ const LeafletMap = ({
             ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`
             : `https://ibasemaps-api.arcgis.com/arcgis/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}?token=${esriKey}`;
         tileLayerRef.current.setUrl(url);
+    }, [mapStyle]);
+
+    // Attach/detach UKHO bathymetry tile overlays when mapStyle === 'bathymetry'.
+    // All projects' tile sets are added simultaneously; Leaflet only fetches tiles in the
+    // current viewport, so out-of-survey areas 404 silently (errorTileUrl suppresses noise).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !L) return;
+
+        // Always tear down any existing overlays before deciding whether to re-add.
+        ukhoLayersRef.current.forEach(layer => {
+            try { map.removeLayer(layer); } catch { /* layer may already be gone */ }
+        });
+        ukhoLayersRef.current = [];
+
+        if (mapStyle !== 'bathymetry') return;
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (!supabaseUrl) {
+            console.warn('NEXT_PUBLIC_SUPABASE_URL missing — bathymetry overlays disabled');
+            return;
+        }
+
+        const transparentPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        const baseUrl = `${supabaseUrl}/storage/v1/object/public/bathymetry-tiles`;
+        const newLayers: any[] = [];
+
+        for (const key of Object.keys(UKHO_DEPTH_TILES)) {
+            const d = UKHO_DEPTH_TILES[key];
+            const c = UKHO_CONTOUR_TILES[key];
+            const depthLayer = L.tileLayer(`${baseUrl}/${d.folder}/{z}/{x}/{y}.png`, {
+                minNativeZoom: 10,
+                maxNativeZoom: d.maxNative,
+                minZoom: 8,
+                maxZoom: 20,
+                opacity: 0.85,
+                errorTileUrl: transparentPng,
+                pane: 'overlayPane',
+            }).addTo(map);
+            const contourLayer = L.tileLayer(`${baseUrl}/${c.folder}/{z}/{x}/{y}.png`, {
+                minNativeZoom: 10,
+                maxNativeZoom: c.maxNative,
+                minZoom: 8,
+                maxZoom: 20,
+                opacity: 0.95,
+                errorTileUrl: transparentPng,
+                pane: 'overlayPane',
+            }).addTo(map);
+            newLayers.push(depthLayer, contourLayer);
+        }
+        ukhoLayersRef.current = newLayers;
+
+        return () => {
+            newLayers.forEach(layer => {
+                try { map.removeLayer(layer); } catch { /* already gone */ }
+            });
+        };
     }, [mapStyle]);
 
     // Initial zoom to fit active project content (runs when page loads/reloads)

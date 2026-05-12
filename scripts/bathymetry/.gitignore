@@ -1,0 +1,8 @@
+raw/
+geotiffs/
+tiles/
+*.bag
+*.tif
+*.png
+__pycache__/
+*.pyc
