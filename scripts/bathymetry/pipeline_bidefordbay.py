@@ -25,7 +25,7 @@ GEOJSON     = BASE / "geojson"  / f"{PROJECT_KEY}_contours.geojson"
 
 MIN_ZOOM = 10
 MAX_ZOOM = 15
-UPLOAD = False   # validation run only
+UPLOAD = True   # regenerating with fixed label code (2026-05-12)
 
 
 def main() -> None:

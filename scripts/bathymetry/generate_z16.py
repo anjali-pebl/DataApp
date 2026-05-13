@@ -26,9 +26,9 @@ BASE = Path(__file__).resolve().parent
 # ----- Projects -----
 # Add an entry per project after its z10-z15 pipeline has run successfully.
 PROJECTS: list[dict] = [
-    # bidefordbay and ramseysound are deliberately excluded — their z16 tiles
-    # are already on Supabase (3453 and 616 total per layer respectively) from
-    # the original pipeline run. See IMPLEMENTATION_PLAN.md §5 decision #3.
+    # Currently configured: Blakeney, Pabay, St Brides — to regenerate with the fixed
+    # label code (cross-tile rendering + per-depth spacing) for visual consistency
+    # with Bideford/Ramsey which were already updated 2026-05-12.
     {
         "name":      "Blakeney Overfalls",
         "tif":       BASE / "geotiffs" / "blakeney_ukho.tif",
@@ -56,6 +56,26 @@ PROJECTS: list[dict] = [
         "depth_key": "stbrides_ukho",
         "cont_key":  "stbrides_ukho_c",
     },
+    # bidefordbay and ramseysound already regenerated with the fixed label code
+    # 2026-05-12. Re-enable below if their z16 tiles need to be redone again.
+    # {
+    #     "name":      "Bideford Bay",
+    #     "tif":       BASE / "geotiffs" / "bidefordbay_ukho.tif",
+    #     "tiles_dir": BASE / "tiles"    / "bidefordbay_ukho",
+    #     "cont_dir":  BASE / "tiles"    / "bidefordbay_ukho_c",
+    #     "geojson":   BASE / "geojson"  / "bidefordbay_contours.geojson",
+    #     "depth_key": "bidefordbay_ukho",
+    #     "cont_key":  "bidefordbay_ukho_c",
+    # },
+    # {
+    #     "name":      "Ramsey Sound",
+    #     "tif":       BASE / "geotiffs" / "ramseysound_ukho.tif",
+    #     "tiles_dir": BASE / "tiles"    / "ramseysound_ukho",
+    #     "cont_dir":  BASE / "tiles"    / "ramseysound_ukho_c",
+    #     "geojson":   BASE / "geojson"  / "ramseysound_contours.geojson",
+    #     "depth_key": "ramseysound_ukho",
+    #     "cont_key":  "ramseysound_ukho_c",
+    # },
 ]
 
 # ----- z16 settings -----

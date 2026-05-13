@@ -21,7 +21,7 @@ TILES_DIR   = BASE / "tiles"    / f"{PROJECT_KEY}_ukho"
 CONT_DIR    = BASE / "tiles"    / f"{PROJECT_KEY}_ukho_c"
 GEOJSON     = BASE / "geojson"  / f"{PROJECT_KEY}_contours.geojson"
 
-UPLOAD = False
+UPLOAD = True   # regenerating with fixed label code (2026-05-12)
 
 
 def main() -> None:
