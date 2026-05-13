@@ -87,6 +87,12 @@ interface LeafletMapProps {
     onMapReady?: () => void;
     // Map style toggle
     mapStyle?: 'bathymetry' | 'plain';
+    // Current drawing mode — used to show the centred crosshair as soon as a draw tool is armed,
+    // not just after the first click (isDrawingLine/isDrawingArea only flip true after the start point).
+    drawingMode?: 'none' | 'pin' | 'line' | 'area';
+    // When true, render the centred crosshair overlay. Page computes the OR across all relevant
+    // signals (drawing-tools menu open, drawingMode active, mid-line/mid-area drag).
+    showCrosshair?: boolean;
     // Measurement tool props
     isMeasuring?: boolean;
     measureStart?: LatLng | null;
@@ -386,6 +392,8 @@ const LeafletMap = ({
     areaEditMode = 'none', editingAreaId = null, tempAreaPath = null, onAreaCornerDrag,
     onMapReady,
     mapStyle = 'street',
+    drawingMode = 'none',
+    showCrosshair,
     isMeasuring = false,
     measureStart = null,
     measureEnd = null,
@@ -663,7 +671,7 @@ const LeafletMap = ({
 
                 if (!shouldBeVisible) return; // Skip rendering this pin
 
-                const color = pin.color || '#3b82f6'; // Use pin color or default blue
+                const color = '#ffffff'; // Map objects forced white per user preference
                 const size = pin.size || 6; // Use pin size or default medium
                 const markerIcon = createCustomIcon(color, size);
                 const marker = L.marker([pin.lat, pin.lng], { icon: markerIcon }).addTo(layer);
@@ -780,7 +788,7 @@ const LeafletMap = ({
 
                     // Create the visible line
                     const polyline = L.polyline(lineCoords, {
-                        color: line.color || '#10b981',
+                        color: '#ffffff', // Map objects forced white per user preference
                         weight: line.size || 3,
                         opacity: 0.8,
                         interactive: false // Visual line is not interactive
@@ -1088,7 +1096,7 @@ const LeafletMap = ({
 
                     if (!shouldBeVisible) return; // Skip rendering this nested area
 
-                    const areaColor = area.color || '#8b5cf6';
+                    const areaColor = '#ffffff'; // Map objects forced white per user preference
                     const polygon = L.polygon(areaCoords, {
                         color: areaColor,
                         weight: area.size || 2,
@@ -1281,9 +1289,9 @@ const LeafletMap = ({
 
         const cornersLayerGroup = L.layerGroup().addTo(mapRef.current);
 
-        // Find the area being edited to get its color
+        // Find the area being edited (color forced white per user preference)
         const editingArea = areas.find(a => a.id === editingAreaId);
-        const areaColor = editingArea?.color || '#3b82f6';
+        const areaColor = '#ffffff';
 
         // Render temp area polygon with dashed style
         const areaCoords = tempAreaPath.map(p => [p.lat, p.lng] as [number, number]);
@@ -1945,7 +1953,31 @@ const LeafletMap = ({
         };
     }, [pendingAreaPath]);
 
-    return <div ref={mapContainerRef} className="h-full w-full z-0 min-h-[500px]" style={{ height: '100%', minHeight: '500px' }} />;
+    // Crosshair on whenever the page asks for it (showCrosshair) or any draw-tool flag is set.
+    // showCrosshair captures broader signals from the page (e.g. drawing-tools menu open) that
+    // LeafletMap can't see directly.
+    const isDrawing = showCrosshair ?? (drawingMode !== 'none' || isDrawingLine || isDrawingArea);
+
+    return (
+        <div className="relative h-full w-full" style={{ height: '100%', minHeight: '500px' }}>
+            <div ref={mapContainerRef} className="h-full w-full z-0 min-h-[500px]" style={{ height: '100%', minHeight: '500px' }} />
+            {isDrawing && (
+                <div
+                    aria-hidden
+                    className="absolute inset-0 pointer-events-none flex items-center justify-center"
+                    style={{ zIndex: 500 }}
+                >
+                    <svg width="28" height="28" viewBox="0 0 28 28" style={{ filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.7))' }}>
+                        <line x1="14" y1="0"  x2="14" y2="10" stroke="white" strokeWidth="2" />
+                        <line x1="14" y1="18" x2="14" y2="28" stroke="white" strokeWidth="2" />
+                        <line x1="0"  y1="14" x2="10" y2="14" stroke="white" strokeWidth="2" />
+                        <line x1="18" y1="14" x2="28" y2="14" stroke="white" strokeWidth="2" />
+                        <circle cx="14" cy="14" r="1.5" fill="white" />
+                    </svg>
+                </div>
+            )}
+        </div>
+    );
 };
 
 // Custom comparison function for React.memo()
@@ -1974,7 +2006,9 @@ const arePropsEqual = (prevProps: LeafletMapProps, nextProps: LeafletMapProps): 
         prevProps.lineStartPoint !== nextProps.lineStartPoint ||
         prevProps.areaStartPoint !== nextProps.areaStartPoint ||
         prevProps.currentMousePosition !== nextProps.currentMousePosition ||
-        prevProps.currentAreaEndPoint !== nextProps.currentAreaEndPoint) {
+        prevProps.currentAreaEndPoint !== nextProps.currentAreaEndPoint ||
+        prevProps.drawingMode !== nextProps.drawingMode ||
+        prevProps.showCrosshair !== nextProps.showCrosshair) {
         return false;
     }
 
