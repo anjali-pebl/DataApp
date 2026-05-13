@@ -5192,6 +5192,8 @@ function MapDrawingPageContent() {
             tempAreaPath={tempAreaPath}
             onAreaCornerDrag={handleAreaCornerDrag}
             mapStyle={mapStyle}
+            drawingMode={drawingMode}
+            showCrosshair={showFloatingDrawingTools || drawingMode !== 'none' || isDrawingLine || isDrawingArea}
           />
           )}
 

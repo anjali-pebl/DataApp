@@ -87,11 +87,36 @@ interface LeafletMapProps {
     onMapReady?: () => void;
     // Map style toggle
     mapStyle?: 'bathymetry' | 'plain';
+    // Current drawing mode — used to show the centred crosshair as soon as a draw tool is armed,
+    // not just after the first click (isDrawingLine/isDrawingArea only flip true after the start point).
+    drawingMode?: 'none' | 'pin' | 'line' | 'area';
+    // When true, render the centred crosshair overlay. Page computes the OR across all relevant
+    // signals (drawing-tools menu open, drawingMode active, mid-line/mid-area drag).
+    showCrosshair?: boolean;
     // Measurement tool props
     isMeasuring?: boolean;
     measureStart?: LatLng | null;
     measureEnd?: LatLng | null;
 }
+
+// UKHO bathymetry tile sets — each key has a depth-shaded folder and a contour+label folder
+// on Supabase Storage at bucket `bathymetry-tiles`. maxNative is the highest zoom that was
+// actually generated; Leaflet will upscale past it. Drop to 15 if z16 generation was skipped
+// or failed for a project. See scripts/bathymetry/IMPLEMENTATION_PLAN.md.
+const UKHO_DEPTH_TILES: Record<string, { folder: string; maxNative: number }> = {
+    bidefordbay: { folder: 'bidefordbay_ukho', maxNative: 16 },
+    ramseysound: { folder: 'ramseysound_ukho', maxNative: 16 },
+    blakeney:    { folder: 'blakeney_ukho',    maxNative: 16 },
+    pabay:       { folder: 'pabay_ukho',       maxNative: 16 },
+    stbrides:    { folder: 'stbrides_ukho',    maxNative: 16 },
+};
+const UKHO_CONTOUR_TILES: Record<string, { folder: string; maxNative: number }> = {
+    bidefordbay: { folder: 'bidefordbay_ukho_c', maxNative: 16 },
+    ramseysound: { folder: 'ramseysound_ukho_c', maxNative: 16 },
+    blakeney:    { folder: 'blakeney_ukho_c',    maxNative: 16 },
+    pabay:       { folder: 'pabay_ukho_c',       maxNative: 16 },
+    stbrides:    { folder: 'stbrides_ukho_c',    maxNative: 16 },
+};
 
 // Coordinate and distance conversion helpers
 const toFeet = (meters: number) => meters * 3.28084;
@@ -367,6 +392,8 @@ const LeafletMap = ({
     areaEditMode = 'none', editingAreaId = null, tempAreaPath = null, onAreaCornerDrag,
     onMapReady,
     mapStyle = 'street',
+    drawingMode = 'none',
+    showCrosshair,
     isMeasuring = false,
     measureStart = null,
     measureEnd = null,
@@ -403,6 +430,7 @@ const LeafletMap = ({
     const pinSavingRef = useRef<boolean>(false);
     const editingLayerRef = useRef<LayerGroup | null>(null);
     const tileLayerRef = useRef<any>(null);
+    const ukhoLayersRef = useRef<any[]>([]);
     const [editedPath, setEditedPath] = useState<{lat: number, lng: number}[] | null>(null);
 
     // Initialize map
@@ -515,6 +543,63 @@ const LeafletMap = ({
         tileLayerRef.current.setUrl(url);
     }, [mapStyle]);
 
+    // Attach/detach UKHO bathymetry tile overlays when mapStyle === 'bathymetry'.
+    // All projects' tile sets are added simultaneously; Leaflet only fetches tiles in the
+    // current viewport, so out-of-survey areas 404 silently (errorTileUrl suppresses noise).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !L) return;
+
+        // Always tear down any existing overlays before deciding whether to re-add.
+        ukhoLayersRef.current.forEach(layer => {
+            try { map.removeLayer(layer); } catch { /* layer may already be gone */ }
+        });
+        ukhoLayersRef.current = [];
+
+        if (mapStyle !== 'bathymetry') return;
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (!supabaseUrl) {
+            console.warn('NEXT_PUBLIC_SUPABASE_URL missing — bathymetry overlays disabled');
+            return;
+        }
+
+        const transparentPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        const baseUrl = `${supabaseUrl}/storage/v1/object/public/bathymetry-tiles`;
+        const newLayers: any[] = [];
+
+        for (const key of Object.keys(UKHO_DEPTH_TILES)) {
+            const d = UKHO_DEPTH_TILES[key];
+            const c = UKHO_CONTOUR_TILES[key];
+            const depthLayer = L.tileLayer(`${baseUrl}/${d.folder}/{z}/{x}/{y}.png`, {
+                minNativeZoom: 10,
+                maxNativeZoom: d.maxNative,
+                minZoom: 8,
+                maxZoom: 20,
+                opacity: 0.85,
+                errorTileUrl: transparentPng,
+                pane: 'overlayPane',
+            }).addTo(map);
+            const contourLayer = L.tileLayer(`${baseUrl}/${c.folder}/{z}/{x}/{y}.png`, {
+                minNativeZoom: 10,
+                maxNativeZoom: c.maxNative,
+                minZoom: 8,
+                maxZoom: 20,
+                opacity: 0.95,
+                errorTileUrl: transparentPng,
+                pane: 'overlayPane',
+            }).addTo(map);
+            newLayers.push(depthLayer, contourLayer);
+        }
+        ukhoLayersRef.current = newLayers;
+
+        return () => {
+            newLayers.forEach(layer => {
+                try { map.removeLayer(layer); } catch { /* already gone */ }
+            });
+        };
+    }, [mapStyle]);
+
     // Initial zoom to fit active project content (runs when page loads/reloads)
     useEffect(() => {
         // Only run once per page visit, when map is ready and we have an active project
@@ -586,7 +671,7 @@ const LeafletMap = ({
 
                 if (!shouldBeVisible) return; // Skip rendering this pin
 
-                const color = pin.color || '#3b82f6'; // Use pin color or default blue
+                const color = '#ffffff'; // Map objects forced white per user preference
                 const size = pin.size || 6; // Use pin size or default medium
                 const markerIcon = createCustomIcon(color, size);
                 const marker = L.marker([pin.lat, pin.lng], { icon: markerIcon }).addTo(layer);
@@ -703,7 +788,7 @@ const LeafletMap = ({
 
                     // Create the visible line
                     const polyline = L.polyline(lineCoords, {
-                        color: line.color || '#10b981',
+                        color: '#ffffff', // Map objects forced white per user preference
                         weight: line.size || 3,
                         opacity: 0.8,
                         interactive: false // Visual line is not interactive
@@ -1011,7 +1096,7 @@ const LeafletMap = ({
 
                     if (!shouldBeVisible) return; // Skip rendering this nested area
 
-                    const areaColor = area.color || '#8b5cf6';
+                    const areaColor = '#ffffff'; // Map objects forced white per user preference
                     const polygon = L.polygon(areaCoords, {
                         color: areaColor,
                         weight: area.size || 2,
@@ -1204,9 +1289,9 @@ const LeafletMap = ({
 
         const cornersLayerGroup = L.layerGroup().addTo(mapRef.current);
 
-        // Find the area being edited to get its color
+        // Find the area being edited (color forced white per user preference)
         const editingArea = areas.find(a => a.id === editingAreaId);
-        const areaColor = editingArea?.color || '#3b82f6';
+        const areaColor = '#ffffff';
 
         // Render temp area polygon with dashed style
         const areaCoords = tempAreaPath.map(p => [p.lat, p.lng] as [number, number]);
@@ -1868,7 +1953,31 @@ const LeafletMap = ({
         };
     }, [pendingAreaPath]);
 
-    return <div ref={mapContainerRef} className="h-full w-full z-0 min-h-[500px]" style={{ height: '100%', minHeight: '500px' }} />;
+    // Crosshair on whenever the page asks for it (showCrosshair) or any draw-tool flag is set.
+    // showCrosshair captures broader signals from the page (e.g. drawing-tools menu open) that
+    // LeafletMap can't see directly.
+    const isDrawing = showCrosshair ?? (drawingMode !== 'none' || isDrawingLine || isDrawingArea);
+
+    return (
+        <div className="relative h-full w-full" style={{ height: '100%', minHeight: '500px' }}>
+            <div ref={mapContainerRef} className="h-full w-full z-0 min-h-[500px]" style={{ height: '100%', minHeight: '500px' }} />
+            {isDrawing && (
+                <div
+                    aria-hidden
+                    className="absolute inset-0 pointer-events-none flex items-center justify-center"
+                    style={{ zIndex: 500 }}
+                >
+                    <svg width="28" height="28" viewBox="0 0 28 28" style={{ filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.7))' }}>
+                        <line x1="14" y1="0"  x2="14" y2="10" stroke="white" strokeWidth="2" />
+                        <line x1="14" y1="18" x2="14" y2="28" stroke="white" strokeWidth="2" />
+                        <line x1="0"  y1="14" x2="10" y2="14" stroke="white" strokeWidth="2" />
+                        <line x1="18" y1="14" x2="28" y2="14" stroke="white" strokeWidth="2" />
+                        <circle cx="14" cy="14" r="1.5" fill="white" />
+                    </svg>
+                </div>
+            )}
+        </div>
+    );
 };
 
 // Custom comparison function for React.memo()
@@ -1897,7 +2006,9 @@ const arePropsEqual = (prevProps: LeafletMapProps, nextProps: LeafletMapProps): 
         prevProps.lineStartPoint !== nextProps.lineStartPoint ||
         prevProps.areaStartPoint !== nextProps.areaStartPoint ||
         prevProps.currentMousePosition !== nextProps.currentMousePosition ||
-        prevProps.currentAreaEndPoint !== nextProps.currentAreaEndPoint) {
+        prevProps.currentAreaEndPoint !== nextProps.currentAreaEndPoint ||
+        prevProps.drawingMode !== nextProps.drawingMode ||
+        prevProps.showCrosshair !== nextProps.showCrosshair) {
         return false;
     }
 
