@@ -1821,7 +1821,7 @@ function MapDrawingPageContent() {
       tagIds: tagId ? [tagId] : [],
       labelVisible: true,
       fillVisible: true,
-      color: '#3b82f6', // Default to blue instead of red
+      color: '#ffffff', // White default; users override via the edit-menu colour picker
       size: 2, // Default to thinner lines
       transparency: 20 // Default to 20% transparency
     };
@@ -3073,123 +3073,99 @@ function MapDrawingPageContent() {
     setIsResizing(true);
   }, []);
 
-  // ============================================================================
-  // CONSOLIDATED: Object Editing State
-  // Replaces 2 separate effects: Keep itemToEdit in Sync, Initialize Editing State
-  // Lines replaced: 2857, 2900
-  // ============================================================================
+  // Keep itemToEdit in sync with pins/lines/areas arrays.
+  // Only the fields edited via text inputs are checked here so we don't churn
+  // itemToEdit on every auto-applied style write (colour/size/transparency).
   useEffect(() => {
-    // 1. Keep itemToEdit in sync with pins/lines/areas arrays
-    // NOTE: itemToEdit intentionally NOT in dependencies to avoid infinite loop
-    if (itemToEdit) {
-      // Check if it's a pin
-      if ('lat' in itemToEdit && 'lng' in itemToEdit) {
-        const updatedPin = pins.find(p => p.id === itemToEdit.id);
-        if (updatedPin) {
-          // Only update if the data has actually changed (comparing relevant fields)
-          if (updatedPin.label !== itemToEdit.label ||
-              updatedPin.notes !== itemToEdit.notes ||
-              updatedPin.lat !== itemToEdit.lat ||
-              updatedPin.lng !== itemToEdit.lng ||
-              updatedPin.labelVisible !== itemToEdit.labelVisible) {
-            console.log('Updating itemToEdit with updated pin data:', updatedPin);
-            setItemToEdit(updatedPin);
-          }
+    if (!itemToEdit) return;
+    if ('lat' in itemToEdit && 'lng' in itemToEdit) {
+      const updatedPin = pins.find(p => p.id === itemToEdit.id);
+      if (updatedPin) {
+        if (updatedPin.label !== itemToEdit.label ||
+            updatedPin.notes !== itemToEdit.notes ||
+            updatedPin.lat !== itemToEdit.lat ||
+            updatedPin.lng !== itemToEdit.lng ||
+            updatedPin.labelVisible !== itemToEdit.labelVisible) {
+          setItemToEdit(updatedPin);
         }
       }
-      // Check if it's a line
-      else if ('path' in itemToEdit && !('fillVisible' in itemToEdit)) {
-        const updatedLine = lines.find(l => l.id === itemToEdit.id);
-        if (updatedLine) {
-          if (updatedLine.label !== itemToEdit.label ||
-              updatedLine.notes !== itemToEdit.notes) {
-            console.log('Updating itemToEdit with updated line data:', updatedLine);
-            setItemToEdit(updatedLine);
-          }
+    } else if ('path' in itemToEdit && !('fillVisible' in itemToEdit)) {
+      const updatedLine = lines.find(l => l.id === itemToEdit.id);
+      if (updatedLine) {
+        if (updatedLine.label !== itemToEdit.label ||
+            updatedLine.notes !== itemToEdit.notes) {
+          setItemToEdit(updatedLine);
         }
       }
-      // Check if it's an area
-      else if ('path' in itemToEdit && 'fillVisible' in itemToEdit) {
-        const updatedArea = areas.find(a => a.id === itemToEdit.id);
-        if (updatedArea) {
-          if (updatedArea.label !== itemToEdit.label ||
-              updatedArea.notes !== itemToEdit.notes) {
-            console.log('Updating itemToEdit with updated area data:', updatedArea);
-            setItemToEdit(updatedArea);
-          }
+    } else if ('path' in itemToEdit && 'fillVisible' in itemToEdit) {
+      const updatedArea = areas.find(a => a.id === itemToEdit.id);
+      if (updatedArea) {
+        if (updatedArea.label !== itemToEdit.label ||
+            updatedArea.notes !== itemToEdit.notes) {
+          setItemToEdit(updatedArea);
         }
       }
     }
+  }, [pins, lines, areas, itemToEdit]);
 
-    // 2. Initialize editing state when itemToEdit changes and edit mode is active
-    if (itemToEdit && isEditingObject) {
-      setEditingLabel(itemToEdit.label || '');
-      setEditingNotes(itemToEdit.notes || '');
-      setEditingProjectId(itemToEdit.projectId || null);
-      // Initialize coordinates and colors based on object type
-      if ('lat' in itemToEdit && 'lng' in itemToEdit) {
-        console.log('Initializing coordinates:', itemToEdit.lat, itemToEdit.lng, 'format:', coordinateFormat);
-
-        const formats = getCoordinateFormats(itemToEdit.lat);
-        const lngFormats = getCoordinateFormats(itemToEdit.lng);
-
-        console.log('Generated formats:', formats, lngFormats);
-
-        // Set coordinates based on current format
-        switch (coordinateFormat) {
-          case 'degreeMinutes':
-            setEditingLat(formats.degreeMinutes);
-            setEditingLng(lngFormats.degreeMinutes);
-            break;
-          case 'degreeMinutesSeconds':
-            setEditingLat(formats.degreeMinutesSeconds);
-            setEditingLng(lngFormats.degreeMinutesSeconds);
-            break;
-          default:
-            setEditingLat(itemToEdit.lat.toString());
-            setEditingLng(itemToEdit.lng.toString());
-            break;
-        }
-        setEditingColor(itemToEdit.color || '#3b82f6'); // Use stored color or blue for pins
-      } else if ('path' in itemToEdit && Array.isArray(itemToEdit.path)) {
-        if ('fillVisible' in itemToEdit) {
-          // This is an area - initialize area-specific state
-          setEditingColor(itemToEdit.color || '#3b82f6'); // Use stored color or blue for areas
-          setEditingTransparency(itemToEdit.transparency || 20); // Use stored transparency or default
-
-          // Initialize area coordinates for editing
-          const areaCoords = itemToEdit.path.map(point => {
-            const latFormats = getCoordinateFormats(point.lat);
-            const lngFormats = getCoordinateFormats(point.lng);
-
-            switch (coordinateFormat) {
-              case 'degreeMinutes':
-                return [latFormats.degreeMinutes, lngFormats.degreeMinutes];
-              case 'degreeMinutesSeconds':
-                return [latFormats.degreeMinutesSeconds, lngFormats.degreeMinutesSeconds];
-              default:
-                return [point.lat.toString(), point.lng.toString()];
-            }
-          });
-          setEditingAreaCoords(areaCoords);
-        } else {
-          setEditingColor(itemToEdit.color || '#10b981'); // Use stored color or green for lines
-        }
+  // Initialize editing-form state when the editor opens on a new item.
+  // Why: arrays are NOT in the dep list. The colour/size/transparency pickers
+  // write through to the underlying arrays (auto-apply) on every change; if this
+  // effect re-fired on those array changes it would clobber the user's pick by
+  // re-reading from a now-stale itemToEdit, causing Save to revert their colour.
+  useEffect(() => {
+    if (!itemToEdit || !isEditingObject) return;
+    setEditingLabel(itemToEdit.label || '');
+    setEditingNotes(itemToEdit.notes || '');
+    setEditingProjectId(itemToEdit.projectId || null);
+    if ('lat' in itemToEdit && 'lng' in itemToEdit) {
+      const formats = getCoordinateFormats(itemToEdit.lat);
+      const lngFormats = getCoordinateFormats(itemToEdit.lng);
+      switch (coordinateFormat) {
+        case 'degreeMinutes':
+          setEditingLat(formats.degreeMinutes);
+          setEditingLng(lngFormats.degreeMinutes);
+          break;
+        case 'degreeMinutesSeconds':
+          setEditingLat(formats.degreeMinutesSeconds);
+          setEditingLng(lngFormats.degreeMinutesSeconds);
+          break;
+        default:
+          setEditingLat(itemToEdit.lat.toString());
+          setEditingLng(itemToEdit.lng.toString());
+          break;
       }
-      setEditingSize(itemToEdit.size || 2); // Use stored size or default to thinner
-
-      // Auto-expand notes if there are existing notes
-      setShowNotesSection(Boolean(itemToEdit.notes && itemToEdit.notes.trim()));
-
-      // Focus the label input field after a brief delay
-      setTimeout(() => {
-        if (labelInputRef.current) {
-          labelInputRef.current.focus();
-          labelInputRef.current.select(); // Select all text for easy editing
-        }
-      }, 100);
+      setEditingColor(itemToEdit.color || '#ffffff');
+    } else if ('path' in itemToEdit && Array.isArray(itemToEdit.path)) {
+      if ('fillVisible' in itemToEdit) {
+        setEditingColor(itemToEdit.color || '#ffffff');
+        setEditingTransparency(itemToEdit.transparency || 20);
+        const areaCoords = itemToEdit.path.map(point => {
+          const latFormats = getCoordinateFormats(point.lat);
+          const lngFormats = getCoordinateFormats(point.lng);
+          switch (coordinateFormat) {
+            case 'degreeMinutes':
+              return [latFormats.degreeMinutes, lngFormats.degreeMinutes];
+            case 'degreeMinutesSeconds':
+              return [latFormats.degreeMinutesSeconds, lngFormats.degreeMinutesSeconds];
+            default:
+              return [point.lat.toString(), point.lng.toString()];
+          }
+        });
+        setEditingAreaCoords(areaCoords);
+      } else {
+        setEditingColor(itemToEdit.color || '#ffffff');
+      }
     }
-  }, [pins, lines, areas, itemToEdit, isEditingObject, coordinateFormat]);
+    setEditingSize(itemToEdit.size || 2);
+    setShowNotesSection(Boolean(itemToEdit.notes && itemToEdit.notes.trim()));
+    setTimeout(() => {
+      if (labelInputRef.current) {
+        labelInputRef.current.focus();
+        labelInputRef.current.select();
+      }
+    }, 100);
+  }, [itemToEdit, isEditingObject, coordinateFormat]);
 
   // REMOVED: Initialize editing state - now in consolidated effect above (line 2793)
   // useEffect(() => {

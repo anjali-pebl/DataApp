@@ -164,6 +164,69 @@ DEFAULT_DEPTH_RAMP: list[tuple[float, tuple[int, int, int]]] = [
     (-50.0, (8,    20,  75)),  # deepest — dark navy
 ]
 
+# Brighter blues-only ramp shared across all UKHO project pipelines. 9 stops in
+# one hue family so each project's chart reads as a coherent depth gradient.
+# Depth values cover 0 to -55m; projects with shallower max depth simply use the
+# upper portion of the gradient.
+BLUES_DEPTH_RAMP: list[tuple[float, tuple[int, int, int]]] = [
+    (0.0,   (240, 250, 255)),
+    (-2.0,  (195, 230, 250)),
+    (-5.0,  (150, 210, 245)),
+    (-10.0, (110, 185, 235)),
+    (-15.0, (85,  160, 225)),
+    (-22.0, (65,  135, 215)),
+    (-30.0, (50,  115, 200)),
+    (-40.0, (45,   90, 180)),
+    (-55.0, (50,   80, 160)),
+]
+
+
+def interp_ramp(d: float, ramp: Sequence[tuple[float, tuple[int, int, int]]]) -> tuple[int, int, int]:
+    """Linear-interpolate the depth-shading ramp at depth d (negative metres)."""
+    if d >= ramp[0][0]:
+        return ramp[0][1]
+    if d <= ramp[-1][0]:
+        return ramp[-1][1]
+    for i in range(len(ramp) - 1):
+        d0, c0 = ramp[i]
+        d1, c1 = ramp[i + 1]
+        if d1 <= d <= d0:
+            t = (d - d0) / (d1 - d0)
+            return (
+                int(c0[0] + (c1[0] - c0[0]) * t),
+                int(c0[1] + (c1[1] - c0[1]) * t),
+                int(c0[2] + (c1[2] - c0[2]) * t),
+            )
+    return ramp[-1][1]
+
+
+def build_contour_style_from_ramp(
+    ramp: Sequence[tuple[float, tuple[int, int, int]]],
+    contour_depths: Iterable[float] = None,
+    darken_factor: float = 0.70,
+    width: int = 1,
+    alpha: int = 235,
+) -> dict[float, tuple[tuple[int, int, int, int], int]]:
+    """Derive a contour_style dict from a depth ramp.
+
+    Each isobar's colour is the ramp colour at that depth multiplied by
+    darken_factor (default 0.70 ≈ 30% darker, ~1–2 shades down), so contour
+    lines read as a darker shade of the area they're drawn on. All isobars get
+    the same width and alpha for a clean look.
+    """
+    if contour_depths is None:
+        contour_depths = DEFAULT_CONTOUR_DEPTHS  # type: ignore[assignment]
+    style: dict[float, tuple[tuple[int, int, int, int], int]] = {}
+    for d in contour_depths:
+        base = interp_ramp(float(d), ramp)
+        darker = (
+            int(base[0] * darken_factor),
+            int(base[1] * darken_factor),
+            int(base[2] * darken_factor),
+        )
+        style[float(d)] = ((darker[0], darker[1], darker[2], alpha), width)
+    return style
+
 
 def _interp_ramp(value: float, ramp: Sequence[tuple[float, tuple[int, int, int]]]) -> tuple[int, int, int]:
     """Interpolate an RGB colour from a depth value (negative metres) against a ramp.
@@ -359,9 +422,13 @@ DEFAULT_CONTOUR_STYLE: dict[float, tuple[tuple[int, int, int, int], int]] = {
 
 
 def _load_label_font(size: int = 11) -> ImageFont.ImageFont:
+    # Regular weight preferred over bold so labels read as quieter annotations
+    # rather than dominant chart elements.
     for path in (
-        r"C:\Windows\Fonts\arialbd.ttf",
         r"C:\Windows\Fonts\arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/Arial.ttf",
+        r"C:\Windows\Fonts\arialbd.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
     ):
@@ -378,6 +445,22 @@ def _intersect_tile(coords_merc: list[tuple[float, float]], tx: int, ty: int, z:
     xs = [c[0] for c in coords_merc]
     ys = [c[1] for c in coords_merc]
     return not (max(xs) < xmin or min(xs) > xmax or max(ys) < ymin or min(ys) > ymax)
+
+
+def _bbox_overlap_frac(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    """Intersection area of two (x0, y0, x1, y1) bboxes as a fraction of the smaller bbox."""
+    ix0 = max(a[0], b[0]); iy0 = max(a[1], b[1])
+    ix1 = min(a[2], b[2]); iy1 = min(a[3], b[3])
+    if ix0 >= ix1 or iy0 >= iy1:
+        return 0.0
+    inter = (ix1 - ix0) * (iy1 - iy0)
+    a_area = (a[2] - a[0]) * (a[3] - a[1])
+    b_area = (b[2] - b[0]) * (b[3] - b[1])
+    smaller = min(a_area, b_area)
+    return inter / smaller if smaller > 0 else 0.0
 
 
 def _mercator_to_global_pixel(mx: float, my: float, z: int, tile_px: int = 256) -> tuple[float, float]:
@@ -398,33 +481,30 @@ def _compute_global_labels(
     label_spacing_px: float,
     font: ImageFont.ImageFont,
     metric_draw: ImageDraw.ImageDraw,
+    overlap_threshold: float = 0.20,
+    min_center_distance_px: float = 0.0,
 ) -> list[tuple[float, float, str, int, int]]:
     """Compute global label positions for every contour feature at this zoom.
 
     Returns (gpx, gpy, text, text_width, text_height) per label.
 
-    Spacing rule: PER-POLYLINE. Each contour fragment independently gets labels
-    every `label_spacing_px` (global pixels) along its length. The first point
-    of every polyline always gets a label, so short fragments still get one.
+    Phase 1 — per-polyline spacing: each contour fragment independently picks
+    candidate labels every `label_spacing_px` (global pixels in x) along its
+    length. The first point of every polyline always becomes a candidate, so
+    short fragments still get one.
 
-    No coordination across polylines or depths — adjacent contour fragments of
-    the same depth produce parallel labels (visually they say the same thing
-    but at slightly offset positions, which is informative not cluttered).
-    Different depths can occupy the same pixel area; their labels say
-    different things so the user can still read them.
-
-    History: an earlier per-depth-global version coordinated label x-positions
-    across all polylines of the same depth. For surveys with many short
-    fragments (Pabay: 1461 features at z15), this starved most polylines down
-    to a single label, and many tiles ended up showing unlabelled contours.
-    Per-polyline matches the visual density users expect.
+    Phase 2 — overlap suppression: candidates are processed in feature order
+    and a label is dropped if its bbox overlaps any already-accepted label by
+    `overlap_threshold` or more (intersection / smaller-bbox area). This
+    handles parallel adjacent contours of the same depth, and cross-depth
+    pile-ups that the per-polyline rule cannot see.
 
     Cross-tile rendering: handled at draw time. Each tile draws every label
     whose bbox intersects it, so labels at tile boundaries appear fully in
     both neighbouring tiles.
     """
     text_dims: dict[float, tuple[str, int, int]] = {}  # depth -> (text, tw, th) cached
-    labels: list[tuple[float, float, str, int, int]] = []
+    candidates: list[tuple[float, float, str, int, int]] = []
 
     for depth, coords_m in features_merc:
         if depth not in text_dims:
@@ -440,9 +520,56 @@ def _compute_global_labels(
             gpx, gpy = _mercator_to_global_pixel(mx, my, zoom)
             if last_gpx is not None and abs(gpx - last_gpx) < label_spacing_px:
                 continue
-            labels.append((gpx, gpy, text, tw, th))
+            candidates.append((gpx, gpy, text, tw, th))
             last_gpx = gpx
-    return labels
+
+    if not candidates:
+        return candidates
+
+    # Pass 1: bbox-overlap suppression (catches partially-overlapping labels that
+    # would render on top of each other).
+    if overlap_threshold > 0.0:
+        kept_pass1: list[tuple[float, float, str, int, int]] = []
+        kept_bboxes: list[tuple[float, float, float, float]] = []
+        for cand in candidates:
+            gpx, gpy, _t, tw, th = cand
+            bb = (gpx - tw / 2, gpy - th / 2, gpx + tw / 2, gpy + th / 2)
+            clash = False
+            for kbb in kept_bboxes:
+                # Cheap early-reject on x-axis before computing intersection
+                if kbb[2] < bb[0] or kbb[0] > bb[2] or kbb[3] < bb[1] or kbb[1] > bb[3]:
+                    continue
+                if _bbox_overlap_frac(bb, kbb) >= overlap_threshold:
+                    clash = True
+                    break
+            if not clash:
+                kept_pass1.append(cand)
+                kept_bboxes.append(bb)
+    else:
+        kept_pass1 = list(candidates)
+
+    # Pass 2: min-center-distance suppression. Catches the case where two labels
+    # are close enough to look crowded without their bboxes actually overlapping
+    # (which the fractional rule above can't see). Decoupled from font size.
+    if min_center_distance_px <= 0.0:
+        return kept_pass1
+
+    min_sq = min_center_distance_px * min_center_distance_px
+    kept: list[tuple[float, float, str, int, int]] = []
+    kept_centers: list[tuple[float, float]] = []
+    for cand in kept_pass1:
+        gpx, gpy, *_ = cand
+        too_close = False
+        for fx, fy in kept_centers:
+            dx = gpx - fx
+            dy = gpy - fy
+            if dx * dx + dy * dy < min_sq:
+                too_close = True
+                break
+        if not too_close:
+            kept.append(cand)
+            kept_centers.append((gpx, gpy))
+    return kept
 
 
 def bake_contour_tiles(
@@ -453,13 +580,36 @@ def bake_contour_tiles(
     contour_style: dict[float, tuple[tuple[int, int, int, int], int]] = DEFAULT_CONTOUR_STYLE,
     label_spacing_px: int = 60,
     label_font_size: int = 11,
+    label_overlap_threshold: float = 0.06,
+    label_zoom_floor: int = 0,
+    label_min_distance_px: float = 0.0,
 ) -> dict[int, int]:
     """For every existing depth tile, draw contour lines + depth labels on top and save to dst_tiles_dir.
 
     label_spacing_px: minimum x-pixel distance, in GLOBAL slippy-tile pixel space,
-    between consecutive labels of the same depth. Each tile renders every label whose
-    bounding box intersects it — labels at tile boundaries appear fully across both
-    neighbouring tiles instead of being clipped to one side.
+    between consecutive labels of the same depth. Interpreted as the spacing at the
+    HIGHEST zoom in `zooms`; lower zooms scale up 2x per step so label density stays
+    roughly constant in geographic terms (a feature labelled at z15 doesn't get a
+    second label at z14 just because it's pixel-compressed). Each tile renders every
+    label whose bounding box intersects it — labels at tile boundaries appear fully
+    across both neighbouring tiles instead of being clipped to one side.
+
+    label_overlap_threshold: a candidate label is dropped if its bbox overlaps any
+    already-accepted label by this fraction (intersection / smaller-bbox area) or
+    more. Interpreted as the threshold at the HIGHEST zoom in `zooms`; lower zooms
+    tighten by 0.5x per step so overlapping labels are culled aggressively at
+    zoom-out (where they're nearly always visual noise).
+
+    label_zoom_floor: zooms strictly below this value get no labels at all (only
+    contour lines). Use to make labels "disappear" entirely at far-out zooms.
+    0 (default) labels every zoom.
+
+    label_min_distance_px: minimum centre-to-centre distance (global pixels)
+    between any two labels at the highest zoom. Scales 2x per zoom-out. This is
+    the only filter that catches "close-but-not-overlapping" pairs (which the
+    fractional bbox overlap rule cannot see). 0 (default) disables the filter.
+
+    Labels render as solid black text with no outline.
     """
     src_tiles_dir = Path(src_tiles_dir)
     dst_tiles_dir = Path(dst_tiles_dir)
@@ -482,16 +632,31 @@ def bake_contour_tiles(
 
     counts: dict[int, int] = {}
     TILE_PX = 256
-    OUTLINE_PAD = 1  # the 8-direction outline expands the visible bbox by 1px on each side
+    OUTLINE_PAD = 0  # labels render with no outline now, so no bbox padding needed
 
-    for z in zooms:
+    zooms_list = list(zooms)
+    max_z = max(zooms_list) if zooms_list else 15
+
+    for z in zooms_list:
         z_dir = src_tiles_dir / str(z)
         if not z_dir.is_dir():
             counts[z] = 0
             continue
 
-        # Phase 1: compute label positions globally for this zoom
-        global_labels = _compute_global_labels(features_merc, z, label_spacing_px, font, metric_draw)
+        # Spacing scales 3x per zoom-out from max_z so labels thin rapidly.
+        # Overlap threshold tightens 0.5x per zoom-out: at z15 we allow some touching,
+        # at z10 effectively zero — so anything that would visually clutter is culled.
+        # Below label_zoom_floor we skip the label pass entirely.
+        if z < label_zoom_floor:
+            global_labels = []
+        else:
+            spacing_at_z = label_spacing_px * (3 ** max(0, max_z - z))
+            threshold_at_z = label_overlap_threshold * (0.5 ** max(0, max_z - z))
+            min_distance_at_z = label_min_distance_px * (2 ** max(0, max_z - z))
+            global_labels = _compute_global_labels(
+                features_merc, z, spacing_at_z, font, metric_draw,
+                threshold_at_z, min_distance_at_z,
+            )
         # Phase 2: iterate tiles. For each tile, draw all polylines that bbox-overlap it
         # and all labels whose bbox intersects it.
         kept = 0
@@ -540,12 +705,7 @@ def bake_contour_tiles(
                     # Tile-local pixel anchor (top-left of text)
                     ax = gpx - tile_gpx_lo - tw / 2
                     ay = gpy - tile_gpy_lo - th / 2
-                    for dx in (-1, 0, 1):
-                        for dy in (-1, 0, 1):
-                            if dx == 0 and dy == 0:
-                                continue
-                            draw.text((ax + dx, ay + dy), text, font=font, fill=(0, 0, 0, 230))
-                    draw.text((ax, ay), text, font=font, fill=(255, 255, 255, 255))
+                    draw.text((ax, ay), text, font=font, fill=(0, 0, 0, 255))
 
                 out_path = dst_tiles_dir / str(z) / str(tx) / f"{ty}.png"
                 out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -667,6 +827,8 @@ class PipelineConfig:
     contour_style: dict[float, tuple[tuple[int, int, int, int], int]] = None  # type: ignore[assignment]
     label_spacing_px: int = 60
     label_font_size: int = 11
+    label_zoom_floor: int = 0
+    label_min_distance_px: float = 0.0
     upload: bool = True
     src_crs_override: str | None = None   # e.g. "EPSG:32630" for BAGs with malformed CRS metadata
 
@@ -715,6 +877,8 @@ def run_pipeline(cfg: PipelineConfig, supabase_cfg: SupabaseConfig | None = None
         contour_style=cfg.contour_style,
         label_spacing_px=cfg.label_spacing_px,
         label_font_size=cfg.label_font_size,
+        label_zoom_floor=cfg.label_zoom_floor,
+        label_min_distance_px=cfg.label_min_distance_px,
     )
     summary["contour_tile_counts"] = contour_counts
 

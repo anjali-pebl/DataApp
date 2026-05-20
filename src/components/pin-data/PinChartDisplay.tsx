@@ -777,15 +777,29 @@ export function PinChartDisplay({
   // Custom parameter names for direct editing in compact view
   const [customParameterNames, setCustomParameterNames] = useState<Record<string, string>>(initialCustomParameterNames || {});
 
-// Axis mode state - default to single for SubCam, FPOD, and mobile; multi for everything else
+// Axis mode state.
+  // - SubCam / FPOD: always single (irrespective of viewport).
+  // - Saved-view restoration: initialAxisMode wins when present.
+  // - GrowProbe (GP): multi on desktop, single on mobile, computed up-front so
+  //   first paint matches the device — no multi→single flash from a follow-up
+  //   useEffect.
+  // - Anything else: defaultAxisMode prop (or multi). Mobile forces single via
+  //   the useEffect below as a safety net.
   const isMobile = useIsMobile();
-  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(
-    (fileType === 'Subcam' || fileType === 'FPOD') ? 'single' : (initialAxisMode || defaultAxisMode || 'multi')
-  );
-  // Switch to single-axis on mobile (runs once when isMobile is determined)
+  const [axisMode, setAxisMode] = useState<'single' | 'multi'>(() => {
+    if (fileType === 'Subcam' || fileType === 'FPOD') return 'single';
+    if (initialAxisMode) return initialAxisMode;
+    if (fileType === 'GP') return isMobile ? 'single' : 'multi';
+    return defaultAxisMode || 'multi';
+  });
+  // Mobile fallback: force single for non-Subcam/FPOD/GP files (GP already
+  // handled above on initial state). Runs once when isMobile is determined.
   const hasSetMobileAxisDefault = React.useRef(false);
   React.useEffect(() => {
-    if (isMobile && !hasSetMobileAxisDefault.current && fileType !== 'Subcam' && fileType !== 'FPOD') {
+    if (
+      isMobile && !hasSetMobileAxisDefault.current &&
+      fileType !== 'Subcam' && fileType !== 'FPOD' && fileType !== 'GP'
+    ) {
       setAxisMode('single');
       hasSetMobileAxisDefault.current = true;
     }
