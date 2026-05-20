@@ -8,8 +8,8 @@ ramseysound_ukho/ tile counts (1, 1, 4, 12, 40, 130 at z10..z15).
 from pathlib import Path
 
 from bathymetry_lib import (
-    DEFAULT_CONTOUR_DEPTHS, DEFAULT_CONTOUR_STYLE, DEFAULT_DEPTH_RAMP,
-    PipelineConfig, SupabaseConfig, run_pipeline,
+    BLUES_DEPTH_RAMP, DEFAULT_CONTOUR_DEPTHS,
+    PipelineConfig, SupabaseConfig, build_contour_style_from_ramp, run_pipeline,
 )
 
 BASE = Path(__file__).resolve().parent
@@ -30,8 +30,14 @@ def main() -> None:
         contour_dir=CONT_DIR, geojson_path=GEOJSON, project_key=PROJECT_KEY,
         min_zoom=10, max_zoom=15,
         contour_depths=tuple(DEFAULT_CONTOUR_DEPTHS),
-        depth_ramp=tuple(DEFAULT_DEPTH_RAMP),
-        contour_style=dict(DEFAULT_CONTOUR_STYLE),
+        depth_ramp=tuple(BLUES_DEPTH_RAMP),
+        contour_style=build_contour_style_from_ramp(BLUES_DEPTH_RAMP),
+        label_spacing_px=90,    # wider than default 60 so labels breathe; overlap
+                                # suppression in bake_contour_tiles handles the rest
+        label_font_size=10,     # slightly bigger than 9 but still regular weight (not bold)
+        label_zoom_floor=13,    # zooms below z13 get no labels at all (z10-z12 disappear)
+        label_min_distance_px=0,   # disabled — restore the denser look at z13-z15;
+                                   # the bbox-overlap rule alone gates label placement
         upload=UPLOAD,
         src_crs_override="EPSG:32630",   # BAG ships malformed CRS WKT; data is UTM 30N
     )

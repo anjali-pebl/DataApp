@@ -894,21 +894,49 @@ export default function ProjectDataPage({ params }: ProjectDataPageProps) {
             });
           }}
           availableFilesForPlots={getProjectFiles()}
-          onDownloadFile={async (fileId: string) => {
-            const file = getProjectFiles().find(f => f.id === fileId);
-            if (file) {
-              const content = await fileStorageService.downloadFile(file.filePath);
-              if (content) {
-                const url = URL.createObjectURL(content);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = file.fileName;
-                a.click();
-                URL.revokeObjectURL(url);
+          onDownloadFile={async (
+            pinId: string | null,
+            fileName: string,
+            areaId?: string | null,
+            metadata?: PinFile,
+          ): Promise<File | null> => {
+            // The PinMarineDeviceData add-plot flow calls this expecting a File back
+            // (not a browser save-to-disk). Use the caller's metadata.filePath when
+            // provided, otherwise look the file up by (fileName, pinId|areaId).
+            try {
+              const fileMetadata = metadata ?? getProjectFiles().find(f =>
+                f.fileName === fileName && (f.pinId === pinId || f.areaId === areaId)
+              );
+              if (!fileMetadata) {
+                console.error('[project-data] file metadata not found', { pinId, areaId, fileName });
+                toast({
+                  variant: 'destructive',
+                  title: 'Download Failed',
+                  description: 'File metadata not found',
+                });
+                return null;
               }
+              const blob = await fileStorageService.downloadFile(fileMetadata.filePath);
+              if (!blob) {
+                toast({
+                  variant: 'destructive',
+                  title: 'Download Failed',
+                  description: `Could not download ${fileName}`,
+                });
+                return null;
+              }
+              return new File([blob], fileName, { type: fileMetadata.fileType || 'text/csv' });
+            } catch (err) {
+              console.error('[project-data] download error', err);
+              toast({
+                variant: 'destructive',
+                title: 'Download Failed',
+                description: err instanceof Error ? err.message : 'Unknown error',
+              });
+              return null;
             }
           }}
-          objectGpsCoords={undefined}
+          objectGpsCoords={selectedFileMetadata?.coordinates}
           objectName={selectedFileMetadata?.pinLabel || 'Unknown Location'}
           multiFileMergeMode={multiFileMergeMode === 'union'}
           allProjectFilesForTimeline={getProjectFiles()}

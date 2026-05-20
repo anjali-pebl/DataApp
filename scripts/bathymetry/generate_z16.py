@@ -9,14 +9,18 @@ Idempotent: re-running just overwrites the same files.
 Validation targets (from BATHYMETRY_PIPELINE_HANDOFF.md §9):
     bidefordbay_ukho   z16 = 2362 tiles
     ramseysound_ukho   z16 =  428 tiles
+
+CLI: pass one or more project keys to run only those (e.g.
+`python generate_z16.py blakeney pabay`). No args = run all 5.
 """
+import sys
 from pathlib import Path
 
 from bathymetry_lib import (
-    DEFAULT_CONTOUR_STYLE,
-    DEFAULT_DEPTH_RAMP,
+    BLUES_DEPTH_RAMP,
     SupabaseConfig,
     bake_contour_tiles,
+    build_contour_style_from_ramp,
     generate_depth_tiles,
     upload_tiles,
 )
@@ -24,12 +28,29 @@ from bathymetry_lib import (
 BASE = Path(__file__).resolve().parent
 
 # ----- Projects -----
-# Add an entry per project after its z10-z15 pipeline has run successfully.
 PROJECTS: list[dict] = [
-    # Currently configured: Blakeney, Pabay, St Brides — to regenerate with the fixed
-    # label code (cross-tile rendering + per-depth spacing) for visual consistency
-    # with Bideford/Ramsey which were already updated 2026-05-12.
     {
+        "key":       "bidefordbay",
+        "name":      "Bideford Bay",
+        "tif":       BASE / "geotiffs" / "bidefordbay_ukho.tif",
+        "tiles_dir": BASE / "tiles"    / "bidefordbay_ukho",
+        "cont_dir":  BASE / "tiles"    / "bidefordbay_ukho_c",
+        "geojson":   BASE / "geojson"  / "bidefordbay_contours.geojson",
+        "depth_key": "bidefordbay_ukho",
+        "cont_key":  "bidefordbay_ukho_c",
+    },
+    {
+        "key":       "ramseysound",
+        "name":      "Ramsey Sound",
+        "tif":       BASE / "geotiffs" / "ramseysound_ukho.tif",
+        "tiles_dir": BASE / "tiles"    / "ramseysound_ukho",
+        "cont_dir":  BASE / "tiles"    / "ramseysound_ukho_c",
+        "geojson":   BASE / "geojson"  / "ramseysound_contours.geojson",
+        "depth_key": "ramseysound_ukho",
+        "cont_key":  "ramseysound_ukho_c",
+    },
+    {
+        "key":       "blakeney",
         "name":      "Blakeney Overfalls",
         "tif":       BASE / "geotiffs" / "blakeney_ukho.tif",
         "tiles_dir": BASE / "tiles"    / "blakeney_ukho",
@@ -39,6 +60,7 @@ PROJECTS: list[dict] = [
         "cont_key":  "blakeney_ukho_c",
     },
     {
+        "key":       "pabay",
         "name":      "Pabay / Inner Sound",
         "tif":       BASE / "geotiffs" / "pabay_ukho.tif",
         "tiles_dir": BASE / "tiles"    / "pabay_ukho",
@@ -48,6 +70,7 @@ PROJECTS: list[dict] = [
         "cont_key":  "pabay_ukho_c",
     },
     {
+        "key":       "stbrides",
         "name":      "St Brides Bay (Block 4a)",
         "tif":       BASE / "geotiffs" / "stbrides_ukho.tif",
         "tiles_dir": BASE / "tiles"    / "stbrides_ukho",
@@ -56,32 +79,17 @@ PROJECTS: list[dict] = [
         "depth_key": "stbrides_ukho",
         "cont_key":  "stbrides_ukho_c",
     },
-    # bidefordbay and ramseysound already regenerated with the fixed label code
-    # 2026-05-12. Re-enable below if their z16 tiles need to be redone again.
-    # {
-    #     "name":      "Bideford Bay",
-    #     "tif":       BASE / "geotiffs" / "bidefordbay_ukho.tif",
-    #     "tiles_dir": BASE / "tiles"    / "bidefordbay_ukho",
-    #     "cont_dir":  BASE / "tiles"    / "bidefordbay_ukho_c",
-    #     "geojson":   BASE / "geojson"  / "bidefordbay_contours.geojson",
-    #     "depth_key": "bidefordbay_ukho",
-    #     "cont_key":  "bidefordbay_ukho_c",
-    # },
-    # {
-    #     "name":      "Ramsey Sound",
-    #     "tif":       BASE / "geotiffs" / "ramseysound_ukho.tif",
-    #     "tiles_dir": BASE / "tiles"    / "ramseysound_ukho",
-    #     "cont_dir":  BASE / "tiles"    / "ramseysound_ukho_c",
-    #     "geojson":   BASE / "geojson"  / "ramseysound_contours.geojson",
-    #     "depth_key": "ramseysound_ukho",
-    #     "cont_key":  "ramseysound_ukho_c",
-    # },
 ]
 
 # ----- z16 settings -----
+# Match the z10-z15 pipeline design: brighter blues ramp, ramp-derived contour
+# colours, regular-weight labels. Font slightly bigger at z16 since geographic
+# features cover 2x the pixels — keeps labels visually comparable to lower zooms.
 Z16 = 16
-LABEL_SPACING_PX_Z16 = 80   # slightly looser than z10-z15 (60) because labels are bigger at this scale
-LABEL_FONT_SIZE_Z16  = 12
+DEPTH_RAMP_Z16        = BLUES_DEPTH_RAMP
+CONTOUR_STYLE_Z16     = build_contour_style_from_ramp(BLUES_DEPTH_RAMP)
+LABEL_SPACING_PX_Z16  = 90
+LABEL_FONT_SIZE_Z16   = 11
 UPLOAD = True
 
 
@@ -92,7 +100,7 @@ def run_one(project: dict, sb: SupabaseConfig | None) -> None:
     depth_counts = generate_depth_tiles(
         project["tif"], project["tiles_dir"],
         min_zoom=Z16, max_zoom=Z16,
-        depth_ramp=DEFAULT_DEPTH_RAMP,
+        depth_ramp=DEPTH_RAMP_Z16,
         label="depth-z16",
     )
     print(f"  z16 depth tiles: {depth_counts.get(Z16, 0)}")
@@ -101,7 +109,7 @@ def run_one(project: dict, sb: SupabaseConfig | None) -> None:
     contour_counts = bake_contour_tiles(
         project["tiles_dir"], project["cont_dir"], project["geojson"],
         zooms=[Z16],
-        contour_style=DEFAULT_CONTOUR_STYLE,
+        contour_style=CONTOUR_STYLE_Z16,
         label_spacing_px=LABEL_SPACING_PX_Z16,
         label_font_size=LABEL_FONT_SIZE_Z16,
     )
@@ -123,11 +131,16 @@ def run_one(project: dict, sb: SupabaseConfig | None) -> None:
 
 
 def main() -> None:
-    if not PROJECTS:
-        print("No projects configured. Add entries to the PROJECTS list and re-run.")
+    selected_keys = set(sys.argv[1:])
+    projects = (
+        [p for p in PROJECTS if p["key"] in selected_keys]
+        if selected_keys else PROJECTS
+    )
+    if not projects:
+        print(f"No projects matched {sorted(selected_keys)}. Known keys: {[p['key'] for p in PROJECTS]}")
         return
     sb = SupabaseConfig.from_env(dotenv_path=BASE.parents[1] / ".env.local") if UPLOAD else None
-    for project in PROJECTS:
+    for project in projects:
         run_one(project, sb)
 
 

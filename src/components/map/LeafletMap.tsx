@@ -576,7 +576,7 @@ const LeafletMap = ({
                 maxNativeZoom: d.maxNative,
                 minZoom: 8,
                 maxZoom: 20,
-                opacity: 0.85,
+                opacity: 0.65,
                 errorTileUrl: transparentPng,
                 pane: 'overlayPane',
             }).addTo(map);
@@ -671,7 +671,7 @@ const LeafletMap = ({
 
                 if (!shouldBeVisible) return; // Skip rendering this pin
 
-                const color = '#ffffff'; // Map objects forced white per user preference
+                const color = pin.color || '#ffffff'; // White default; per-pin colour from the edit menu wins
                 const size = pin.size || 6; // Use pin size or default medium
                 const markerIcon = createCustomIcon(color, size);
                 const marker = L.marker([pin.lat, pin.lng], { icon: markerIcon }).addTo(layer);
@@ -788,7 +788,7 @@ const LeafletMap = ({
 
                     // Create the visible line
                     const polyline = L.polyline(lineCoords, {
-                        color: '#ffffff', // Map objects forced white per user preference
+                        color: line.color || '#ffffff', // White default; per-line colour from the edit menu wins
                         weight: line.size || 3,
                         opacity: 0.8,
                         interactive: false // Visual line is not interactive
@@ -1096,7 +1096,7 @@ const LeafletMap = ({
 
                     if (!shouldBeVisible) return; // Skip rendering this nested area
 
-                    const areaColor = '#ffffff'; // Map objects forced white per user preference
+                    const areaColor = area.color || '#ffffff'; // White default; per-area colour from the edit menu wins
                     const polygon = L.polygon(areaCoords, {
                         color: areaColor,
                         weight: area.size || 2,
@@ -1289,9 +1289,9 @@ const LeafletMap = ({
 
         const cornersLayerGroup = L.layerGroup().addTo(mapRef.current);
 
-        // Find the area being edited (color forced white per user preference)
+        // Find the area being edited so the temp polygon matches its colour
         const editingArea = areas.find(a => a.id === editingAreaId);
-        const areaColor = '#ffffff';
+        const areaColor = editingArea?.color || '#ffffff';
 
         // Render temp area polygon with dashed style
         const areaCoords = tempAreaPath.map(p => [p.lat, p.lng] as [number, number]);

@@ -6,11 +6,11 @@ Validation target (from BATHYMETRY_PIPELINE_HANDOFF.md §9):
 from pathlib import Path
 
 from bathymetry_lib import (
+    BLUES_DEPTH_RAMP,
     DEFAULT_CONTOUR_DEPTHS,
-    DEFAULT_CONTOUR_STYLE,
-    DEFAULT_DEPTH_RAMP,
     PipelineConfig,
     SupabaseConfig,
+    build_contour_style_from_ramp,
     run_pipeline,
 )
 
@@ -39,8 +39,12 @@ def main() -> None:
         min_zoom=MIN_ZOOM,
         max_zoom=MAX_ZOOM,
         contour_depths=tuple(DEFAULT_CONTOUR_DEPTHS),
-        depth_ramp=tuple(DEFAULT_DEPTH_RAMP),
-        contour_style=dict(DEFAULT_CONTOUR_STYLE),
+        depth_ramp=tuple(BLUES_DEPTH_RAMP),
+        contour_style=build_contour_style_from_ramp(BLUES_DEPTH_RAMP),
+        label_spacing_px=90,
+        label_font_size=10,
+        label_zoom_floor=13,
+        label_min_distance_px=0,
         upload=UPLOAD,
     )
     sb = SupabaseConfig.from_env(dotenv_path=BASE.parents[1] / ".env.local") if UPLOAD else None
