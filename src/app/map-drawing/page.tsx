@@ -460,6 +460,16 @@ function MapDrawingPageContent() {
   const [editingLabel, setEditingLabel] = useState('');
   const [editingNotes, setEditingNotes] = useState('');
   const [editingColor, setEditingColor] = useState('#3b82f6');
+  // Debounce commits triggered by the native <input type="color">. Without
+  // this every micro-drag of the picker fires updatePin/Line/AreaData, each
+  // of which rebuilds the pins/lines/areas arrays, redraws LeafletMap, and
+  // POSTs to Supabase — producing visible lag while choosing a colour.
+  const colorCommitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (colorCommitTimeoutRef.current) clearTimeout(colorCommitTimeoutRef.current);
+    };
+  }, []);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingSize, setEditingSize] = useState(6);
   const [editingLat, setEditingLat] = useState('');
@@ -6597,19 +6607,26 @@ function MapDrawingPageContent() {
                                     type="color"
                                     value={editingColor}
                                     onChange={(e) => {
-                                      setEditingColor(e.target.value);
-                                      // Auto-apply color change
-                                      if (itemToEdit) {
+                                      const nextColor = e.target.value;
+                                      setEditingColor(nextColor);
+                                      // Debounce the actual commit — the picker fires onChange
+                                      // continuously while dragging; rebuilding state and POSTing
+                                      // to Supabase on every tick is what makes this feel laggy.
+                                      if (colorCommitTimeoutRef.current) {
+                                        clearTimeout(colorCommitTimeoutRef.current);
+                                      }
+                                      colorCommitTimeoutRef.current = setTimeout(() => {
+                                        if (!itemToEdit) return;
                                         if ('lat' in itemToEdit) {
-                                          updatePinData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                          updatePinData(itemToEdit.id, { color: nextColor, size: editingSize });
                                         } else if ('path' in itemToEdit && Array.isArray(itemToEdit.path)) {
                                           if ('fillVisible' in itemToEdit) {
-                                            updateAreaData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                            updateAreaData(itemToEdit.id, { color: nextColor, size: editingSize });
                                           } else {
-                                            updateLineData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                            updateLineData(itemToEdit.id, { color: nextColor, size: editingSize });
                                           }
                                         }
-                                      }
+                                      }, 200);
                                     }}
                                     className="w-full h-8 rounded border cursor-pointer"
                                   />
