@@ -79,6 +79,16 @@ PROJECTS: list[dict] = [
         "depth_key": "stbrides_ukho",
         "cont_key":  "stbrides_ukho_c",
     },
+    {
+        "key":       "soundofmull",
+        "name":      "Sound of Mull",
+        "tif":       BASE / "geotiffs" / "soundofmull_ukho.tif",
+        "tiles_dir": BASE / "tiles"    / "soundofmull_ukho",
+        "cont_dir":  BASE / "tiles"    / "soundofmull_ukho_c",
+        "geojson":   BASE / "geojson"  / "soundofmull_contours.geojson",
+        "depth_key": "soundofmull_ukho",
+        "cont_key":  "soundofmull_ukho_c",
+    },
 ]
 
 # ----- z16 settings -----

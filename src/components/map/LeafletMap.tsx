@@ -109,6 +109,7 @@ const UKHO_DEPTH_TILES: Record<string, { folder: string; maxNative: number }> = 
     blakeney:    { folder: 'blakeney_ukho',    maxNative: 16 },
     pabay:       { folder: 'pabay_ukho',       maxNative: 16 },
     stbrides:    { folder: 'stbrides_ukho',    maxNative: 16 },
+    soundofmull: { folder: 'soundofmull_ukho', maxNative: 16 },
 };
 const UKHO_CONTOUR_TILES: Record<string, { folder: string; maxNative: number }> = {
     bidefordbay: { folder: 'bidefordbay_ukho_c', maxNative: 16 },
@@ -116,6 +117,7 @@ const UKHO_CONTOUR_TILES: Record<string, { folder: string; maxNative: number }> 
     blakeney:    { folder: 'blakeney_ukho_c',    maxNative: 16 },
     pabay:       { folder: 'pabay_ukho_c',       maxNative: 16 },
     stbrides:    { folder: 'stbrides_ukho_c',    maxNative: 16 },
+    soundofmull: { folder: 'soundofmull_ukho_c', maxNative: 16 },
 };
 
 // Coordinate and distance conversion helpers
