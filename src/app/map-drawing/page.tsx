@@ -155,7 +155,8 @@ import {
   LazyBatchDeleteConfirmDialog as BatchDeleteConfirmDialog,
   LazyDuplicateWarningDialog as DuplicateWarningDialog,
   LazyAddProjectDialog as AddProjectDialog,
-  LazyPhotoViewerDialog as PhotoViewerDialog
+  LazyPhotoViewerDialog as PhotoViewerDialog,
+  LazyProjectMismatchDialog as ProjectMismatchDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
@@ -709,6 +710,12 @@ function MapDrawingPageContent() {
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
   const [duplicateFiles, setDuplicateFiles] = useState<{fileName: string, existingFile: PinFile}[]>([]);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
+  const [projectMismatchPrompt, setProjectMismatchPrompt] = useState<{
+    targetId: string;
+    targetType: 'pin' | 'area';
+    files: File[];
+    targetProjectId: string;
+  } | null>(null);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [photoViewerData, setPhotoViewerData] = useState<{ url: string; fileName: string; fileId: string } | null>(null);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
@@ -4153,11 +4160,24 @@ function MapDrawingPageContent() {
   };
 
   // Handle file upload for pins or areas - now receives target (pin or area) and files
-  const handleFileUpload = async (targetId: string, targetType: 'pin' | 'area' = 'pin', filesToUpload?: File[], skipDuplicateCheck: boolean = false) => {
+  const handleFileUpload = async (targetId: string, targetType: 'pin' | 'area' = 'pin', filesToUpload?: File[], skipDuplicateCheck: boolean = false, skipProjectMismatchCheck: boolean = false) => {
     const csvFiles = filesToUpload || pendingUploadFiles;
 
     if (csvFiles.length === 0) {
       return;
+    }
+
+    // Intercept: if this target belongs to a project other than the active one,
+    // prompt the user to switch projects before proceeding.
+    if (!skipProjectMismatchCheck) {
+      const target = targetType === 'pin'
+        ? pins.find(p => p.id === targetId)
+        : areas.find(a => a.id === targetId);
+      const targetProjectId = target?.projectId;
+      if (targetProjectId && activeProjectId && targetProjectId !== activeProjectId) {
+        setProjectMismatchPrompt({ targetId, targetType, files: csvFiles, targetProjectId });
+        return;
+      }
     }
 
     // First check if user is authenticated
@@ -8046,6 +8066,30 @@ function MapDrawingPageContent() {
         onUpload={(targetId, targetType) => handleFileUpload(targetId, targetType)}
         onCancel={() => {
           setShowUploadPinSelector(false);
+          setPendingUploadFiles([]);
+        }}
+      />
+
+      {/* Project Mismatch Dialog — prompts the user to switch projects when uploading to a pin/area outside the active project */}
+      <ProjectMismatchDialog
+        open={!!projectMismatchPrompt}
+        onOpenChange={(open) => { if (!open) setProjectMismatchPrompt(null); }}
+        targetType={projectMismatchPrompt?.targetType ?? 'pin'}
+        currentProjectName={dynamicProjects[activeProjectId]?.name ?? activeProjectId ?? 'current project'}
+        targetProjectName={
+          projectMismatchPrompt
+            ? (dynamicProjects[projectMismatchPrompt.targetProjectId]?.name ?? projectMismatchPrompt.targetProjectId)
+            : ''
+        }
+        onSwitchAndUpload={() => {
+          if (!projectMismatchPrompt) return;
+          const { targetId, targetType, files, targetProjectId } = projectMismatchPrompt;
+          setProjectMismatchPrompt(null);
+          setPersistentActiveProject(targetProjectId);
+          handleFileUpload(targetId, targetType, files, false, true);
+        }}
+        onCancel={() => {
+          setProjectMismatchPrompt(null);
           setPendingUploadFiles([]);
         }}
       />
