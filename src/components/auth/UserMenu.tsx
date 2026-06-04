@@ -14,7 +14,7 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { SunMoon, Settings, LogOut, Ruler, Map, BarChart3, Loader2, Save, Lock, Check, X, FolderOpen, LineChart, Shield } from 'lucide-react'
+import { SunMoon, Settings, LogOut, Ruler, Map, BarChart3, Loader2, Save, Lock, Check, X, FolderOpen, LineChart, Shield, Search } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useSettings } from '@/hooks/use-settings'
@@ -361,6 +361,14 @@ export default function UserMenu({ user, projectId }: UserMenuProps) {
             <Map className="mr-2 h-4 w-4" />
             <span>Map Drawing</span>
             {pathname === '/map-drawing' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
+          </DropdownMenuItem>
+        </Link>
+
+        <Link href="/data-explorer">
+          <DropdownMenuItem className="cursor-pointer">
+            <Search className="mr-2 h-4 w-4" />
+            <span>Data Explorer</span>
+            {pathname === '/data-explorer' && <div className="ml-auto w-2 h-2 bg-primary rounded-full" />}
           </DropdownMenuItem>
         </Link>
 

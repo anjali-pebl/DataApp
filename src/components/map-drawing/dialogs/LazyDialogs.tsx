@@ -86,5 +86,13 @@ export const LazyPhotoViewerDialog = dynamic(
   }
 );
 
+export const LazyProjectMismatchDialog = dynamic(
+  () => import('./ProjectMismatchDialog').then(mod => ({ default: mod.ProjectMismatchDialog })),
+  {
+    loading: () => null,
+    ssr: false
+  }
+);
+
 // Note: ProjectDataDialog has been converted to a standalone page at /project-data/[projectId]
 // The LazyProjectDataDialog export is kept for backward compatibility but should not be used

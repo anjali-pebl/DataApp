@@ -155,7 +155,8 @@ import {
   LazyBatchDeleteConfirmDialog as BatchDeleteConfirmDialog,
   LazyDuplicateWarningDialog as DuplicateWarningDialog,
   LazyAddProjectDialog as AddProjectDialog,
-  LazyPhotoViewerDialog as PhotoViewerDialog
+  LazyPhotoViewerDialog as PhotoViewerDialog,
+  LazyProjectMismatchDialog as ProjectMismatchDialog
 } from '@/components/map-drawing/dialogs/LazyDialogs';
 
 type DrawingMode = 'none' | 'pin' | 'line' | 'area';
@@ -459,6 +460,16 @@ function MapDrawingPageContent() {
   const [editingLabel, setEditingLabel] = useState('');
   const [editingNotes, setEditingNotes] = useState('');
   const [editingColor, setEditingColor] = useState('#3b82f6');
+  // Debounce commits triggered by the native <input type="color">. Without
+  // this every micro-drag of the picker fires updatePin/Line/AreaData, each
+  // of which rebuilds the pins/lines/areas arrays, redraws LeafletMap, and
+  // POSTs to Supabase — producing visible lag while choosing a colour.
+  const colorCommitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (colorCommitTimeoutRef.current) clearTimeout(colorCommitTimeoutRef.current);
+    };
+  }, []);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingSize, setEditingSize] = useState(6);
   const [editingLat, setEditingLat] = useState('');
@@ -709,6 +720,12 @@ function MapDrawingPageContent() {
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
   const [duplicateFiles, setDuplicateFiles] = useState<{fileName: string, existingFile: PinFile}[]>([]);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
+  const [projectMismatchPrompt, setProjectMismatchPrompt] = useState<{
+    targetId: string;
+    targetType: 'pin' | 'area';
+    files: File[];
+    targetProjectId: string;
+  } | null>(null);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [photoViewerData, setPhotoViewerData] = useState<{ url: string; fileName: string; fileId: string } | null>(null);
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
@@ -1083,39 +1100,41 @@ function MapDrawingPageContent() {
       }
     };
     loadSavedPlots();
+  }, [currentProjectContext, activeProjectId]);
 
-    // 3. Check for saved plot load from sessionStorage
-    const checkForSavedPlotLoad = () => {
-      try {
-        const storedData = sessionStorage.getItem('pebl-load-plot-view');
-        if (!storedData) return;
+  // Handoff from /data-explorer: read sessionStorage and open the marine device
+  // modal so PinMarineDeviceData can auto-restore the chosen saved view.
+  // Kept outside the DATA_EXPLORER_PANEL flag because this consumes a redirect
+  // from a different page and is unrelated to the in-page panel feature.
+  useEffect(() => {
+    try {
+      const storedData = sessionStorage.getItem('pebl-load-plot-view');
+      if (!storedData) return;
 
-        const parsedData = JSON.parse(storedData);
-        const { viewId, viewName, timestamp } = parsedData;
+      const parsedData = JSON.parse(storedData);
+      const { viewId, viewName, timestamp } = parsedData;
 
-        console.log('✅ [MAP-DRAWING] Found saved plot to load:', {
-          viewId,
-          viewName,
-          timestamp,
-          timeSinceSet: Date.now() - timestamp,
-          currentProjectId: currentProjectContext || activeProjectId
-        });
+      console.log('✅ [MAP-DRAWING] Found saved plot to load:', {
+        viewId,
+        viewName,
+        timestamp,
+        timeSinceSet: Date.now() - timestamp,
+        currentProjectId: currentProjectContext || activeProjectId
+      });
 
-        console.log('📂 [MAP-DRAWING] Opening marine device modal for auto-load...');
-        setSelectedFileType('GP');
-        setSelectedFiles([]);
-        setIsLoadingFromSavedPlot(true);
-        setShowMarineDeviceModal(true);
+      console.log('📂 [MAP-DRAWING] Opening marine device modal for auto-load...');
+      setSelectedFileType('GP');
+      setSelectedFiles([]);
+      setIsLoadingFromSavedPlot(true);
+      setShowMarineDeviceModal(true);
 
-        console.log('✅ [MAP-DRAWING] Modal state set to open. PinMarineDeviceData should now mount and detect sessionStorage.');
+      console.log('✅ [MAP-DRAWING] Modal state set to open. PinMarineDeviceData should now mount and detect sessionStorage.');
 
-        // Note: sessionStorage cleared by PinMarineDeviceData after successful load
-      } catch (error) {
-        console.error('❌ [MAP-DRAWING] Error checking for saved plot load:', error);
-        sessionStorage.removeItem('pebl-load-plot-view');
-      }
-    };
-    checkForSavedPlotLoad();
+      // Note: sessionStorage cleared by PinMarineDeviceData after successful load
+    } catch (error) {
+      console.error('❌ [MAP-DRAWING] Error checking for saved plot load:', error);
+      sessionStorage.removeItem('pebl-load-plot-view');
+    }
   }, [currentProjectContext, activeProjectId]);
 
   // REMOVED: Old Auto-open marine device modal - now in consolidated effect above (line 1003)
@@ -4153,11 +4172,24 @@ function MapDrawingPageContent() {
   };
 
   // Handle file upload for pins or areas - now receives target (pin or area) and files
-  const handleFileUpload = async (targetId: string, targetType: 'pin' | 'area' = 'pin', filesToUpload?: File[], skipDuplicateCheck: boolean = false) => {
+  const handleFileUpload = async (targetId: string, targetType: 'pin' | 'area' = 'pin', filesToUpload?: File[], skipDuplicateCheck: boolean = false, skipProjectMismatchCheck: boolean = false) => {
     const csvFiles = filesToUpload || pendingUploadFiles;
 
     if (csvFiles.length === 0) {
       return;
+    }
+
+    // Intercept: if this target belongs to a project other than the active one,
+    // prompt the user to switch projects before proceeding.
+    if (!skipProjectMismatchCheck) {
+      const target = targetType === 'pin'
+        ? pins.find(p => p.id === targetId)
+        : areas.find(a => a.id === targetId);
+      const targetProjectId = target?.projectId;
+      if (targetProjectId && activeProjectId && targetProjectId !== activeProjectId) {
+        setProjectMismatchPrompt({ targetId, targetType, files: csvFiles, targetProjectId });
+        return;
+      }
     }
 
     // First check if user is authenticated
@@ -6575,19 +6607,26 @@ function MapDrawingPageContent() {
                                     type="color"
                                     value={editingColor}
                                     onChange={(e) => {
-                                      setEditingColor(e.target.value);
-                                      // Auto-apply color change
-                                      if (itemToEdit) {
+                                      const nextColor = e.target.value;
+                                      setEditingColor(nextColor);
+                                      // Debounce the actual commit — the picker fires onChange
+                                      // continuously while dragging; rebuilding state and POSTing
+                                      // to Supabase on every tick is what makes this feel laggy.
+                                      if (colorCommitTimeoutRef.current) {
+                                        clearTimeout(colorCommitTimeoutRef.current);
+                                      }
+                                      colorCommitTimeoutRef.current = setTimeout(() => {
+                                        if (!itemToEdit) return;
                                         if ('lat' in itemToEdit) {
-                                          updatePinData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                          updatePinData(itemToEdit.id, { color: nextColor, size: editingSize });
                                         } else if ('path' in itemToEdit && Array.isArray(itemToEdit.path)) {
                                           if ('fillVisible' in itemToEdit) {
-                                            updateAreaData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                            updateAreaData(itemToEdit.id, { color: nextColor, size: editingSize });
                                           } else {
-                                            updateLineData(itemToEdit.id, { color: e.target.value, size: editingSize });
+                                            updateLineData(itemToEdit.id, { color: nextColor, size: editingSize });
                                           }
                                         }
-                                      }
+                                      }, 200);
                                     }}
                                     className="w-full h-8 rounded border cursor-pointer"
                                   />
@@ -8046,6 +8085,30 @@ function MapDrawingPageContent() {
         onUpload={(targetId, targetType) => handleFileUpload(targetId, targetType)}
         onCancel={() => {
           setShowUploadPinSelector(false);
+          setPendingUploadFiles([]);
+        }}
+      />
+
+      {/* Project Mismatch Dialog — prompts the user to switch projects when uploading to a pin/area outside the active project */}
+      <ProjectMismatchDialog
+        open={!!projectMismatchPrompt}
+        onOpenChange={(open) => { if (!open) setProjectMismatchPrompt(null); }}
+        targetType={projectMismatchPrompt?.targetType ?? 'pin'}
+        currentProjectName={dynamicProjects[activeProjectId]?.name ?? activeProjectId ?? 'current project'}
+        targetProjectName={
+          projectMismatchPrompt
+            ? (dynamicProjects[projectMismatchPrompt.targetProjectId]?.name ?? projectMismatchPrompt.targetProjectId)
+            : ''
+        }
+        onSwitchAndUpload={() => {
+          if (!projectMismatchPrompt) return;
+          const { targetId, targetType, files, targetProjectId } = projectMismatchPrompt;
+          setProjectMismatchPrompt(null);
+          setPersistentActiveProject(targetProjectId);
+          handleFileUpload(targetId, targetType, files, false, true);
+        }}
+        onCancel={() => {
+          setProjectMismatchPrompt(null);
           setPendingUploadFiles([]);
         }}
       />

@@ -325,15 +325,17 @@ header, footer, main, section, article, aside, nav {
   display: none !important;
 }
 
-/* Area label tooltip - make entire background clickable */
-.area-label-tooltip {
-  pointer-events: auto !important;
-  cursor: pointer !important;
-  padding: 4px 8px !important;
-  user-select: none !important;
-}
-
+/* Area label tooltip - softer / more transparent than pin labels so areas
+   read as ambient context rather than competing visually with pin markers.
+   Uses the PEBL brand teal palette (--accent #3AAFA9, --primary #2B7A78).
+   Overrides the Tailwind bg-purple-100 / border-purple-300 set on the
+   tooltip in LeafletMap.tsx. */
+.area-label-tooltip,
 .leaflet-tooltip.area-label-tooltip {
+  background: rgba(58, 175, 169, 0.65) !important;   /* Bright Teal #3AAFA9 @ 65% */
+  border: 1px solid rgba(43, 122, 120, 0.82) !important;  /* Deep Teal #2B7A78 @ 82% */
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45) !important;  /* readability over light/busy map areas */
   pointer-events: auto !important;
   cursor: pointer !important;
   padding: 4px 8px !important;
