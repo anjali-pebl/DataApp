@@ -1090,39 +1090,41 @@ function MapDrawingPageContent() {
       }
     };
     loadSavedPlots();
+  }, [currentProjectContext, activeProjectId]);
 
-    // 3. Check for saved plot load from sessionStorage
-    const checkForSavedPlotLoad = () => {
-      try {
-        const storedData = sessionStorage.getItem('pebl-load-plot-view');
-        if (!storedData) return;
+  // Handoff from /data-explorer: read sessionStorage and open the marine device
+  // modal so PinMarineDeviceData can auto-restore the chosen saved view.
+  // Kept outside the DATA_EXPLORER_PANEL flag because this consumes a redirect
+  // from a different page and is unrelated to the in-page panel feature.
+  useEffect(() => {
+    try {
+      const storedData = sessionStorage.getItem('pebl-load-plot-view');
+      if (!storedData) return;
 
-        const parsedData = JSON.parse(storedData);
-        const { viewId, viewName, timestamp } = parsedData;
+      const parsedData = JSON.parse(storedData);
+      const { viewId, viewName, timestamp } = parsedData;
 
-        console.log('✅ [MAP-DRAWING] Found saved plot to load:', {
-          viewId,
-          viewName,
-          timestamp,
-          timeSinceSet: Date.now() - timestamp,
-          currentProjectId: currentProjectContext || activeProjectId
-        });
+      console.log('✅ [MAP-DRAWING] Found saved plot to load:', {
+        viewId,
+        viewName,
+        timestamp,
+        timeSinceSet: Date.now() - timestamp,
+        currentProjectId: currentProjectContext || activeProjectId
+      });
 
-        console.log('📂 [MAP-DRAWING] Opening marine device modal for auto-load...');
-        setSelectedFileType('GP');
-        setSelectedFiles([]);
-        setIsLoadingFromSavedPlot(true);
-        setShowMarineDeviceModal(true);
+      console.log('📂 [MAP-DRAWING] Opening marine device modal for auto-load...');
+      setSelectedFileType('GP');
+      setSelectedFiles([]);
+      setIsLoadingFromSavedPlot(true);
+      setShowMarineDeviceModal(true);
 
-        console.log('✅ [MAP-DRAWING] Modal state set to open. PinMarineDeviceData should now mount and detect sessionStorage.');
+      console.log('✅ [MAP-DRAWING] Modal state set to open. PinMarineDeviceData should now mount and detect sessionStorage.');
 
-        // Note: sessionStorage cleared by PinMarineDeviceData after successful load
-      } catch (error) {
-        console.error('❌ [MAP-DRAWING] Error checking for saved plot load:', error);
-        sessionStorage.removeItem('pebl-load-plot-view');
-      }
-    };
-    checkForSavedPlotLoad();
+      // Note: sessionStorage cleared by PinMarineDeviceData after successful load
+    } catch (error) {
+      console.error('❌ [MAP-DRAWING] Error checking for saved plot load:', error);
+      sessionStorage.removeItem('pebl-load-plot-view');
+    }
   }, [currentProjectContext, activeProjectId]);
 
   // REMOVED: Old Auto-open marine device modal - now in consolidated effect above (line 1003)
